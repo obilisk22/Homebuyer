@@ -159,9 +159,13 @@ def render(prop: Property, container: ui.element) -> None:
                 tax = ui.number(
                     "Property tax / year", value=values["annual_property_tax"], format="%.0f"
                 ).props("prefix=$ dense outlined").classes("w-full")
+                if (fin.property_tax_source or "").strip():
+                    ui.label(fin.property_tax_source).classes("text-caption text-grey-6")
                 insurance = ui.number(
                     "Insurance / year", value=values["annual_insurance"], format="%.0f"
                 ).props("prefix=$ dense outlined").classes("w-full")
+                if (fin.insurance_source or "").strip():
+                    ui.label(fin.insurance_source).classes("text-caption text-grey-6")
                 hoa = ui.number("HOA / month", value=values["monthly_hoa"], format="%.0f").props(
                     "prefix=$ dense outlined"
                 ).classes("w-full")

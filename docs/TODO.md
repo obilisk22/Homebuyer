@@ -5,15 +5,16 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | # | Status | One-liner |
 |---|--------|-----------|
 | TODO-001 | Done | Richer Zillow scrape (beds, price, sqft, HOA, year built, home type) |
-| TODO-002 | Partial | Area signals — flood/income/crime done; AQI, fire, avg price open |
+| TODO-002 | Partial | Area signals — flood/ACS demographics/crime done; zoning, AQI, fire, Redfin open |
 | TODO-003 | Done | Cost/Sqft display *(list price ÷ sqft)* |
 | TODO-004 | Done | Neighborhood: Gemini cool things to do |
 | TODO-005 | Done | Financials: Gemini breakdown + opinion |
 | TODO-006 | Done | Clean up codebase |
 | TODO-007 | Done | Remove per-photo Remove button |
 | TODO-008 | Done | Larger / denser gallery |
-| TODO-009 | Pending | Honest Gemini neighborhood prompt |
+| TODO-009 | Done | Honest Gemini neighborhood prompt |
 | TODO-010 | Done | Map + Street View combined |
+| TODO-011 | Done | Financials: autofill list/HOA/tax/insurance from Zillow + ACS/state tables |
 
 ---
 
@@ -34,13 +35,13 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ## TODO-002 — Area risk & market signals (partial)
 
-**Add:** crime, median income, air quality, fire risk, average home price.
+**Add:** crime, median income, air quality, fire risk, average home price / demographics.
 
-**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **ACS median income**, and **LA County (LAPD Socrata + Santa Monica CKAN) + Seattle crime**. UX = toggles only (no Neighborhood chips). Still pending: air quality, fire risk, average home price / Redfin / ACS home-value choropleth.
+**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **ACS** (income, home value, median age, avg kids/HH, % owner-occupied, year built, gross rent, % bachelor's+), and **LA County + Seattle crime** (hex density). UX = toggles only (no Neighborhood chips). Still pending: **zoning**, air quality, fire risk, Redfin sale-price choropleth.
 
 **Notes**
 - See [`docs/RESEARCH.md`](RESEARCH.md). Core helpers: `census_acs.py`, `fema_flood.py`, `crime_socrata.py`, `crime_density.py`, `overlay_cache.py`.
-- Income requires `CENSUS_API_KEY` (documented in `.env.example`).
+- ACS layers require `CENSUS_API_KEY` (documented in `.env.example`).
 - Crime: LA County (LAPD Socrata + Santa Monica CKAN) + Seattle; Map shows a **hex density choropleth** (not dots); other cities get a clear “no crime layer” state.
 
 **Touch:** `app/modules/map_view.py`, `app/core/*` overlay clients
@@ -101,7 +102,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 - Overlay cache prunes expired files on miss; lazy Plotly import in Financials chart redraw.
 - Docs/backlog status sync (crime coverage wording, TODO-006 Done, BUG-002 archived).
 
-**Deferred (later pass):** unify `_format_price` / `_money` helpers; merge address parsers; overview cache key bump (TODO-009).
+**Deferred (later pass):** unify `_format_price` / `_money` helpers; merge address parsers.
 
 **Touch:** repo-wide — `app/core/`, modules, tests, docs
 
@@ -127,16 +128,13 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ---
 
-## TODO-009 — Honest Gemini neighborhood prompt
+## TODO-009 — Honest Gemini neighborhood prompt ✅ Done
 
 **Rewrite the Neighborhood Gemini overview prompt** so it is less flowery/positive and gives a candid, realistic assessment (tradeoffs, noise, cost, drawbacks — not a sales pitch).
 
-**Notes**
-- Update `PROMPT_TEMPLATE` (or equivalent) in `app/core/gemini_neighborhood.py`.
-- Bump or invalidate cache (`neighborhood_gemini_for`) so old rosy paragraphs aren’t kept forever after the prompt change.
-- Keep the “AI may be wrong — verify” disclaimer.
+**Done:** Prompt reframed for long-term homebuying (daily life, noise/traffic/parking, safety nuance, costs, climate risks, who it suits); cache key `overview_v2|…`. UI label: “Gemini neighborhood assessment”.
 
-**Touch:** `app/core/gemini_neighborhood.py`, tests for prompt text, maybe force-regenerate UX copy
+**Touch:** `app/core/gemini_neighborhood.py`, `property_service.py`, `neighborhood_reviews.py`, tests
 
 ---
 
@@ -147,3 +145,20 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 **Done:** Map tab renders Leaflet + free `svembed` Street View below. `street_view.py` keeps helpers only (no `MODULE` tab). No paid Maps Embed API.
 
 **Touch:** `app/modules/map_view.py`, `app/modules/street_view.py`, `AGENTS.md` / `README.md`
+
+---
+
+## TODO-011 — Financials: autofill from Zillow + ACS/state tables ✅ Done
+
+**Status:** Done (2026-07-18)
+
+**Auto-populate Financials on add/refresh** instead of leaving list price/HOA/tax/insurance at placeholder defaults.
+
+**Shipped**
+- Zillow scrape gains `annual_tax`, `tax_assessed_value`, `property_tax_rate`, `annual_insurance` (`app/core/zillow_listing.py`).
+- `resolve_annual_property_tax` chain: Zillow annual tax → Zillow assessed × rate → ACS county effective rate (`B25103`/`B25077`) × assessed → × list price (`app/core/property_tax.py`, `census_acs.county_effective_property_tax_rate`).
+- `resolve_annual_insurance`: Zillow annual insurance → state avg-premium table scaled to list price (`app/core/home_insurance.py`, `app/data/home_insurance_rates.json`).
+- `PropertyService._sync_financial_from_listing` overwrites `list_price`/`monthly_hoa`/`annual_property_tax`/`annual_insurance` from the listing on add, refresh, and post-geocode re-sync; loan terms (down payment/rate/term/closing) are never touched; unresolved tax/insurance fall back to `0` instead of fake defaults; explicit `$0` HOA overwrites but a missing HOA value keeps the previous one.
+- New `FinancialAssumptions` columns `property_tax_source` / `insurance_source` (e.g. `Zillow`, `Zillow assessed × rate`, `Estimated: ACS county`, `Estimated: CA avg premium`) surfaced as captions under the Ownership costs inputs.
+
+**Touch:** `app/core/zillow_listing.py`, `app/core/property_tax.py`, `app/core/home_insurance.py`, `app/core/census_acs.py`, `app/core/property_service.py`, `app/core/models.py`, `app/core/db.py`, `app/modules/financial.py`, `.env.example`, tests

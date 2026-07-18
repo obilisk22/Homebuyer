@@ -9,7 +9,7 @@ Modular Python app for researching homes linked from Zillow. Stores the **Zillow
 - Python 3.12+
 - Optional: `GOOGLE_MAPS_API_KEY` only if you want Google geocoding for Map pins (otherwise free Nominatim is used). Street View uses a **free** iframe embed — no Cloud billing.
 - Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API).
-- **Map income choropleth:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the income toggle shows a setup message and stays off.
+- **Map income choropleth & Financials county tax estimate:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the Map income toggle shows a setup message and Financials falls back straight to the state insurance/list-price estimate for tax.
 - Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA County (LAPD Socrata + Santa Monica CKAN) and Seattle crime overlays.
 
 ## Setup (Windows)
@@ -77,6 +77,13 @@ Layer toggles (no Neighborhood summary chips):
 |--------|--------|--------|
 | Flood (FEMA) | NFHL WMS | No key |
 | Median income (ACS) | Census ACS `B19013` tracts | Needs `CENSUS_API_KEY` |
+| Median home value (ACS) | Census ACS `B25077` tracts | Needs `CENSUS_API_KEY` |
+| Median age (ACS) | Census ACS `B01002` tracts | Needs `CENSUS_API_KEY` |
+| Avg kids / HH (ACS) | `B09001` ÷ `B25003` tracts | Needs `CENSUS_API_KEY` |
+| % owner-occupied (ACS) | `B25003` owner ÷ occupied | Needs `CENSUS_API_KEY` |
+| Median year built (ACS) | Census ACS `B25035` | Needs `CENSUS_API_KEY` |
+| Median gross rent (ACS) | Census ACS `B25064` | Needs `CENSUS_API_KEY` |
+| % bachelor's+ (ACS) | `B15003` bachelor's+ / age 25+ | Needs `CENSUS_API_KEY` |
 | Crime near pin | LA County (LAPD Socrata + Santa Monica CKAN) + Seattle | Hex density choropleth (count per cell); other cities: toggle disabled / message |
 
 Responses are cached under `data/cache/` (gitignored with other `data/*`).
@@ -91,7 +98,9 @@ Outbound deep links (Reddit, City-Data, Niche place pages, etc.) and your own no
 
 ## Financials
 
-The **Financials** tab is the PITI calculator (offer vs list, loan inputs, ownership costs) with neon Plotly charts. Below the charts, **Ask Gemini about these finances** produces a cached markdown Breakdown + Opinion from the *same calculator numbers* (not invented prices). Clearly labeled as AI opinion, not advice. Cache refreshes when you change assumptions (fingerprint) or click Regenerate. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood.
+The **Financials** tab is the PITI calculator (offer vs list, loan inputs, ownership costs) with neon Plotly charts. List price, HOA, property tax, and insurance are **autofilled from the Zillow listing** when you add a home or click **Refresh listing details** — loan terms (down payment, rate, term, closing costs) are never touched. Property tax resolves Zillow's annual tax → Zillow assessed value × rate → an ACS county effective-rate estimate; insurance resolves Zillow's annual insurance → a state average-premium estimate scaled to list price. When a value is estimated rather than taken straight from Zillow, a small caption appears under that field (e.g. *Estimated: ACS county*, *Estimated: CA avg premium*).
+
+Below the charts, **Ask Gemini about these finances** produces a cached markdown Breakdown + Opinion from the *same calculator numbers* (not invented prices). Clearly labeled as AI opinion, not advice. Cache refreshes when you change assumptions (fingerprint) or click Regenerate. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood.
 
 ## Extending with a new module
 

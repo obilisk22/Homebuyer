@@ -683,12 +683,14 @@ class PropertyService:
         if prop is None:
             raise ValueError("Property not found.")
         fin = self.ensure_financial(prop)
+        prev_tax = float(fin.annual_property_tax or 0)
+        prev_ins = float(fin.annual_insurance or 0)
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
-        if "annual_property_tax" in fields:
+        if "annual_property_tax" in fields and float(fields["annual_property_tax"]) != prev_tax:
             fin.property_tax_source = ""
-        if "annual_insurance" in fields:
+        if "annual_insurance" in fields and float(fields["annual_insurance"]) != prev_ins:
             fin.insurance_source = ""
         self.session.commit()
         self.session.refresh(fin)

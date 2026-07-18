@@ -34,16 +34,21 @@ Or double-click `run.bat`.
 
 Python install (if needed): `%LOCALAPPDATA%\Programs\Python\Python312\python.exe`
 
-## Git — saving progress (local)
+## Git — saving progress
 
-A **Git repository already exists** in this folder (`git init` was done at project create). Progress is saved as local **commits** (like Perforce changelists / submitted revisions, but usually created more often and only on your machine until you add a remote).
+| | |
+|---|---|
+| **Local repo** | `C:\Users\hheaf\Projects\homebuy` (branch `main`) |
+| **GitHub remote** | https://github.com/obilisk22/Homebuyer.git (`origin`) |
+| **Author (this repo)** | Harrison Moore \<hheafnermoore@gmail.com\> |
+
+A Git repository lives in this folder. Commits save history locally; **`git push`** copies them to GitHub.
 
 | Perforce idea | Git idea |
 |---------------|----------|
 | Depot / workspace | Repository (this folder + `.git/`) |
 | Changelist | Commit (a snapshot + message) |
-| `p4 sync` | `git checkout` / `git switch` (different branch) |
-| `p4 submit` | `git commit` (local) then optional `git push` (to GitHub later) |
+| `p4 submit` | `git commit` (local) then `git push` (to GitHub) |
 | Pending files | Working tree + staging area (`git add`) |
 
 **What is NOT in Git** (by design, see `.gitignore`): `.venv/`, `.env`, `data/homebuy.db`, downloaded photos under `data/uploads/`. Your code and docs *are* saved.
@@ -56,18 +61,19 @@ cd C:\Users\hheaf\Projects\homebuy
 # What changed?
 git status
 
-# Stage everything intentional, then snapshot
+# Stage everything intentional, then snapshot locally
 git add -A
 git status
 git commit -m "Short description of why you changed things."
+
+# Upload to GitHub (after a commit)
+git push
 
 # Browse history
 git log --oneline -10
 ```
 
-**Do not** run `git push` until a GitHub/GitLab remote is set up and the user asks. Local commits alone are enough to save progress on this PC.
-
-When an agent finishes a feature: commit if the user asked to save/commit; always update `AGENTS.md` + `README.md`.
+When an agent finishes a feature: commit if the user asked to save/commit; push if the user asked to push; always update `AGENTS.md` + `README.md`.
 
 ## User preferences (important)
 
@@ -140,7 +146,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Library search/filters (price, beds, city/address)
 - [x] Cyberpunk dark theme
 - [x] Add-home is Zillow URL only (address from listing/URL)
-- [x] Initial **local Git commit** (no remote yet)
+- [x] Initial Git commit + push to https://github.com/obilisk22/Homebuyer (`main`)
 
 ## In progress / next (as of last session)
 

@@ -40,13 +40,17 @@ Address, photos, and listing details are pulled from the link automatically.
 
 ## Saving your work (Git)
 
-This project is a **local Git repository**. You do **not** need GitHub yet for backups on this PC — commits store history in the hidden `.git` folder.
+| | |
+|---|---|
+| **GitHub** | https://github.com/obilisk22/Homebuyer |
+| **Branch** | `main` |
 
 ```powershell
 cd C:\Users\hheaf\Projects\homebuy
 git status
 git add -A
 git commit -m "Describe what you finished."
+git push
 ```
 
 Ignored on purpose (not committed): virtualenv, `.env` secrets, SQLite DB, downloaded listing photos. See [`AGENTS.md`](AGENTS.md) for a Perforce-oriented cheat sheet.

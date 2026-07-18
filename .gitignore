@@ -10,3 +10,7 @@ data/*
 *.log
 .DS_Store
 Thumbs.db
+
+# Local debug scrapes
+_tmp*
+

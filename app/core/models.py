@@ -29,6 +29,13 @@ class Property(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Soft reference to photos.id (avoid circular FK with SQLite).
     thumbnail_photo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Cached neighborhood label + optional manual override / notes for Reviews tab.
+    neighborhood_name: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    neighborhood_source: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    neighborhood_override: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    neighborhood_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    neighborhood_gemini: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    neighborhood_gemini_for: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

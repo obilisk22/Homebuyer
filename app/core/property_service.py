@@ -9,8 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import UPLOADS_DIR
-from app.core.geocode import geocode_address
+from app.core.gemini_neighborhood import generate_neighborhood_overview
+from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.models import FinancialAssumptions, Photo, Property
+from app.core.neighborhood import effective_neighborhood_name
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
 from app.core.zillow_listing import (
     ListingDetails,
@@ -177,6 +179,11 @@ class PropertyService:
             prop.zip_code = details.zip_code
         if details.address:
             prop.address = details.address
+        if details.neighborhood and not (prop.neighborhood_override or "").strip():
+            # Cache Zillow neighborhood when we already have the listing HTML.
+            if not (prop.neighborhood_name or "").strip():
+                prop.neighborhood_name = details.neighborhood.strip()
+                prop.neighborhood_source = "zillow"
 
     def _fill_location_from_address(self, prop: Property) -> None:
         if prop.city and prop.state:
@@ -278,6 +285,95 @@ class PropertyService:
         self.session.refresh(prop)
         return prop
 
+    def ensure_neighborhood(self, property_id: int, *, force: bool = False) -> Property:
+        """Resolve and cache neighborhood name when missing (or always when ``force``).
+
+        Prefers Zillow listing HTML (parentRegion / hood). Falls back to Nominatim /
+        Google reverse only when Zillow has no neighborhood label.
+        """
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+
+        has_name = bool((prop.neighborhood_name or "").strip())
+        from_zillow = (prop.neighborhood_source or "").strip().lower() == "zillow"
+        if not force and has_name and from_zillow:
+            return prop
+
+        # 1) Zillow listing HTML — prefer over Nominatim junk labels.
+        try:
+            details = fetch_listing_details(prop.zillow_url)
+            if details.neighborhood:
+                prop.neighborhood_name = details.neighborhood.strip()
+                prop.neighborhood_source = "zillow"
+                self.session.commit()
+                self.session.refresh(prop)
+                return prop
+        except Exception:
+            pass
+
+        if not force and has_name:
+            # Keep existing non-Zillow name if Zillow had nothing.
+            return prop
+
+        # 2/3) Reverse geocode — need coordinates first.
+        if prop.latitude is None or prop.longitude is None:
+            try:
+                prop = self.ensure_coordinates(property_id)
+            except ValueError:
+                self.session.commit()
+                self.session.refresh(prop)
+                return prop
+
+        if prop.latitude is not None and prop.longitude is not None:
+            try:
+                name, source = reverse_geocode_neighborhood(
+                    float(prop.latitude), float(prop.longitude)
+                )
+                prop.neighborhood_name = name
+                prop.neighborhood_source = source
+                self.session.commit()
+                self.session.refresh(prop)
+            except ValueError:
+                self.session.commit()
+                self.session.refresh(prop)
+
+        return prop
+
+    def display_neighborhood(self, prop: Property) -> str:
+        return effective_neighborhood_name(
+            neighborhood_name=prop.neighborhood_name or "",
+            neighborhood_override=prop.neighborhood_override or "",
+        )
+
+    def ensure_gemini_overview(self, property_id: int, *, force: bool = False) -> Property:
+        """Generate and cache a Gemini paragraph for the effective neighborhood."""
+        prop = self.ensure_neighborhood(property_id)
+        name = self.display_neighborhood(prop)
+        if not name:
+            raise ValueError(
+                "No neighborhood name yet — refresh from Zillow or set an override."
+            )
+
+        cache_key = f"{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        if (
+            not force
+            and (prop.neighborhood_gemini or "").strip()
+            and (prop.neighborhood_gemini_for or "").strip() == cache_key
+        ):
+            return prop
+
+        text = generate_neighborhood_overview(
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
+        )
+        prop.neighborhood_gemini = text
+        prop.neighborhood_gemini_for = cache_key
+        self.session.commit()
+        self.session.refresh(prop)
+        return prop
+
     def update_property(
         self,
         property_id: int,
@@ -294,6 +390,10 @@ class PropertyService:
         latitude: float | None = None,
         longitude: float | None = None,
         clear_coords: bool = False,
+        neighborhood_override: str | None = None,
+        neighborhood_notes: str | None = None,
+        clear_neighborhood: bool = False,
+        clear_gemini: bool = False,
     ) -> Property:
         prop = self.get_property(property_id)
         if prop is None:
@@ -327,6 +427,21 @@ class PropertyService:
                 prop.latitude = latitude
             if longitude is not None:
                 prop.longitude = longitude
+        if neighborhood_override is not None:
+            prop.neighborhood_override = neighborhood_override.strip()
+            # Override change invalidates cached Gemini text for the old name.
+            prop.neighborhood_gemini = ""
+            prop.neighborhood_gemini_for = ""
+        if neighborhood_notes is not None:
+            prop.neighborhood_notes = neighborhood_notes
+        if clear_neighborhood:
+            prop.neighborhood_name = ""
+            prop.neighborhood_source = ""
+            prop.neighborhood_gemini = ""
+            prop.neighborhood_gemini_for = ""
+        if clear_gemini:
+            prop.neighborhood_gemini = ""
+            prop.neighborhood_gemini_for = ""
 
         self.session.commit()
         self.session.refresh(prop)

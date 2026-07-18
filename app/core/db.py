@@ -113,6 +113,30 @@ def _migrate_sqlite() -> None:
                 "thumbnail_photo_id",
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),
+            (
+                "neighborhood_name",
+                "ALTER TABLE properties ADD COLUMN neighborhood_name VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_source",
+                "ALTER TABLE properties ADD COLUMN neighborhood_source VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_override",
+                "ALTER TABLE properties ADD COLUMN neighborhood_override VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_notes",
+                "ALTER TABLE properties ADD COLUMN neighborhood_notes TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_gemini",
+                "ALTER TABLE properties ADD COLUMN neighborhood_gemini TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_gemini_for",
+                "ALTER TABLE properties ADD COLUMN neighborhood_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
         ):
             if name not in prop_cols:
                 conn.exec_driver_sql(ddl)

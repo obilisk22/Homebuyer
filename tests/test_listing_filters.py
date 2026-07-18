@@ -25,6 +25,29 @@ SAMPLE_META_ONLY = """
 <meta name="description" content="Zillow has photos of this $875,500 4 beds, 2.5 baths home located at 10 Oak Ave, Portland, OR 97201 built in 1990."/>
 """
 
+SAMPLE_ESCAPED_PARENT_REGION = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"parentRegion\":{\"name\":\"Ocean Park\",\"regionId\":117023},\"adTargets\":{\"hood\":\"Ocean_Park\",\"city\":\"Santa Monica\"}}"}}}}
+</script>
+"""
+
+# Real Zillow blobs often put regionId before name inside parentRegion.
+SAMPLE_ESCAPED_PARENT_REGION_ID_FIRST = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"parentRegion\":{\"regionId\":117023,\"name\":\"Ocean Park\",\"regionType\":8},\"city\":\"Santa Monica\"}"}}}}
+</script>
+"""
+
+
+def test_extract_escaped_parent_region_neighborhood():
+    details = extract_listing_details(SAMPLE_ESCAPED_PARENT_REGION)
+    assert details.neighborhood == "Ocean Park"
+
+
+def test_extract_parent_region_when_region_id_precedes_name():
+    details = extract_listing_details(SAMPLE_ESCAPED_PARENT_REGION_ID_FIRST)
+    assert details.neighborhood == "Ocean Park"
+
 
 def test_extract_from_ld_and_meta():
     details = extract_listing_details(SAMPLE_LD_HTML)

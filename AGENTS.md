@@ -120,14 +120,15 @@ Restart the app — the tab appears automatically.
 | Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
 | Photo import | `app/core/zillow_photos.py` |
 | Listing fields extract | `app/core/zillow_listing.py` |
+| Neighborhood + Gemini overview | `app/core/neighborhood.py`, `app/core/gemini_neighborhood.py` |
 | Library thumbnail pick | `app/core/thumbnail.py` |
 | Mortgage math | `app/core/finance.py` |
-| Modules | `app/modules/{gallery,map_view,street_view,financial}.py` |
+| Modules | `app/modules/{gallery,map_view,street_view,neighborhood_reviews,financial}.py` |
 | Env template | `.env.example` |
 
 ### Data model (high level)
 
-**Property:** `address`, `zillow_url`, `list_price`, `beds`, `baths`, `city`, `state`, `zip_code`, `latitude`, `longitude`, `thumbnail_photo_id`, `notes`
+**Property:** `address`, `zillow_url`, `list_price`, `beds`, `baths`, `city`, `state`, `zip_code`, `latitude`, `longitude`, `thumbnail_photo_id`, `notes`, `neighborhood_name`, `neighborhood_source`, `neighborhood_override`, `neighborhood_notes`
 
 **Photo:** `path`, `source_url`, `caption`, `sort_order`
 
@@ -141,25 +142,34 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Add home from Zillow URL only; import photos + listing details
 - [x] Photos gallery + lightbox; exterior-ish library thumbnails
 - [x] Map geocode (Nominatim default; optional Google key); unit/apt address fix
-- [x] Street View free desktop 16:9 embed (no Cloud billing)
+- [x] Street View free desktop 16:9 panel (no Cloud billing)
 - [x] Financials: offer vs list, PITI + PMI, neon Plotly charts
 - [x] Library search/filters (price, beds, city/address)
 - [x] Cyberpunk dark theme
 - [x] Add-home is Zillow URL only (address from listing/URL)
 - [x] Initial Git commit + push to https://github.com/obilisk22/Homebuyer (`main`)
+- [x] Neighborhood Reviews: Zillow neighborhood name + Gemini overview paragraph + deep links/notes
 
 ## In progress / next (as of last session)
 
 | ID | Status | Notes |
 |----|--------|-------|
-| `map-overlays-research` | Research agent was running | Crime, median income, median home price overlays |
-| `neighborhood-reviews-research` | Research agent was running | Neighborhood name from address + Reddit/locals opinions |
-| `map-overlays-impl` | Pending | Build after research pick |
-| Neighborhood reviews module | Pending | After research pick |
+| `map-overlays-research` | **Done** | See [`docs/RESEARCH.md`](docs/RESEARCH.md) |
+| `neighborhood-reviews-research` | **Done** | See [`docs/RESEARCH.md`](docs/RESEARCH.md) |
+| `neighborhood-reviews-impl` | **Done** | Module `neighborhood_reviews` (order 35); deep links only |
+| `map-overlays-impl` | Pending | Part of TODO-002 — Census ACS + FEMA + Socrata (+ Redfin); see research |
+| `TODO-001` | Pending | Richer Zillow scrape: beds, price, sqft, HOA, year built, home type |
+| `TODO-002` | Pending | Crime, median income, air quality, fire risk, avg home price |
+| `TODO-003` | Pending | Display Cost/Sqft (needs sqft from TODO-001) |
+| `TODO-004` | Pending | Neighborhood tab: Gemini “cool things to do” |
+| `TODO-005` | Pending | Financials tab: Gemini breakdown + opinion |
+| `TODO-006` | Pending | Clean up codebase |
+| `TODO-007` | Pending | Remove per-photo Remove button in gallery |
+| `TODO-008` | Pending | Larger gallery photos, less negative space |
+| `TODO-009` | Pending | Honest (less flowery) Gemini neighborhood prompt |
 
-Plan file (may live outside repo): Cursor plan `python_homebuy_app_*.plan.md`
-
-**Before implementing overlays/reviews:** check whether those research agents finished and reuse their recommendations; don’t re-research from scratch unless stale.
+Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
+**Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.
 
 ## Product decisions (locked)
 
@@ -168,6 +178,7 @@ Plan file (may live outside repo): Cursor plan `python_homebuy_app_*.plan.md`
 3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`.
 4. **Optional env:** `GOOGLE_MAPS_API_KEY` only for preferred Google geocoding — not required (Nominatim works).
 5. **Theme accents:** Cyan `#00E5FF`, Magenta `#FF2BD6`, Lime `#B8FF3C`, Amber `#FFC107`.
+6. **Neighborhood reviews:** Prefer **Zillow listing neighborhood** name; fallback Nominatim/Google; manual override. **Gemini** (`GEMINI_API_KEY`, model `gemini-2.5-flash-lite` by default) writes a cached overview paragraph. Deep links only for Reddit/City-Data/Niche (no scrape); Niche uses a `/places-to-live/n/{hood}-{city}-{state}/` place URL when possible, else search. Notes in `neighborhood_notes`.
 
 ## Working agreements for agents
 
@@ -185,10 +196,14 @@ Plan file (may live outside repo): Cursor plan `python_homebuy_app_*.plan.md`
 3. Map pins (even with `UNIT` in the slug)  
 4. Street View is a single wide panel (no nested Map sub-tab)  
 5. Financials shows neon charts on dark paper  
-6. `.\.venv\Scripts\pytest.exe -q` passes  
+6. Neighborhood tab resolves a name, deep-link buttons open Reddit/City-Data/Niche/Google  
+7. `.\.venv\Scripts\pytest.exe -q` passes  
 
 ## Related docs
 
 - `README.md` — user-facing run instructions  
 - `.env.example` — optional keys  
 - This file (`AGENTS.md`) — continuity for AI agents  
+- `docs/RESEARCH.md` — map overlays + neighborhood research notes  
+- `docs/TODO.md` — product backlog (listing scrape, area signals, Gemini sections)  
+- `docs/BUGS.md` — deferred bugs / verify-later items 

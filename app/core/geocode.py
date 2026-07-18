@@ -251,3 +251,123 @@ def _geocode_nominatim(address: str) -> tuple[float, float]:
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("Nominatim geocoding response missing coordinates.") from exc
     return lat, lng
+
+
+# Prefer neighborhood-scale labels; skip city/county/state.
+_NOMINATIM_NEIGHBORHOOD_KEYS = (
+    "neighbourhood",
+    "neighborhood",
+    "suburb",
+    "quarter",
+    "city_district",
+    "borough",
+    "hamlet",
+)
+
+
+def _neighborhood_from_nominatim_address(addr: dict[str, Any]) -> str:
+    for key in _NOMINATIM_NEIGHBORHOOD_KEYS:
+        value = addr.get(key)
+        if value and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def reverse_geocode_neighborhood_nominatim(lat: float, lng: float) -> str:
+    """Return a neighborhood-ish label from Nominatim reverse geocode."""
+    url = "https://nominatim.openstreetmap.org/reverse"
+    headers = {"User-Agent": NOMINATIM_USER_AGENT, "Accept": "application/json"}
+    params = {
+        "lat": lat,
+        "lon": lng,
+        "format": "json",
+        "zoom": 16,
+        "addressdetails": 1,
+    }
+    try:
+        response = requests.get(
+            url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_S
+        )
+        response.raise_for_status()
+        payload: dict[str, Any] = response.json()
+    except requests.RequestException as exc:
+        raise ValueError(f"Nominatim reverse geocode request failed: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Nominatim reverse geocode returned invalid JSON: {exc}") from exc
+
+    addr = payload.get("address")
+    if not isinstance(addr, dict):
+        raise ValueError("Nominatim reverse geocode missing address details.")
+
+    name = _neighborhood_from_nominatim_address(addr)
+    if not name:
+        raise ValueError("Nominatim reverse geocode found no neighborhood label.")
+    return name
+
+
+_GOOGLE_NEIGHBORHOOD_TYPES = (
+    "neighborhood",
+    "sublocality",
+    "sublocality_level_1",
+    "sublocality_level_2",
+    "colloquial_area",
+)
+
+
+def reverse_geocode_neighborhood_google(lat: float, lng: float, api_key: str) -> str:
+    """Return a neighborhood-ish label from Google Geocoding reverse lookup."""
+    url = (
+        "https://maps.googleapis.com/maps/api/geocode/json"
+        f"?latlng={lat},{lng}&key={api_key}"
+    )
+    try:
+        response = requests.get(url, timeout=REQUEST_TIMEOUT_S)
+        response.raise_for_status()
+        payload: dict[str, Any] = response.json()
+    except requests.RequestException as exc:
+        raise ValueError(f"Google reverse geocode request failed: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Google reverse geocode returned invalid JSON: {exc}") from exc
+
+    status = payload.get("status")
+    if status != "OK":
+        error = payload.get("error_message") or status or "unknown error"
+        raise ValueError(f"Google reverse geocode failed: {error}")
+
+    results = payload.get("results") or []
+    for result in results:
+        components = result.get("address_components") or []
+        for type_name in _GOOGLE_NEIGHBORHOOD_TYPES:
+            for comp in components:
+                types = comp.get("types") or []
+                if type_name in types:
+                    name = (comp.get("long_name") or "").strip()
+                    if name:
+                        return name
+
+    raise ValueError("Google reverse geocode found no neighborhood label.")
+
+
+def reverse_geocode_neighborhood(lat: float, lng: float) -> tuple[str, str]:
+    """Resolve a neighborhood label from coordinates.
+
+    Prefers Nominatim (no key). If that fails and ``GOOGLE_MAPS_API_KEY`` is set,
+    tries Google. Returns ``(name, source)`` where source is ``nominatim`` or
+    ``google``.
+    """
+    last_error: ValueError | None = None
+    try:
+        return reverse_geocode_neighborhood_nominatim(lat, lng), "nominatim"
+    except ValueError as exc:
+        last_error = exc
+
+    api_key = (os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()
+    if api_key:
+        try:
+            return reverse_geocode_neighborhood_google(lat, lng, api_key), "google"
+        except ValueError as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise ValueError("Could not reverse-geocode neighborhood.")

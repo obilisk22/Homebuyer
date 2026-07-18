@@ -37,6 +37,68 @@ JSON_BATHS_RE = re.compile(
 JSON_CITY_RE = re.compile(r'"(?:city|addressLocality)"\s*:\s*"([^"]+)"')
 JSON_STATE_RE = re.compile(r'"(?:state|addressRegion)"\s*:\s*"([^"]+)"')
 JSON_ZIP_RE = re.compile(r'"(?:zipcode|zipCode|postalCode)"\s*:\s*"([^"]+)"')
+# Optional backslash escapes before quotes (gdpClientCache embeds JSON-as-string).
+_Q = r'\\*"'
+
+JSON_NEIGHBORHOOD_RE = re.compile(
+    _Q
+    + r"(?:neighborhood|neighborhoodName|addr_neighborhood|communityName|regionName)"
+    + _Q
+    + r"\s*:\s*"
+    + _Q
+    + r'([^"\\]+)'
+    + _Q
+)
+# Zillow parentRegion often holds the named neighborhood (not city/state).
+# Keys may appear in any order (regionId before name is common).
+JSON_PARENT_REGION_NAME_RE = re.compile(
+    _Q
+    + r"parentRegion"
+    + _Q
+    + r"\s*:\s*\{[^}]{0,500}?"
+    + _Q
+    + r"name"
+    + _Q
+    + r"\s*:\s*"
+    + _Q
+    + r'([^"\\]+)'
+    + _Q,
+    re.DOTALL,
+)
+# adTargets.hood e.g. "Ocean_Park"
+JSON_HOOD_RE = re.compile(_Q + r"hood" + _Q + r"\s*:\s*" + _Q + r'([^"\\]+)' + _Q)
+# regionType 8 is typically neighborhood on Zillow.
+JSON_REGION_TYPE_8_NAME_RE = re.compile(
+    _Q
+    + r"regionType"
+    + _Q
+    + r"\s*:\s*8\s*,\s*"
+    + _Q
+    + r"name"
+    + _Q
+    + r"\s*:\s*"
+    + _Q
+    + r'([^"\\]+)'
+    + _Q
+    + r"|"
+    + _Q
+    + r"name"
+    + _Q
+    + r"\s*:\s*"
+    + _Q
+    + r'([^"\\]+)'
+    + _Q
+    + r"\s*,\s*"
+    + _Q
+    + r"regionType"
+    + _Q
+    + r"\s*:\s*8"
+)
+# Breadcrumb-style path: /los-angeles-ca/mar-vista/
+BREADCRUMB_NEIGHBORHOOD_RE = re.compile(
+    r'href="https?://www\.zillow\.com/[a-z0-9-]+/[a-z0-9-]+/"[^>]*>\s*([^<]{2,60})\s*<',
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +110,7 @@ class ListingDetails:
     state: str = ""
     zip_code: str = ""
     address: str = ""
+    neighborhood: str = ""
 
     def any_present(self) -> bool:
         return bool(
@@ -58,6 +121,7 @@ class ListingDetails:
             or self.state
             or self.zip_code
             or self.address
+            or self.neighborhood
         )
 
 
@@ -109,9 +173,17 @@ def parse_address_parts(address: str) -> tuple[str, str, str]:
     return "", "", ""
 
 
+def _neighborhood_from_addr_dict(addr: dict) -> str:
+    for key in ("neighborhood", "addressNeighborhood", "district"):
+        value = addr.get(key)
+        if value and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
 def _from_ld_json(html: str) -> ListingDetails:
     price = beds = baths = None
-    city = state = zip_code = address = ""
+    city = state = zip_code = address = neighborhood = ""
 
     for raw in LD_JSON_RE.findall(html):
         try:
@@ -142,6 +214,9 @@ def _from_ld_json(html: str) -> ListingDetails:
                         city = _coalesce_str(city, addr.get("addressLocality"))
                         state = _coalesce_str(state, addr.get("addressRegion"))
                         zip_code = _coalesce_str(zip_code, addr.get("postalCode"))
+                        neighborhood = _coalesce_str(
+                            neighborhood, _neighborhood_from_addr_dict(addr)
+                        )
                         street = _coalesce_str(addr.get("streetAddress"))
                         if street:
                             bits = [street, city, f"{state} {zip_code}".strip()]
@@ -157,6 +232,9 @@ def _from_ld_json(html: str) -> ListingDetails:
                 city = _coalesce_str(city, addr.get("addressLocality"))
                 state = _coalesce_str(state, addr.get("addressRegion"))
                 zip_code = _coalesce_str(zip_code, addr.get("postalCode"))
+                neighborhood = _coalesce_str(
+                    neighborhood, _neighborhood_from_addr_dict(addr)
+                )
                 street = _coalesce_str(addr.get("streetAddress"))
                 if street:
                     bits = [street, city, f"{state} {zip_code}".strip()]
@@ -170,6 +248,7 @@ def _from_ld_json(html: str) -> ListingDetails:
         state=state,
         zip_code=zip_code,
         address=address,
+        neighborhood=neighborhood,
     )
 
 
@@ -220,6 +299,52 @@ def _first_json_str(pattern: re.Pattern[str], text: str) -> str:
     return (m.group(1).strip() if m else "") or ""
 
 
+def _plausible_neighborhood(name: str, *, city: str = "", state: str = "") -> str:
+    """Reject labels that are clearly city/state rather than a neighborhood."""
+    text = (name or "").strip().replace("_", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or len(text) > 80:
+        return ""
+    lower = text.casefold()
+    if city and lower == city.strip().casefold():
+        return ""
+    if state and lower == state.strip().casefold():
+        return ""
+    # Common non-neighborhood parentRegion values
+    if lower in {"united states", "usa", "us"}:
+        return ""
+    return text
+
+
+def _first_region_type_8(text: str) -> str:
+    m = JSON_REGION_TYPE_8_NAME_RE.search(text)
+    if not m:
+        return ""
+    return (m.group(1) or m.group(2) or "").strip()
+
+
+def _hood_from_ad_targets(text: str) -> str:
+    m = JSON_HOOD_RE.search(text)
+    if not m:
+        return ""
+    return (m.group(1) or "").strip().replace("_", " ")
+
+
+def _breadcrumb_neighborhood(html: str, *, city: str = "") -> str:
+    """Pick a breadcrumb label that is not the city name."""
+    city_l = (city or "").strip().casefold()
+    for m in BREADCRUMB_NEIGHBORHOOD_RE.finditer(html):
+        label = (m.group(1) or "").strip()
+        if not label:
+            continue
+        if city_l and label.casefold() == city_l:
+            continue
+        if label.casefold() in {"homes for sale", "for sale", "zillow"}:
+            continue
+        return label
+    return ""
+
+
 def _from_embedded_json(html: str) -> ListingDetails:
     """Scan __NEXT_DATA__ / gdpClientCache-style blobs for listing fields."""
     chunks: list[str] = []
@@ -227,10 +352,10 @@ def _from_embedded_json(html: str) -> ListingDetails:
     if nd:
         chunks.append(nd.group(1))
     # Also scan a bounded slice of the full HTML for escaped JSON fields
-    chunks.append(html[:500_000])
+    chunks.append(html[:800_000])
 
     price = beds = baths = None
-    city = state = zip_code = ""
+    city = state = zip_code = neighborhood = ""
     for chunk in chunks:
         price = _coalesce(price, _first_json_float(JSON_PRICE_RE, chunk))
         beds = _coalesce(beds, _first_json_float(JSON_BEDS_RE, chunk))
@@ -238,8 +363,34 @@ def _from_embedded_json(html: str) -> ListingDetails:
         city = _coalesce_str(city, _first_json_str(JSON_CITY_RE, chunk))
         state = _coalesce_str(state, _first_json_str(JSON_STATE_RE, chunk))
         zip_code = _coalesce_str(zip_code, _first_json_str(JSON_ZIP_RE, chunk))
-        if price is not None and beds is not None and baths is not None and city:
+        neighborhood = _coalesce_str(
+            neighborhood,
+            _plausible_neighborhood(
+                _first_json_str(JSON_PARENT_REGION_NAME_RE, chunk),
+                city=city,
+                state=state,
+            ),
+            _plausible_neighborhood(
+                _hood_from_ad_targets(chunk), city=city, state=state
+            ),
+            _plausible_neighborhood(
+                _first_json_str(JSON_NEIGHBORHOOD_RE, chunk), city=city, state=state
+            ),
+            _plausible_neighborhood(_first_region_type_8(chunk), city=city, state=state),
+        )
+        if (
+            price is not None
+            and beds is not None
+            and baths is not None
+            and city
+            and neighborhood
+        ):
             break
+
+    if not neighborhood:
+        neighborhood = _plausible_neighborhood(
+            _breadcrumb_neighborhood(html, city=city), city=city, state=state
+        )
 
     return ListingDetails(
         list_price=price,
@@ -248,13 +399,14 @@ def _from_embedded_json(html: str) -> ListingDetails:
         city=city,
         state=state,
         zip_code=zip_code,
+        neighborhood=neighborhood,
     )
 
 
 def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
     """Prefer earlier sources; fill gaps from later ones."""
     price = beds = baths = None
-    city = state = zip_code = address = ""
+    city = state = zip_code = address = neighborhood = ""
     for part in parts:
         price = _coalesce(price, part.list_price)
         beds = _coalesce(beds, part.beds)
@@ -263,6 +415,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         state = _coalesce_str(state, part.state)
         zip_code = _coalesce_str(zip_code, part.zip_code)
         address = _coalesce_str(address, part.address)
+        neighborhood = _coalesce_str(neighborhood, part.neighborhood)
     return ListingDetails(
         list_price=price,
         beds=beds,
@@ -271,16 +424,30 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         state=state,
         zip_code=zip_code,
         address=address,
+        neighborhood=neighborhood,
     )
 
 
 def extract_listing_details(html: str) -> ListingDetails:
-    """Pull list price / beds / baths / city from Zillow listing HTML."""
+    """Pull list price / beds / baths / city / neighborhood from Zillow listing HTML."""
     ld = _from_ld_json(html)
     meta = _from_meta_description(html)
     embedded = _from_embedded_json(html)
     # Prefer structured LD+JSON, then meta (good for baths), then embedded JSON.
-    return merge_listing_details(ld, meta, embedded)
+    merged = merge_listing_details(ld, meta, embedded)
+    # Neighborhood labels are most reliable in Zillow's embedded JSON / breadcrumbs.
+    if embedded.neighborhood:
+        return ListingDetails(
+            list_price=merged.list_price,
+            beds=merged.beds,
+            baths=merged.baths,
+            city=merged.city,
+            state=merged.state,
+            zip_code=merged.zip_code,
+            address=merged.address,
+            neighborhood=embedded.neighborhood,
+        )
+    return merged
 
 
 def fetch_listing_details(zillow_url: str) -> ListingDetails:

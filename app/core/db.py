@@ -224,3 +224,27 @@ def _migrate_sqlite() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE financial_assumptions ADD COLUMN insurance_source VARCHAR(64) NOT NULL DEFAULT ''"
                 )
+            if "monthly_rent" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_rent FLOAT NOT NULL DEFAULT 0"
+                )
+            if "rent_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN rent_source VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            if "appreciation_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN appreciation_pct FLOAT NOT NULL DEFAULT 3"
+                )
+            if "appreciation_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN appreciation_source VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            if "appreciation_fhfa_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN appreciation_fhfa_pct FLOAT"
+                )
+            if "appreciation_zillow_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN appreciation_zillow_pct FLOAT"
+                )

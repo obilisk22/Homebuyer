@@ -99,6 +99,38 @@ SAMPLE_ESCAPED_GDP_CONDO = r"""
 </script>
 """
 
+# Zillow's property payload convention uses `rentZestimate`; the cached samples
+# currently contain no rent or decade-appreciation field to fixture directly.
+SAMPLE_RENT_ZESTIMATE = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"property\":{\"zpid\":1,\"rentZestimate\":4200}}"}}}}
+</script>
+"""
+
+SAMPLE_HOME_VALUE_CHART = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"property\":{\"zpid\":1},\"homeValueChartData\":[{\"name\":\"Home Value\",\"points\":[{\"x\":0,\"y\":100000},{\"x\":315576000000,\"y\":200000}]}]}"}}}}
+</script>
+"""
+
+
+def test_extract_rent_zestimate_from_gdp():
+    details = extract_listing_details(SAMPLE_RENT_ZESTIMATE)
+    assert details.rent_zestimate == 4200.0
+
+
+def test_extract_decade_appreciation_cagr_from_home_value_chart():
+    details = extract_listing_details(SAMPLE_HOME_VALUE_CHART)
+    assert details.appreciation_decade_pct == pytest.approx(
+        (2 ** (1 / 10) - 1) * 100, abs=0.05
+    )
+
+
+def test_decade_appreciation_is_none_when_payload_has_no_ten_year_metric():
+    details = extract_listing_details(SAMPLE_RENT_ZESTIMATE)
+    assert details.appreciation_decade_pct is None
+
+
 SAMPLE_LD_WITH_EXTENDED = """
 <html><head>
 <meta name="description" content="Zillow has photos of this $500,000 2 beds, 1 baths, 1,200 Square Feet condo located at 1 Main St, Austin, TX 78701 built in 1985."/>

@@ -97,5 +97,11 @@ class FinancialAssumptions(Base):
     # Source labels for tax/insurance resolution (e.g. "Zillow", "Estimated: ACS county").
     property_tax_source: Mapped[str] = mapped_column(String(64), default="")
     insurance_source: Mapped[str] = mapped_column(String(64), default="")
+    monthly_rent: Mapped[float] = mapped_column(Float, default=0.0)
+    rent_source: Mapped[str] = mapped_column(String(64), default="")
+    appreciation_pct: Mapped[float] = mapped_column(Float, default=3.0)
+    appreciation_source: Mapped[str] = mapped_column(String(64), default="")
+    appreciation_fhfa_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    appreciation_zillow_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     property: Mapped[Property] = relationship(back_populates="financial")

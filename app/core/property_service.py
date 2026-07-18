@@ -10,10 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import UPLOADS_DIR
-from app.core.finance import summarize
+from app.core.finance import blend_appreciation_rates, summarize
+from app.core.fhfa_hpi import zip5_cagr
 from app.core.gemini_financial import (
+    ZillowListingRef,
     build_financial_fingerprint,
     generate_financial_commentary,
+    zillow_urls_digest,
 )
 from app.core.gemini_neighborhood import (
     generate_neighborhood_overview,
@@ -275,6 +278,31 @@ class PropertyService:
         else:
             fin.annual_insurance = 0.0
             fin.insurance_source = ""
+
+        if details.rent_zestimate is not None and details.rent_zestimate > 0:
+            if (fin.rent_source or "").strip() in ("", "Zillow"):
+                fin.monthly_rent = float(details.rent_zestimate)
+                fin.rent_source = "Zillow"
+
+        fhfa = None
+        try:
+            zip_code = (prop.zip_code or details.zip_code or "").strip()
+            if zip_code:
+                fhfa = zip5_cagr(zip_code)
+        except Exception:
+            fhfa = None
+        if fhfa is not None:
+            fin.appreciation_fhfa_pct = float(fhfa)
+
+        if details.appreciation_decade_pct is not None:
+            fin.appreciation_zillow_pct = float(details.appreciation_decade_pct)
+
+        if (fin.appreciation_source or "").strip() != "Manual":
+            blended, source = blend_appreciation_rates(
+                fin.appreciation_fhfa_pct, fin.appreciation_zillow_pct
+            )
+            fin.appreciation_pct = float(blended)
+            fin.appreciation_source = source
 
     def _fill_location_from_address(self, prop: Property) -> None:
         if prop.city and prop.state:
@@ -639,21 +667,26 @@ class PropertyService:
             "annual_insurance": float(fin.annual_insurance or 0),
             "monthly_hoa": float(fin.monthly_hoa or 0),
             "closing_cost_pct": float(fin.closing_cost_pct or 0),
+            "monthly_rent": float(fin.monthly_rent or 0),
+            "appreciation_pct": float(fin.appreciation_pct or 0),
         }
 
     def ensure_gemini_financial(
         self, property_id: int, *, force: bool = False
     ) -> Property:
-        """Generate and cache Gemini financial breakdown + opinion for current assumptions."""
+        """Generate and cache Gemini financial opinion from Zillow URLs (URL context)."""
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
-        fin = self.ensure_financial(prop)
-        data = self._financial_assumption_dict(fin)
-        if float(data["list_price"]) <= 0 and float(data["offer_price"]) <= 0:
-            raise ValueError("Set a list or offer price before asking Gemini about finances.")
+        subject_url = (prop.zillow_url or "").strip()
+        if not subject_url:
+            raise ValueError("This home needs a Zillow URL before asking Gemini about finances.")
 
-        cache_key = build_financial_fingerprint(**data)  # type: ignore[arg-type]
+        peers = self._library_zillow_refs(property_id)
+        cache_key = build_financial_fingerprint(
+            subject_zillow_url=subject_url,
+            peer_refs=peers,
+        )
         if (
             not force
             and (prop.financial_gemini or "").strip()
@@ -661,22 +694,120 @@ class PropertyService:
         ):
             return prop
 
-        summary = summarize(**data)  # type: ignore[arg-type]
         text = generate_financial_commentary(
-            address=prop.address or "",
-            home_type=prop.home_type or "",
-            beds=prop.beds,
-            baths=prop.baths,
-            sqft=prop.sqft,
-            listing_hoa=prop.hoa_fee,
-            summary=summary,
-            assumptions=data,
+            subject_zillow_url=subject_url,
+            subject_label=prop.address or "",
+            peer_refs=peers,
         )
         prop.financial_gemini = text
         prop.financial_gemini_for = cache_key
         self.session.commit()
         self.session.refresh(prop)
         return prop
+
+    def _library_zillow_refs(self, exclude_property_id: int) -> list[ZillowListingRef]:
+        """Other saved homes as Zillow URL peers for Gemini (max 19 peers → 20 URLs)."""
+        refs: list[ZillowListingRef] = []
+        for other in self.list_properties():
+            if other.id == exclude_property_id:
+                continue
+            url = (other.zillow_url or "").strip()
+            if not url:
+                continue
+            refs.append(
+                ZillowListingRef(
+                    property_id=int(other.id),
+                    zillow_url=url,
+                    label=(other.address or "").strip(),
+                )
+            )
+            if len(refs) >= 19:
+                break
+        return refs
+
+    # Back-compat name used by Financials UI fingerprint helpers
+    def _library_comps_for_financial(
+        self, exclude_property_id: int
+    ) -> list[ZillowListingRef]:
+        return self._library_zillow_refs(exclude_property_id)
+
+    def ensure_gemini_insights(
+        self, property_id: int, *, force: bool = False
+    ) -> dict[str, str]:
+        """Run neighborhood + financial Gemini jobs; return status per section.
+
+        Continues after individual failures so one missing piece (e.g. no price)
+        does not block the others. Keys: overview, things_to_do, financial.
+        Values are ``ok``, ``cached``, or an error message.
+        """
+        results: dict[str, str] = {}
+
+        try:
+            self.ensure_neighborhood(property_id)
+        except Exception as exc:  # noqa: BLE001
+            results["overview"] = f"Neighborhood name: {exc}"
+            results["things_to_do"] = f"Neighborhood name: {exc}"
+        else:
+            prop = self.get_property(property_id)
+            name = self.display_neighborhood(prop) if prop else ""
+            if not name:
+                msg = "Set a neighborhood name first"
+                results["overview"] = msg
+                results["things_to_do"] = msg
+            else:
+                try:
+                    before = (prop.neighborhood_gemini_for or "").strip() if prop else ""
+                    self.ensure_gemini_overview(property_id, force=force)
+                    after_prop = self.get_property(property_id)
+                    after = (
+                        (after_prop.neighborhood_gemini_for or "").strip()
+                        if after_prop
+                        else ""
+                    )
+                    results["overview"] = (
+                        "cached"
+                        if not force and before and before == after
+                        else "ok"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    results["overview"] = str(exc)
+                try:
+                    prop2 = self.get_property(property_id)
+                    before_t = (
+                        (prop2.neighborhood_things_to_do_for or "").strip()
+                        if prop2
+                        else ""
+                    )
+                    self.ensure_gemini_things_to_do(property_id, force=force)
+                    after_prop2 = self.get_property(property_id)
+                    after_t = (
+                        (after_prop2.neighborhood_things_to_do_for or "").strip()
+                        if after_prop2
+                        else ""
+                    )
+                    results["things_to_do"] = (
+                        "cached"
+                        if not force and before_t and before_t == after_t
+                        else "ok"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    results["things_to_do"] = str(exc)
+
+        try:
+            prop_f = self.get_property(property_id)
+            before_f = (prop_f.financial_gemini_for or "").strip() if prop_f else ""
+            self.ensure_gemini_financial(property_id, force=force)
+            after_f_prop = self.get_property(property_id)
+            after_f = (
+                (after_f_prop.financial_gemini_for or "").strip() if after_f_prop else ""
+            )
+            results["financial"] = (
+                "cached" if not force and before_f and before_f == after_f else "ok"
+            )
+        except Exception as exc:  # noqa: BLE001
+            results["financial"] = str(exc)
+
+        return results
 
     def update_financial(self, property_id: int, **fields: float | int) -> FinancialAssumptions:
         prop = self.get_property(property_id)
@@ -685,6 +816,8 @@ class PropertyService:
         fin = self.ensure_financial(prop)
         prev_tax = float(fin.annual_property_tax or 0)
         prev_ins = float(fin.annual_insurance or 0)
+        prev_rent = float(fin.monthly_rent or 0)
+        prev_appr = float(fin.appreciation_pct or 0)
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
@@ -692,6 +825,10 @@ class PropertyService:
             fin.property_tax_source = ""
         if "annual_insurance" in fields and float(fields["annual_insurance"]) != prev_ins:
             fin.insurance_source = ""
+        if "monthly_rent" in fields and float(fields["monthly_rent"]) != prev_rent:
+            fin.rent_source = "Manual"
+        if "appreciation_pct" in fields and float(fields["appreciation_pct"]) != prev_appr:
+            fin.appreciation_source = "Manual"
         self.session.commit()
         self.session.refresh(fin)
         return fin

@@ -43,12 +43,18 @@ Address, photos, and listing details (beds, baths, price, sqft, HOA, year built,
 
 ## Library list view
 
-The `/` library page is a **list**, not a grid: each wide clickable card shows a ~180×135 thumbnail (or placeholder), address, neon list price, chips for beds/baths/sqft/`$`-per-sqft, quieter type/year chips, and amber HOA when monthly HOA is $400+. Optional notes appear as a short teaser line.
+The `/` library page is a **list**, not a grid: each wide clickable card shows a photo that stretches to match the text column, a large Akira street address, quieter Creato list price, chips for beds/baths/sqft/`$`-per-sqft, quieter type/year chips, and amber HOA when monthly HOA is $400+. Optional notes appear as a short teaser line. Page chrome (title, Add, Sort/Filter, empty states) uses the same Creato dark theme as the cards.
 
-- **Sort** (Newest / Price ↑ / Price ↓) sits beside a collapsed **Filter** expansion (search, min/max price, min beds). The Filter label shows how many filters are active.
+## Theme / fonts
+
+Dark near-black UI with cyan hierarchy accents (glow marks priority: active tabs, focus, primary CTAs — not every surface). **Buttons, tabs, and map overlay chips** use dark neumorphism; neon only when active/on. Body text uses **Creato Display**; street addresses / brand use **Akira Expanded**. Download both from DaFont and drop the `.otf` files into `app/static/fonts/` (see that folder’s README). Creato is OFL (safe to commit); Akira is personal-use only and is gitignored.
+
+- **Sort** sits beside a collapsed **Filter** expansion. Filters apply on Enter or after a short pause while typing; the open button is **Apply**. The collapsed label shows how many filters are active.
+- Click **Homebuy** (or the home icon) to return to the library.
 - Card click opens the property. Use the **⋮** menu for **Open on Zillow** or **Delete…** (delete still confirms).
 - When you already have homes, the long “paste a Zillow link…” hint is hidden so Add stays compact.
-- On the **Photos** tab, pin any shot as the library thumbnail (locked through re-import when that photo survives). **Auto-pick again** clears the lock and re-runs the exterior-biased picker.
+- On the **Photos** tab, actions sit above the grid; pin any shot as the library thumbnail. **Auto-pick again** clears the lock and re-runs the exterior-biased picker.
+- **Neighborhood** and **Financials** have in-tab **Ask Gemini** / **Regenerate** (AI opinion, not advice).
 
 ## Saving your work (Git)
 
@@ -71,11 +77,12 @@ Ignored on purpose (not committed): virtualenv, `.env` secrets, SQLite DB, downl
 
 The **Map** tab shows a taller Leaflet pin map with a dark CARTO basemap to match the app theme. Use the fullscreen control (near zoom) to expand the map; Esc exits. Layer toggles sit above the map; Pin tools and Street View are below (Street View starts expanded). Free Street View uses `svembed` (no API key) in a desktop 16:9 panel.
 
-Layer toggles (no Neighborhood summary chips):
+Layer toggles are exclusive (one overlay at a time; turning another on clears the previous):
 
 | Toggle | Source | Notes |
 |--------|--------|--------|
 | Flood (FEMA) | NFHL WMS | No key |
+| Zoning | City of LA (ZIMAS), Santa Monica (SCAG), LA County DRP | ACS-style polygons + zone popups; other cities: disabled / message |
 | Median income (ACS) | Census ACS `B19013` tracts | Needs `CENSUS_API_KEY` |
 | Median home value (ACS) | Census ACS `B25077` tracts | Needs `CENSUS_API_KEY` |
 | Median age (ACS) | Census ACS `B01002` tracts | Needs `CENSUS_API_KEY` |
@@ -98,9 +105,15 @@ Outbound deep links (Reddit, City-Data, Niche place pages, etc.) and your own no
 
 ## Financials
 
-The **Financials** tab is the PITI calculator (offer vs list, loan inputs, ownership costs) with neon Plotly charts. List price, HOA, property tax, and insurance are **autofilled from the Zillow listing** when you add a home or click **Refresh listing details** — loan terms (down payment, rate, term, closing costs) are never touched. Property tax resolves Zillow's annual tax → Zillow assessed value × rate → an ACS county effective-rate estimate; insurance resolves Zillow's annual insurance → a state average-premium estimate scaled to list price. When a value is estimated rather than taken straight from Zillow, a small caption appears under that field (e.g. *Estimated: ACS county*, *Estimated: CA avg premium*).
+The **Financials** tab is the PITI calculator with neon Plotly charts. **Your deal** (left) focuses on offer price and down payment in **dollars** (an amber warning appears if down is under 20% of the price basis — PMI may apply). **Loan**, **Ownership costs**, and **Buy vs rent** (comparable rent + appreciation %/yr) sit beside it. Press **Enter** in any field to recalculate (or use Recalculate).
 
-Below the charts, **Ask Gemini about these finances** produces a cached markdown Breakdown + Opinion from the *same calculator numbers* (not invented prices). Clearly labeled as AI opinion, not advice. Cache refreshes when you change assumptions (fingerprint) or click Regenerate. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood.
+List price, HOA, property tax, insurance, rent, and appreciation are **autofilled from the Zillow listing** when you add a home or click **Refresh listing details** — loan terms (down payment, rate, term, closing costs) are never touched. Rent comes from Zillow's `rentZestimate` when present; appreciation blends FHFA ZIP5 ~10-year CAGR and Zillow's decade appreciation when both exist (defaults to **3%/yr** if neither is available). Edit rent or appreciation to override; source captions appear under each field like tax/insurance. FHFA downloads the public ZIP5 HPI workbook on first use (no extra API key); it is cached under `data/cache/fhfa/` for about 30 days and automatically finds its header after the workbook's title and notes rows.
+
+Property tax resolves Zillow's annual tax → Zillow assessed value × rate → an ACS county effective-rate estimate; insurance resolves Zillow's annual insurance → a state average-premium estimate scaled to list price. When a value is estimated rather than taken straight from Zillow, a small caption appears under that field (e.g. *Estimated: ACS county*, *Estimated: CA avg premium*).
+
+Three standard charts (monthly breakdown, equity, amortization) are followed by a fourth: **Buy vs rent + invest (net worth)** — cyan line = buy path (home equity minus a **6%** selling cost each year), magenta line = rent + invest (cash-to-close plus monthly `PITI − rent` invested at **10%/yr**). The caption under the chart shows blended appreciation, FHFA/Zillow components when known, and the fixed 6%/10% assumptions.
+
+Below the charts, the **Gemini financial take** opens the subject Zillow URL plus your other library Zillow links (Gemini **URL context** tool) and writes opinion on why pricing looks as it does, market/location, and buy vs rent — not a restatement of your calculator. Cache key is `fin_v4` over those URLs. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood. Note: if Zillow blocks the URL fetch, Gemini may return a thin/empty take — regenerate or check the listing links.
 
 ## Extending with a new module
 

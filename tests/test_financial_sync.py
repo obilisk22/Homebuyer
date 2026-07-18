@@ -95,6 +95,49 @@ def test_sync_keeps_hoa_when_listing_omits_hoa(tmp_path, monkeypatch):
     assert fin.annual_insurance == 0.0
 
 
+def test_sync_uses_listing_rent_and_blended_appreciation(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_6_zpid/",
+        zip_code="98101",
+        state="WA",
+    )
+    prop.financial = FinancialAssumptions()
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.zip5_cagr", lambda zip_code: 4.0, raising=False
+    )
+
+    PropertyService(session)._sync_financial_from_listing(
+        prop,
+        ListingDetails(
+            list_price=500_000,
+            rent_zestimate=2_500,
+            appreciation_decade_pct=6.0,
+        ),
+    )
+    session.commit()
+    session.refresh(prop.financial)
+
+    assert prop.financial.monthly_rent == 2_500
+    assert prop.financial.rent_source == "Zillow"
+    assert prop.financial.appreciation_fhfa_pct == 4.0
+    assert prop.financial.appreciation_zillow_pct == 6.0
+    assert prop.financial.appreciation_pct == 5.0
+    assert prop.financial.appreciation_source == "FHFA+Zillow"
+
+
 def test_update_financial_clears_source_captions_on_manual_save(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
     prop = Property(address="1 Test St, Seattle, WA 98101", zillow_url="https://www.zillow.com/homedetails/x_3_zpid/")
@@ -120,6 +163,26 @@ def test_update_financial_clears_source_captions_on_manual_save(tmp_path, monkey
     assert updated.annual_insurance == 4_500.0
     assert updated.property_tax_source == ""
     assert updated.insurance_source == ""
+
+
+def test_update_financial_marks_changed_rent_and_appreciation_manual(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(address="1 Test St, Seattle, WA 98101", zillow_url="https://www.zillow.com/homedetails/x_7_zpid/")
+    prop.financial = FinancialAssumptions(
+        monthly_rent=2_500.0,
+        rent_source="Zillow",
+        appreciation_pct=5.0,
+        appreciation_source="FHFA+Zillow",
+    )
+    session.add(prop)
+    session.commit()
+
+    updated = PropertyService(session).update_financial(
+        prop.id, monthly_rent=2_700.0, appreciation_pct=4.5
+    )
+
+    assert updated.rent_source == "Manual"
+    assert updated.appreciation_source == "Manual"
 
 
 def test_update_financial_preserves_sources_when_loan_fields_only(tmp_path, monkeypatch):

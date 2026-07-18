@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (Financials autofill — Zillow tax/insurance/ACS/state tables, source captions)
+> Last updated: 2026-07-18 (Audit polish batch: grid, hover, map, Gemini in-tab, filter/nav)
 
 ## What this is
 
@@ -11,7 +11,7 @@
 |---|---|
 | **Path** | `C:\Users\hheaf\Projects\homebuy` |
 | **Stack** | Python 3.12, NiceGUI, SQLAlchemy + SQLite, Plotly, Leaflet, curl_cffi |
-| **UI** | Dark cyberpunk theme (black/gray + cyan / magenta / lime neon) |
+| **UI** | Dark cyberpunk theme — Creato Display body + Akira Expanded L1 prices; cyan emission hierarchy |
 | **App URL** | http://127.0.0.1:8080 |
 
 ## How to run (Windows)
@@ -123,8 +123,9 @@ Restart the app — the tab appears automatically.
 | Neighborhood + Gemini overview / things-to-do | `app/core/neighborhood.py`, `app/core/gemini_neighborhood.py` |
 | Financials Gemini commentary | `app/core/gemini_financial.py` |
 | Library thumbnail pick | `app/core/thumbnail.py` |
-| Mortgage math | `app/core/finance.py` |
-| Map overlays | `app/core/{census_acs,fema_flood,crime_socrata,crime_density,overlay_cache}.py` |
+| Mortgage math + buy vs rent projection | `app/core/finance.py` |
+| FHFA ZIP HPI (~10y CAGR, no API key) | `app/core/fhfa_hpi.py` |
+| Map overlays | `app/core/{census_acs,fema_flood,crime_socrata,crime_density,zoning_gis,overlay_cache}.py` |
 | Dark basemap | `app/core/map_basemap.py` (CARTO `dark_all` after `ui.leaflet`) |
 | Modules | `app/modules/{gallery,map_view,neighborhood_reviews,financial}.py` (+ `street_view.py` helpers, no tab) |
 | Env template | `.env.example` |
@@ -135,7 +136,7 @@ Restart the app — the tab appears automatically.
 
 **Photo:** `path`, `source_url`, `caption`, `sort_order`
 
-**FinancialAssumptions:** `list_price`, `offer_price`, loan/ownership fields (math uses **offer** if set, else list). Legacy `purchase_price` kept in sync. `property_tax_source` / `insurance_source` record how `annual_property_tax` / `annual_insurance` were resolved (e.g. `Zillow`, `Zillow assessed × rate`, `Estimated: ACS county`, `Estimated: CA avg premium`) and are shown as UI captions.
+**FinancialAssumptions:** `list_price`, `offer_price`, loan/ownership fields (math uses **offer** if set, else list). Legacy `purchase_price` kept in sync. `property_tax_source` / `insurance_source` record how `annual_property_tax` / `annual_insurance` were resolved (e.g. `Zillow`, `Zillow assessed × rate`, `Estimated: ACS county`, `Estimated: CA avg premium`) and are shown as UI captions. Buy-vs-rent: `monthly_rent`, `rent_source`, `appreciation_pct`, `appreciation_source`, `appreciation_fhfa_pct`, `appreciation_zillow_pct` (FHFA/Zillow components kept for chart captions even when appreciation is manually overridden).
 
 SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_migrate_sqlite`).
 
@@ -159,15 +160,23 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Map fullscreen control (leaflet.fullscreen near zoom; survives redraw)
 - [x] Richer Zillow listing scrape: beds, price, sqft, HOA, year built, home type (library + header + edit)
 - [x] Library visual refresh + iteration 2: list cards (~180×135 thumb), neon price, chips + amber HOA ≥$400, notes teaser, ⋮ menu (Zillow/Delete), sort + filter active count, compact Add when nonempty; lockable library thumb from Photos + stronger exterior auto-pick
+- [x] Visual foundation (2026-07-18): hierarchy-through-emission; Creato + Akira self-host; library street hero + stretch thumb; page chrome (title/Add/Filter/empty) matched to cards
+- [x] Property tab chrome (2026-07-18): property header (Akira street + chips), Photos/Map/Neighborhood/Financials titles/hints/empty states + dense controls; Leaflet/Plotly/svembed unchanged
+- [x] Dark neumorphism on buttons + tabs (2026-07-18): extruded/inset soft faces; cyan reserved for primary CTA + active tab
+- [x] Map overlay neo toggles (2026-07-18): checkbox row → label-only neo buttons with emissive glow when on
+- [x] Audit polish batch (2026-07-18): Financials 2×2 form grid; library-only card hover; short Map overlay labels + toggle `--on` fix; Quasar greys → `hb-*`; neo Photos lightbox + actions above grid; Filter Enter/debounce + Apply; clickable brand / no redundant Back; library responsive clamp/stack; in-tab Gemini Ask/Regenerate (Financials + Neighborhood)
 - [x] TODO-006 codebase cleanup (2026-07-18): dead helpers removed, single Zillow HTML fetch on add, batched photo import, fewer redundant DB loads, overlay cache prune on miss, lazy Plotly import — features unchanged
 - [x] TODO-011 Financials autofill (2026-07-18): list price/HOA/tax/insurance filled from the Zillow listing on add/refresh, with a tax chain (Zillow → assessed×rate → ACS county rate) and a state avg-premium insurance fallback; source captions shown under the Ownership inputs; loan terms never overwritten
+- [x] Financials deal UX (2026-07-18): Your deal = offer + down in dollars with &lt;20% amber PMI warning; Assumptions quieter below
+- [x] Financials buy vs rent + invest chart (2026-07-18): fourth Plotly dual-line (buy net worth vs rent + invest); FHFA ZIP5 ~10y CAGR + Zillow decade % blended (default 3% if both missing); rentZestimate prefill; fixed 6% sell cost / 10% invest return in v1; loan terms never overwritten
+- [x] FHFA ZIP5 parser header fix (2026-07-18): scans past workbook title/notes for ZIP + year + HPI-level headers; exact `HPI` is preferred over Annual Change (%); regression test covers the real workbook layout
 
 ## In progress / next (as of last session)
 
 | ID | Status | Notes |
 |----|--------|-------|
-| `map-overlays-impl` | **Partial** | Flood + ACS income/home value/age/kids + LA County/Seattle crime hex density; deferred zoning / Redfin / AQI / fire |
-| `TODO-002` | **Partial** | Flood + ACS demographics + LA County/Seattle crime; still pending zoning, AQI, fire, Redfin |
+| `map-overlays-impl` | **Partial** | Flood + Zoning (LA City/SM/County) + ACS demographics + LA County/Seattle crime hex density; deferred more cities’ zoning / Redfin / AQI / fire |
+| `TODO-002` | **Partial** | Flood + zoning + ACS + crime; still pending AQI, fire, Redfin |
 | `TODO-009` | **Done** | Honest long-term Gemini neighborhood assessment (`overview_v2`) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
@@ -177,15 +186,20 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 
 1. **Ingest:** Zillow URL → store link + resolved address. No full MLS API. Listing HTML via `curl_cffi` (Chrome impersonation) for photos/details — Zillow blocks plain httpx.
 2. **Street View:** Free Google `svembed` only; shown **below the map** on the Map tab in a collapsible expansion (open by default, shorter panel). No Maps Embed API keys for SV.
-2b. **Map chrome:** Dark CARTO basemap (`apply_dark_basemap`); compact layer toggles above the map; single status line; Pin tools expansion below the map (collapsed). Fullscreen via `leaflet.fullscreen` (CDN + `fullscreenControl` options from `leaflet_map_kwargs()`), control near zoom; Escape / browser exit restores the in-tab map. No always-on Census tip — message only when Income toggle fails / key missing.
+2b. **Map chrome:** Dark CARTO basemap (`apply_dark_basemap`); compact **neo text toggles** for overlays above the map (short labels; `.hb-map-layer-btn`, cyan glow only when on); single status line; Pin tools expansion below the map (collapsed). Fullscreen via `leaflet.fullscreen` (CDN + `fullscreenControl` options from `leaflet_map_kwargs()`), control near zoom; Escape / browser exit restores the in-tab map. No always-on Census tip — message only when Income toggle fails / key missing.
 3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`.
 4. **Optional env:** `GOOGLE_MAPS_API_KEY` (preferred geocoding); `CENSUS_API_KEY` (Map income choropleth + Financials ACS county tax estimate — required for those); `SOCRATA_APP_TOKEN` (optional, crime rate limits); `GEMINI_API_KEY` (Neighborhood AI + Financials commentary).
 5. **Theme accents:** Cyan `#00E5FF`, Magenta `#FF2BD6`, Lime `#B8FF3C`, Amber `#FFC107`.
+5b. **Visual foundation:** Neon glow is a priority ladder (L1 focus/CTA/tabs/brand; L2 **library card** hover only; L3 chips quiet). **Akira Expanded** = street address + brand; **Creato Display** = body/UI/price (SIL OFL; Akira personal-use/demo — gitignored). Drop `.otf` files in `app/static/fonts/`. Library: stretch-to-match thumb, street hero, quieter price, Creato page chrome; responsive address clamp + stack under ~800px. **Buttons + tabs + map layers:** dark neumorphism; cyan emission only when active/on. Photos lightbox: `.hb-lightbox*`. Financials form: 2×2 `.hb-financial-form`. Rule: `.cursor/rules/homebuy-visual.mdc`.
+5c. **Gemini in-tab:** Neighborhood overview / things-to-do and Financials commentary have Ask / Regenerate inside their tabs (in-place refresh); header Gemini insights may still exist as a bulk shortcut.
+5d. **Library filter/nav:** Filter fields apply on Enter and after short debounce; open expansion button is **Apply**; collapsed label shows `Filter · N active`. Brand wordmark navigates to `/`; property page uses Home icon + brand (no redundant Back).
 6. **Neighborhood reviews:** Prefer **Zillow listing neighborhood** name; fallback Nominatim/Google; manual override. **Gemini** (`GEMINI_API_KEY`, model `gemini-2.5-flash-lite` by default) writes a cached overview paragraph (`neighborhood_gemini` / `neighborhood_gemini_for`) and a separate cached things-to-do list (`neighborhood_things_to_do` / `neighborhood_things_to_do_for`, key prefix `things_v2|`). Regenerating one does not wipe the other; both clear when the neighborhood override changes. Deep links only for Reddit/City-Data/Niche (no scrape); Niche uses a `/places-to-live/n/{hood}-{city}-{state}/` place URL when possible, else search. Notes in `neighborhood_notes`.
-6b. **Financials Gemini:** Commentary only — PITI / Plotly remain source of truth. Prompt is built from `summarize()` outputs + `FinancialAssumptions` (and listing context). Cached on Property as `financial_gemini` / `financial_gemini_for` with fingerprint `fin_v1|list|offer|down|rate|term|tax|ins|hoa|closing`. UI: **Ask Gemini about these finances** + Regenerate below charts; labeled as AI opinion / not advice; requires list or offer price.
+6b. **Financials Gemini:** Reads **Zillow URLs** via Gemini **URL context** (+ Google Search). Prompt includes subject `zillow_url` + other library Zillow links only — no calculator/library field dump. Opinion sections: Why / Market & location / Buy vs rent. Cache `fin_v4|<url-hash>`. Generate via Ask/Regenerate on Financials (or header insights).
+6b2. **Financials deal inputs:** Primary **Your deal** column = Offer price + Down payment in **dollars** (stored as `down_payment_pct`; UI converts via effective price). Amber warning icon when down &lt; 20% (PMI may apply) + muted `≈ N%` caption. Quieter **Loan** + **Ownership costs** columns beside it (list/rate/term/closing; tax/insurance/HOA). Enter in any field recalculates. Down $ is sticky if list/offer change.
 6c. **Financials autofill:** on add / **Refresh listing details** / post-geocode re-sync, `_sync_financial_from_listing` overwrites `list_price`, `monthly_hoa`, `annual_property_tax`, `annual_insurance` from the Zillow listing — **loan terms (down payment/rate/term/closing) are always preserved**. Tax resolves Zillow annual tax → Zillow assessed value × rate → ACS county effective rate (`B25103`/`B25077`, needs `CENSUS_API_KEY`) × assessed-or-list-price basis; insurance resolves Zillow annual insurance → state avg-premium table (`app/data/home_insurance_rates.json`) scaled to list price. Unresolved values fall back to `0` (no fake $500k/$6k/$1.8k placeholders); HOA explicit `$0` overwrites but an absent HOA field keeps the previous value. Each resolution records a short source string (`property_tax_source` / `insurance_source`) shown as a caption under the Ownership inputs.
-7. **Map overlays:** Layer toggles only (no Neighborhood chips). FEMA NFHL WMS flood; ACS tract choropleths for **median income** (`B19013`), **median home value** (`B25077`), **median age** (`B01002`), **avg kids under 18 per household** (`B09001`/`B25003`), **% owner-occupied** (`B25003`), **median year built** (`B25035`), **median gross rent** (`B25064`), and **% bachelor's+** (`B15003`) — all need `CENSUS_API_KEY`; crime near pin for **all of LA County** (merges LAPD Socrata + Santa Monica CKAN; densest in those PDs) and Seattle — rendered as a **hex density choropleth** (incident counts per cell), not individual report dots. Also resolves from pin lat/lng when city is empty. Cache under `data/cache/`. Zoning deferred (Slice 2).
-8. **Library page:** list layout, not a grid. Cards (`.hb-library-card`, ~180×135 thumb) are whole-card-clickable; **Open on Zillow** / **Delete…** live in a ⋮ overflow menu (stopPropagation). Delete still confirms. Price is neon `.hb-library-price`; primary chips for beds/baths/sqft/`$`-sqft; quieter chips for type/year; HOA ≥ $400/mo uses amber `.hb-meta-chip--hoa-high`. Notes teaser (truncated) when set. Sort select: Newest / Price ↑ / Price ↓. Filter expansion shows “N active” when filters set. Compact Add (hide helper line) when the DB already has homes. **Thumbnails:** auto-pick prefers exterior (interior keyword penalties); `thumbnail_locked` + Photos pin (“Use as library thumbnail”) / **Auto-pick again**.
+6d. **Financials buy vs rent chart:** **Buy vs rent** inputs = comparable monthly rent + appreciation %/yr (source captions like tax/insurance). Rent prefilled from Zillow `rentZestimate` on add/refresh unless `rent_source` is `Manual`. Appreciation = mean of available FHFA ZIP5 ~10y CAGR (`app/core/fhfa_hpi.py`, public XLSX, cached ~30d under `data/cache/fhfa/`, **no API key**) and Zillow listing decade %; default **3%** if both missing; user override sets `appreciation_source = Manual` (component columns kept for caption). Fourth Plotly chart compares **buy net worth** (home value − loan balance − **6%** sell cost each year) vs **rent + invest** (cash-to-close + monthly `max(0, PITI − rent)` compounded at **10%/yr**); horizon = loan term. Fixed 6%/10% in v1 (captioned, not editable). Recalculate redraws from current fields; FHFA/Zillow lookups on add/refresh (and FHFA cache miss), not every keystroke. Gemini fingerprint unchanged.
+7. **Map overlays:** Exclusive layer toggles only (turning one on clears the others; no Neighborhood chips). FEMA NFHL WMS flood; **Zoning** GeoJSON near pin for **City of Los Angeles** (ZIMAS), **Santa Monica** (SCAG parcel zoning; city AGOL layer needs State Plane), and **unincorporated LA County** (DRP), with SCAG fallback for other LA County cities when DRP is empty; ACS tract choropleths for **median income** (`B19013`), **median home value** (`B25077`), **median age** (`B01002`), **avg kids under 18 per household** (`B09001`/`B25003`), **% owner-occupied** (`B25003`), **median year built** (`B25035`), **median gross rent** (`B25064`), and **% bachelor's+** (`B15003`) — ACS needs `CENSUS_API_KEY`; crime near pin for **all of LA County** (merges LAPD Socrata + Santa Monica CKAN; densest in those PDs) and Seattle — rendered as a **hex density choropleth** (incident counts per cell), not individual report dots. Also resolves from pin lat/lng when city is empty. Cache under `data/cache/`.
+8. **Library page:** list layout, not a grid. Cards (`.hb-library-card`, stretch thumb) are whole-card-clickable; **Open on Zillow** / **Delete…** live in a ⋮ overflow menu (stopPropagation). Delete still confirms. Large Akira street + quieter Creato price; primary chips for beds/baths/sqft/`$`-sqft; quieter chips for type/year; HOA ≥ $400/mo uses amber `.hb-meta-chip--hoa-high`. Notes teaser (truncated) when set. Sort select: Newest / Price ↑ / Price ↓. Filter expansion shows “N active” when filters set. Compact Add (hide helper line) when the DB already has homes. **Thumbnails:** auto-pick prefers exterior (interior keyword penalties); `thumbnail_locked` + Photos pin (“Use as library thumbnail”) / **Auto-pick again**.
 
 ## Working agreements for agents
 
@@ -198,11 +212,11 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 
 ## Quick verify checklist
 
-1. Library loads dark theme at http://127.0.0.1:8080 as a list of clickable home cards (larger thumb, neon price, meta chips, ⋮ menu); Sort + collapsed Filter with active count; muted homes count next to the heading  
+1. Library loads dark theme at http://127.0.0.1:8080 as a list of clickable home cards (stretch thumb, Akira street, quieter price, meta chips, ⋮ menu); Creato page chrome; Sort + collapsed Filter with active count; muted homes count next to the heading  
 2. Paste a `/homedetails/..._zpid/` URL → Add home → photos + address + beds/price/sqft/HOA/year/type appear; card click opens the property; menu Zillow/Delete don't navigate the card; delete confirms; Photos pin sets library thumb  
 3. Map pins (even with `UNIT` in the slug)  
 4. Map tab: dark CARTO basemap; fullscreen control near zoom; flood/income/crime toggles; Street View expansion below map (free svembed, open by default); no always-on Census tip until Income is toggled without a key  
-5. Financials shows neon charts on dark paper; add/refresh a home → list price/HOA/tax/insurance match the listing or show an ACS/state-estimate caption under tax/insurance; changing the interest rate then refreshing the listing again leaves the rate untouched; Gemini financial take section Ask / Regenerate works when `GEMINI_API_KEY` is set  
+5. Financials: **Your deal** / Loan / Ownership in three columns + **Buy vs rent** rent/appreciation inputs; offer + down in dollars (amber warn if &lt;20%); Enter recalculates; add/refresh → list/HOA/tax/insurance/rent/appreciation match listing or show ACS/state/FHFA/Zillow captions; fourth chart **Buy vs rent + invest (net worth)** (cyan buy, magenta rent+invest); Gemini Ask / Regenerate when `GEMINI_API_KEY` is set  
 6. Neighborhood tab resolves a name, deep-link buttons open Reddit/City-Data/Niche/Google; Gemini overview + things-to-do buttons work when `GEMINI_API_KEY` is set  
 7. `.\.venv\Scripts\pytest.exe -q` passes  
 

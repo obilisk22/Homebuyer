@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.core.zillow_photos import (
     NEXT_DATA_RE,
@@ -62,6 +62,10 @@ JSON_SQFT_RE = re.compile(
 )
 JSON_HOA_RE = re.compile(
     _Q + r"(?:monthlyHoaFee|hoaFee|hoa)" + _Q + r"\s*:\s*(\d+(?:\.\d+)?)"
+)
+# Zillow property payloads expose the rental estimate as `rentZestimate`.
+JSON_RENT_ZESTIMATE_RE = re.compile(
+    _Q + r"(?:rentZestimate|rent_zestimate)" + _Q + r"\s*:\s*(\d+(?:\.\d+)?)"
 )
 JSON_YEAR_RE = re.compile(_Q + r"yearBuilt" + _Q + r"\s*:\s*(\d{4})")
 JSON_HOME_TYPE_RE = re.compile(
@@ -185,6 +189,8 @@ _PROPERTY_FACT_KEYS = (
     "propertyTaxRate",
     "annualHomeownersInsurance",
     "taxHistory",
+    "rentZestimate",
+    "rent_zestimate",
 )
 
 
@@ -206,6 +212,8 @@ class ListingDetails:
     annual_insurance: float | None = None
     tax_assessed_value: float | None = None
     property_tax_rate: float | None = None
+    rent_zestimate: float | None = None
+    appreciation_decade_pct: float | None = None
 
     def any_present(self) -> bool:
         return bool(
@@ -225,6 +233,8 @@ class ListingDetails:
             or self.annual_insurance is not None
             or self.tax_assessed_value is not None
             or self.property_tax_rate is not None
+            or self.rent_zestimate is not None
+            or self.appreciation_decade_pct is not None
         )
 
 
@@ -318,6 +328,75 @@ def _annual_insurance_from_property_dict(d: dict) -> float | None:
     reso = d.get("resoFacts")
     if isinstance(reso, dict):
         return _parse_float(reso.get("annualHomeownersInsurance"))
+    return None
+
+
+_MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000
+
+
+# Derived from Zillow `homeValueChartData`, not a labeled decade field.
+def _appreciation_decade_pct_from_chart(chart_data: object) -> float | None:
+    """Calculate annualized appreciation from Zillow home-value chart data."""
+    if not isinstance(chart_data, list):
+        return None
+
+    series_with_points: list[dict] = []
+    named_home_value_series: list[dict] = []
+    for series in chart_data:
+        if not isinstance(series, dict) or not isinstance(series.get("points"), list):
+            continue
+        series_with_points.append(series)
+        name = " ".join(
+            str(series.get(key) or "")
+            for key in ("name", "label", "title", "seriesName")
+        ).casefold()
+        if "home" in name and "value" in name:
+            named_home_value_series.append(series)
+    if not series_with_points:
+        return None
+
+    points: list[tuple[float, float]] = []
+    for point in (named_home_value_series or series_with_points)[0]["points"]:
+        if not isinstance(point, dict):
+            continue
+        timestamp = _parse_float(point.get("x"))
+        value = _parse_float(point.get("y"))
+        if timestamp is not None and value is not None and value > 0:
+            points.append((timestamp, value))
+    if len(points) < 2:
+        return None
+
+    points.sort(key=lambda point: point[0])
+    end_x, end_y = points[-1]
+    earliest_x, earliest_y = points[0]
+    span_years = (end_x - earliest_x) / _MS_PER_YEAR
+    if span_years < 5:
+        return None
+
+    target_start_x = end_x - 9 * _MS_PER_YEAR
+    eligible_starts = [point for point in points[:-1] if point[0] <= target_start_x]
+    start_x, start_y = eligible_starts[-1] if eligible_starts else points[0]
+    years = (end_x - start_x) / _MS_PER_YEAR
+    if years <= 0 or start_y <= 0:
+        return None
+    return ((end_y / start_y) ** (1 / years) - 1) * 100
+
+
+def _find_appreciation_decade_pct(source: object) -> float | None:
+    """Find the first usable Zillow home-value chart in a nested payload."""
+    if isinstance(source, dict):
+        appreciation = _appreciation_decade_pct_from_chart(source.get("homeValueChartData"))
+        if appreciation is not None:
+            return appreciation
+        for value in source.values():
+            appreciation = _find_appreciation_decade_pct(value)
+            if appreciation is not None:
+                return appreciation
+    elif isinstance(source, list):
+        for value in source:
+            appreciation = _find_appreciation_decade_pct(value)
+            if appreciation is not None:
+                return appreciation
     return None
 
 
@@ -462,6 +541,10 @@ def _details_from_property_dict(obj: dict) -> ListingDetails:
             obj.get("taxAssessedValue") or obj.get("assessedValue")
         ),
         property_tax_rate=_normalize_property_tax_rate(obj.get("propertyTaxRate")),
+        rent_zestimate=_coalesce(
+            _parse_float(obj.get("rentZestimate")),
+            _parse_float(obj.get("rent_zestimate")),
+        ),
     )
 
 
@@ -489,7 +572,9 @@ def _from_gdp_cache(html: str) -> ListingDetails:
     next_data = _parse_next_data(html)
     cache = _load_gdp_client_cache(html, next_data)
     if not cache:
-        return ListingDetails()
+        return ListingDetails(
+            appreciation_decade_pct=_find_appreciation_decade_pct(next_data)
+        )
 
     best = ListingDetails()
     best_score = -1
@@ -510,7 +595,13 @@ def _from_gdp_cache(html: str) -> ListingDetails:
         if score > best_score:
             best = details
             best_score = score
-    return best
+    return replace(
+        best,
+        appreciation_decade_pct=(
+            _find_appreciation_decade_pct(cache)
+            or _find_appreciation_decade_pct(next_data)
+        ),
+    )
 
 
 def _floor_size_sqft(blob: dict) -> float | None:
@@ -737,7 +828,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
     # Also scan a bounded slice of the full HTML for escaped JSON fields
     chunks.append(html[:800_000])
 
-    price = beds = baths = sqft = hoa = None
+    price = beds = baths = sqft = hoa = rent_zestimate = None
     year: int | None = None
     city = state = zip_code = neighborhood = home_type = ""
     for chunk in chunks:
@@ -746,6 +837,9 @@ def _from_embedded_json(html: str) -> ListingDetails:
         baths = _coalesce(baths, _first_json_float(JSON_BATHS_RE, chunk))
         sqft = _coalesce(sqft, _first_json_float(JSON_SQFT_RE, chunk))
         hoa = _coalesce(hoa, _first_json_float(JSON_HOA_RE, chunk))
+        rent_zestimate = _coalesce(
+            rent_zestimate, _first_json_float(JSON_RENT_ZESTIMATE_RE, chunk)
+        )
         year = _coalesce_int(year, _first_json_int(JSON_YEAR_RE, chunk))
         home_type = _coalesce_str(
             home_type, normalize_home_type(_first_json_str(JSON_HOME_TYPE_RE, chunk))
@@ -790,6 +884,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
         baths=baths,
         sqft=sqft,
         hoa_fee=hoa,
+        rent_zestimate=rent_zestimate,
         year_built=year,
         home_type=home_type,
         city=city,
@@ -804,6 +899,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
     price = beds = baths = sqft = hoa = None
     year: int | None = None
     annual_tax = annual_insurance = tax_assessed_value = property_tax_rate = None
+    rent_zestimate = appreciation_decade_pct = None
     city = state = zip_code = address = neighborhood = home_type = ""
     for part in parts:
         price = _coalesce(price, part.list_price)
@@ -816,6 +912,10 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         annual_insurance = _coalesce(annual_insurance, part.annual_insurance)
         tax_assessed_value = _coalesce(tax_assessed_value, part.tax_assessed_value)
         property_tax_rate = _coalesce(property_tax_rate, part.property_tax_rate)
+        rent_zestimate = _coalesce(rent_zestimate, part.rent_zestimate)
+        appreciation_decade_pct = _coalesce(
+            appreciation_decade_pct, part.appreciation_decade_pct
+        )
         home_type = _coalesce_str(home_type, part.home_type)
         city = _coalesce_str(city, part.city)
         state = _coalesce_str(state, part.state)
@@ -839,6 +939,8 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         annual_insurance=annual_insurance,
         tax_assessed_value=tax_assessed_value,
         property_tax_rate=property_tax_rate,
+        rent_zestimate=rent_zestimate,
+        appreciation_decade_pct=appreciation_decade_pct,
     )
 
 
@@ -874,6 +976,8 @@ def extract_listing_details(html: str) -> ListingDetails:
             annual_insurance=merged.annual_insurance,
             tax_assessed_value=merged.tax_assessed_value,
             property_tax_rate=merged.property_tax_rate,
+            rent_zestimate=merged.rent_zestimate,
+            appreciation_decade_pct=merged.appreciation_decade_pct,
         )
     return merged
 

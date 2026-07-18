@@ -29,6 +29,20 @@ def effective_price(list_price: float, offer_price: float = 0.0) -> float:
     return max(0.0, float(list_price or 0))
 
 
+def down_payment_dollars(price: float, down_payment_pct: float) -> float:
+    """Convert a down-payment percent of ``price`` into dollars."""
+    if price <= 0:
+        return 0.0
+    return float(price) * (float(down_payment_pct or 0) / 100.0)
+
+
+def down_payment_pct_from_dollars(price: float, down_payment_dollars_amt: float) -> float:
+    """Convert a down-payment dollar amount into a percent of ``price``."""
+    if price <= 0:
+        return 0.0
+    return (float(down_payment_dollars_amt or 0) / float(price)) * 100.0
+
+
 def estimate_monthly_pmi(loan_amount: float, down_payment_pct: float) -> float:
     """Rough PMI: 0.5% of loan / year when down payment is under 20%."""
     if loan_amount <= 0 or down_payment_pct >= 20.0:
@@ -126,3 +140,84 @@ def summarize(
         total_interest=total_interest,
         schedule=schedule,
     )
+
+
+@dataclass(frozen=True)
+class BuyVsRentYear:
+    year: int
+    buy_net_worth: float
+    rent_invest_net_worth: float
+    home_value: float
+    loan_balance: float
+
+
+def blend_appreciation_rates(
+    fhfa_pct: float | None,
+    zillow_pct: float | None,
+    *,
+    default: float = 3.0,
+) -> tuple[float, str]:
+    rates: list[float] = []
+    if fhfa_pct is not None:
+        rates.append(float(fhfa_pct))
+    if zillow_pct is not None:
+        rates.append(float(zillow_pct))
+    if not rates:
+        return float(default), "Default"
+    blended = sum(rates) / len(rates)
+    if fhfa_pct is not None and zillow_pct is not None:
+        return blended, "FHFA+Zillow"
+    if fhfa_pct is not None:
+        return blended, "FHFA"
+    return blended, "Zillow"
+
+
+def buy_vs_rent_projection(
+    *,
+    summary: MortgageSummary,
+    appreciation_pct: float,
+    monthly_rent: float,
+    invest_return_pct: float = 10.0,
+    selling_cost_pct: float = 6.0,
+) -> list[BuyVsRentYear]:
+    # Infer horizon from amortization length (cash / empty schedule → year 0 only)
+    term_years = max(len(summary.schedule) // 12, 0)
+
+    price0 = float(summary.effective_price)
+    loan0 = float(summary.loan_amount)
+    sell = float(selling_cost_pct) / 100.0
+    appr = float(appreciation_pct) / 100.0
+    r_month = (float(invest_return_pct) / 100.0) / 12.0
+    piti = float(summary.monthly_total)
+    rent = float(monthly_rent or 0)
+    contrib = max(0.0, piti - rent)
+
+    # Balance lookup by month (1-indexed in schedule)
+    bal_by_month = {int(row["month"]): float(row["balance"]) for row in summary.schedule}
+
+    portfolio = float(summary.cash_to_close)
+    rows: list[BuyVsRentYear] = []
+
+    for year in range(0, term_years + 1):
+        home = price0 * ((1.0 + appr) ** year)
+        if year == 0:
+            bal = loan0
+        else:
+            bal = bal_by_month.get(year * 12, 0.0)
+        buy_nw = home - bal - sell * home
+        rows.append(
+            BuyVsRentYear(
+                year=year,
+                buy_net_worth=round(buy_nw, 2),
+                rent_invest_net_worth=round(portfolio, 2),
+                home_value=round(home, 2),
+                loan_balance=round(bal, 2),
+            )
+        )
+        if year == term_years:
+            break
+        # Advance 12 months of rent-path contributions + compounding
+        for _ in range(12):
+            portfolio = portfolio * (1.0 + r_month) + contrib
+
+    return rows

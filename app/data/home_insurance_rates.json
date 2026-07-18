@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "description": "Average annual homeowners (HO-3) premiums by US state, used to scale an estimate for a given home price.",
+    "formula": "estimate = avg_premium_usd * (list_price / reference_coverage_usd)",
+    "reference_coverage_usd": 300000,
+    "sources": [
+      "NAIC Dwelling Fire, Homeowners Owner-Occupied Report (recent data year averages as republished by III / consumer roundups)",
+      "https://content.naic.org/sites/default/files/publication-hmr-zu-homeowners-report.pdf"
+    ],
+    "notes": "Not a quote. Scales average premium linearly with price vs reference coverage. Prefer Zillow annualHomeownersInsurance when present."
+  },
+  "reference_coverage_usd": 300000,
+  "avg_premium_usd": {
+    "AL": 2651, "AK": 1423, "AZ": 2495, "AR": 3364, "CA": 2011,
+    "CO": 3499, "CT": 2140, "DE": 1600, "DC": 1798, "FL": 10968,
+    "GA": 2565, "HI": 1410, "ID": 1696, "IL": 2280, "IN": 2018,
+    "IA": 1936, "KS": 3430, "KY": 2785, "LA": 8665, "ME": 1405,
+    "MD": 1795, "MA": 2190, "MI": 2105, "MN": 2550, "MS": 3435,
+    "MO": 2820, "MT": 2320, "NE": 3380, "NV": 1785, "NH": 1490,
+    "NJ": 1785, "NM": 2310, "NY": 2105, "NC": 2315, "ND": 2325,
+    "OH": 1685, "OK": 4835, "OR": 1455, "PA": 1485, "RI": 2010,
+    "SC": 2560, "SD": 2410, "TN": 2655, "TX": 4375, "UT": 1410,
+    "VT": 1325, "VA": 1785, "WA": 1585, "WV": 1785, "WI": 1485,
+    "WY": 1785
+  }
+}

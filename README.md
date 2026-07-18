@@ -9,7 +9,7 @@ Modular Python app for researching homes linked from Zillow. Stores the **Zillow
 - Python 3.12+
 - Optional: `GOOGLE_MAPS_API_KEY` only if you want Google geocoding for Map pins (otherwise free Nominatim is used). Street View uses a **free** iframe embed — no Cloud billing.
 - Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API).
-- **Map income choropleth & Financials county tax estimate:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the Map income toggle shows a setup message and Financials falls back straight to the state insurance/list-price estimate for tax.
+- **Map income choropleth & Financials county tax estimate:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the Map income toggle shows a setup message and Financials skips the ACS county tax estimate (Zillow annual tax → assessed × rate only, else $0). Insurance autofill is separate: Zillow annual insurance → state average-premium table scaled to list price.
 - Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA County (LAPD Socrata + Santa Monica CKAN) and Seattle crime overlays.
 
 ## Setup (Windows)

@@ -20,8 +20,10 @@ from app.core.gemini_neighborhood import (
     generate_things_to_do,
 )
 from app.core.geocode import geocode_address, reverse_geocode_neighborhood
+from app.core.home_insurance import resolve_annual_insurance
 from app.core.models import FinancialAssumptions, Photo, Property
 from app.core.neighborhood import effective_neighborhood_name
+from app.core.property_tax import resolve_annual_property_tax
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
 from app.core.zillow_listing import (
     ListingDetails,
@@ -203,9 +205,6 @@ class PropertyService:
             prop.sqft = details.sqft
         if details.hoa_fee is not None:
             prop.hoa_fee = details.hoa_fee
-            # Seed financial HOA when still at the default zero.
-            if prop.financial is not None and (prop.financial.monthly_hoa or 0) == 0:
-                prop.financial.monthly_hoa = float(details.hoa_fee)
         if details.year_built is not None:
             prop.year_built = details.year_built
         if details.home_type:
@@ -223,6 +222,59 @@ class PropertyService:
             if not (prop.neighborhood_name or "").strip():
                 prop.neighborhood_name = details.neighborhood.strip()
                 prop.neighborhood_source = "zillow"
+        self._sync_financial_from_listing(prop, details)
+
+    def _sync_financial_from_listing(self, prop: Property, details: ListingDetails) -> None:
+        """Overwrite listing-derived Financials fields; never touch loan-term inputs."""
+        if prop.financial is None:
+            prop.financial = FinancialAssumptions()
+        fin = prop.financial
+
+        if details.list_price is not None and details.list_price > 0:
+            fin.list_price = float(details.list_price)
+            fin.purchase_price = float(details.list_price)
+        elif details.list_price is not None:
+            fin.list_price = 0.0
+            fin.purchase_price = 0.0
+
+        if details.hoa_fee is not None:
+            fin.monthly_hoa = float(details.hoa_fee)
+
+        price_for_tax = None
+        if fin.list_price and fin.list_price > 0:
+            price_for_tax = float(fin.list_price)
+        elif details.list_price and details.list_price > 0:
+            price_for_tax = float(details.list_price)
+        elif prop.list_price and prop.list_price > 0:
+            price_for_tax = float(prop.list_price)
+
+        tax_amt, tax_src = resolve_annual_property_tax(
+            annual_tax=details.annual_tax,
+            tax_assessed_value=details.tax_assessed_value,
+            property_tax_rate=details.property_tax_rate,
+            list_price=price_for_tax,
+            lat=prop.latitude,
+            lng=prop.longitude,
+        )
+        if tax_amt is not None and tax_amt > 0:
+            fin.annual_property_tax = float(tax_amt)
+            fin.property_tax_source = tax_src
+        else:
+            fin.annual_property_tax = 0.0
+            fin.property_tax_source = ""
+
+        state = (details.state or prop.state or "").strip()
+        ins_amt, ins_src = resolve_annual_insurance(
+            annual_insurance=details.annual_insurance,
+            list_price=price_for_tax,
+            state=state,
+        )
+        if ins_amt is not None and ins_amt > 0:
+            fin.annual_insurance = float(ins_amt)
+            fin.insurance_source = ins_src
+        else:
+            fin.annual_insurance = 0.0
+            fin.insurance_source = ""
 
     def _fill_location_from_address(self, prop: Property) -> None:
         if prop.city and prop.state:
@@ -240,6 +292,7 @@ class PropertyService:
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
+        details: ListingDetails | None = None
         try:
             details = fetch_listing_details(prop.zillow_url)
             self._apply_listing_details(prop, details)
@@ -247,6 +300,14 @@ class PropertyService:
             # Leave existing values; still try address parse fallback.
             pass
         self._fill_location_from_address(prop)
+        if prop.latitude is None or prop.longitude is None:
+            try:
+                self.ensure_coordinates(property_id)
+                prop = self.get_property(property_id) or prop
+            except Exception:
+                pass
+        if details is not None:
+            self._sync_financial_from_listing(prop, details)
         self.session.commit()
         self.session.refresh(prop)
         return prop
@@ -280,16 +341,18 @@ class PropertyService:
         self.session.refresh(prop)
 
         html: str | None = None
+        details_for_sync: ListingDetails | None = None
         try:
             html = fetch_listing_html(prop.zillow_url)
-            details = extract_listing_details(html)
-            self._apply_listing_details(prop, details)
+            details_for_sync = extract_listing_details(html)
+            self._apply_listing_details(prop, details_for_sync)
             self._fill_location_from_address(prop)
             self.session.commit()
             self.session.refresh(prop)
         except Exception:
             # Keep the home even if listing scrape fails; user can refresh/edit later.
             html = None
+            details_for_sync = None
 
         try:
             lat, lng = geocode_address(prop.address)
@@ -297,6 +360,11 @@ class PropertyService:
             prop.longitude = lng
             self.session.commit()
             self.session.refresh(prop)
+            if details_for_sync is not None:
+                # Re-sync now that coordinates exist, so ACS-based tax estimates can run.
+                self._sync_financial_from_listing(prop, details_for_sync)
+                self.session.commit()
+                self.session.refresh(prop)
         except ValueError:
             # Keep the home even if geocoding fails; Map tab can retry later.
             pass

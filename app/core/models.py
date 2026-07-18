@@ -84,15 +84,18 @@ class FinancialAssumptions(Base):
     )
     # Offer drives mortgage math; list is the asking/comp reference.
     # purchase_price is kept in sync with effective price for older rows/callers.
-    list_price: Mapped[float] = mapped_column(Float, default=500_000.0)
+    list_price: Mapped[float] = mapped_column(Float, default=0.0)
     offer_price: Mapped[float] = mapped_column(Float, default=0.0)
-    purchase_price: Mapped[float] = mapped_column(Float, default=500_000.0)
+    purchase_price: Mapped[float] = mapped_column(Float, default=0.0)
     down_payment_pct: Mapped[float] = mapped_column(Float, default=20.0)
     interest_rate_pct: Mapped[float] = mapped_column(Float, default=6.5)
     loan_term_years: Mapped[int] = mapped_column(Integer, default=30)
-    annual_property_tax: Mapped[float] = mapped_column(Float, default=6_000.0)
-    annual_insurance: Mapped[float] = mapped_column(Float, default=1_800.0)
+    annual_property_tax: Mapped[float] = mapped_column(Float, default=0.0)
+    annual_insurance: Mapped[float] = mapped_column(Float, default=0.0)
     monthly_hoa: Mapped[float] = mapped_column(Float, default=0.0)
     closing_cost_pct: Mapped[float] = mapped_column(Float, default=3.0)
+    # Source labels for tax/insurance resolution (e.g. "Zillow", "Estimated: ACS county").
+    property_tax_source: Mapped[str] = mapped_column(String(64), default="")
+    insurance_source: Mapped[str] = mapped_column(String(64), default="")
 
     property: Mapped[Property] = relationship(back_populates="financial")

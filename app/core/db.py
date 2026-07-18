@@ -216,3 +216,11 @@ def _migrate_sqlite() -> None:
                     WHERE purchase_price IS NOT NULL AND purchase_price > 0
                     """
                 )
+            if "property_tax_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN property_tax_source VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            if "insurance_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN insurance_source VARCHAR(64) NOT NULL DEFAULT ''"
+                )

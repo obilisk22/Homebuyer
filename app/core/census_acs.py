@@ -96,6 +96,85 @@ def parse_acs_tract_rows(rows: list[list[str]]) -> dict[str, float | None]:
     return out
 
 
+def county_fips_for(lat: float, lng: float) -> tuple[str, str]:
+    """Public wrapper: (state_fips, county_fips) via FCC block API."""
+    return _fcc_fips(lat, lng)
+
+
+def _parse_acs_missing(raw: object) -> float | None:
+    if raw is None or raw == "" or raw is False:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # Census sentinel for missing / not available
+    if val < -1_000_000:
+        return None
+    if val <= 0:
+        return None
+    return val
+
+
+def county_effective_property_tax_rate(lat: float, lng: float) -> float | None:
+    """Median real-estate taxes / median home value for the pin's county (ACS 5-year).
+
+    Tables: B25103_001E (median real estate taxes), B25077_001E (median value).
+    Requires CENSUS_API_KEY. Returns None on any failure.
+    """
+    if not has_census_key():
+        return None
+    try:
+        state_fips, county_fips = _fcc_fips(lat, lng)
+    except Exception:
+        return None
+
+    key = cache_key("acs", ACS_YEAR, state_fips, county_fips, "B25103_B25077")
+    cached = read_json("acs_tax_rate", key, max_age_s=CACHE_MAX_AGE_S)
+    if isinstance(cached, dict) and "rate" in cached:
+        rate = cached.get("rate")
+        return float(rate) if rate is not None else None
+
+    url = f"https://api.census.gov/data/{ACS_DATASET}"
+    params = {
+        "get": "NAME,B25103_001E,B25077_001E",
+        "for": f"county:{county_fips}",
+        "in": f"state:{state_fips}",
+        "key": census_api_key(),
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_S)
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+    header, data = rows[0], rows[1]
+    try:
+        tax_i = header.index("B25103_001E")
+        val_i = header.index("B25077_001E")
+    except ValueError:
+        return None
+    median_tax = _parse_acs_missing(data[tax_i])
+    median_value = _parse_acs_missing(data[val_i])
+    rate: float | None = None
+    if median_tax is not None and median_value is not None and median_value > 0:
+        rate = median_tax / median_value
+    write_json(
+        "acs_tax_rate",
+        key,
+        {
+            "rate": rate,
+            "median_tax": median_tax,
+            "median_value": median_value,
+            "name": data[header.index("NAME")] if "NAME" in header else "",
+        },
+    )
+    return rate
+
+
 def _fcc_fips(lat: float, lng: float) -> tuple[str, str]:
     """Return (state_fips, county_fips) via FCC block API (no key)."""
     key = cache_key("fcc", f"{lat:.4f}", f"{lng:.4f}")

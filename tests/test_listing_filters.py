@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from app.core.property_service import property_matches_filters
 from app.core.zillow_listing import (
     extract_listing_details,
@@ -197,3 +199,37 @@ def test_filter_price_and_beds():
     assert not property_matches_filters(prop, max_price=500_000)
     assert not property_matches_filters(prop, min_beds=4)
     assert not property_matches_filters(_prop(list_price=None), min_price=100_000)
+
+
+SAMPLE_TAX_INSURANCE_GDP = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"zpid\":1,\"price\":1200000,\"monthlyHoaFee\":250,\"taxAnnualAmount\":11004,\"taxAssessedValue\":1214000,\"propertyTaxRate\":0.82,\"annualHomeownersInsurance\":2400,\"taxHistory\":[{\"time\":1752811412428,\"taxPaid\":12853.69,\"value\":1214000},{\"time\":1700000000000,\"taxPaid\":11054.17,\"value\":1100000}]}"}}}}
+</script>
+"""
+
+
+def test_extract_tax_insurance_and_assessed_from_gdp():
+    details = extract_listing_details(SAMPLE_TAX_INSURANCE_GDP)
+    assert details.list_price == 1_200_000
+    assert details.hoa_fee == 250
+    # Prefer latest taxHistory.taxPaid over taxAnnualAmount when history present
+    assert details.annual_tax == 12853.69
+    assert details.tax_assessed_value == 1_214_000
+    # 0.82 means 0.82% → 0.0082
+    assert details.property_tax_rate == pytest.approx(0.0082)
+    assert details.annual_insurance == 2400
+
+
+def test_extract_tax_annual_when_no_history():
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"componentProps":{"gdpClientCache":"'
+        '{\\"zpid\\":2,\\"taxAnnualAmount\\":9000,\\"propertyTaxRate\\":1.1,'
+        '\\"taxAssessedValue\\":800000}"'
+        '}}}}'
+        "</script>"
+    )
+    details = extract_listing_details(html)
+    assert details.annual_tax == 9000
+    assert details.property_tax_rate == pytest.approx(0.011)
+    assert details.tax_assessed_value == 800_000

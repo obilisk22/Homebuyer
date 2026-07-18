@@ -180,6 +180,11 @@ _PROPERTY_FACT_KEYS = (
     "bathrooms",
     "price",
     "zpid",
+    "taxAnnualAmount",
+    "taxAssessedValue",
+    "propertyTaxRate",
+    "annualHomeownersInsurance",
+    "taxHistory",
 )
 
 
@@ -197,6 +202,10 @@ class ListingDetails:
     zip_code: str = ""
     address: str = ""
     neighborhood: str = ""
+    annual_tax: float | None = None
+    annual_insurance: float | None = None
+    tax_assessed_value: float | None = None
+    property_tax_rate: float | None = None
 
     def any_present(self) -> bool:
         return bool(
@@ -212,6 +221,10 @@ class ListingDetails:
             or self.zip_code
             or self.address
             or self.neighborhood
+            or self.annual_tax is not None
+            or self.annual_insurance is not None
+            or self.tax_assessed_value is not None
+            or self.property_tax_rate is not None
         )
 
 
@@ -256,6 +269,56 @@ def _coalesce_str(*values: str | None) -> str:
         if value and str(value).strip():
             return str(value).strip()
     return ""
+
+
+def _normalize_property_tax_rate(raw: object) -> float | None:
+    rate = _parse_float(raw)
+    if rate is None or rate <= 0:
+        return None
+    # Zillow samples use percent units (0.82 → 0.82%); fractions stay as-is.
+    if rate > 0.2:
+        rate = rate / 100.0
+    return rate
+
+
+def _annual_tax_from_property_dict(d: dict) -> float | None:
+    history = d.get("taxHistory")
+    best_paid: float | None = None
+    best_time: float | None = None
+    if isinstance(history, list):
+        for row in history:
+            if not isinstance(row, dict):
+                continue
+            paid = _parse_float(row.get("taxPaid") or row.get("taxAmount"))
+            if paid is None or paid <= 0:
+                continue
+            t = _parse_float(row.get("time")) or 0.0
+            if best_paid is None or t >= (best_time or 0):
+                best_paid = paid
+                best_time = t
+    if best_paid is not None:
+        return best_paid
+    for key in ("taxAnnualAmount", "annualTax", "taxAmount"):
+        val = _parse_float(d.get(key))
+        if val is not None and val > 0:
+            return val
+    reso = d.get("resoFacts")
+    if isinstance(reso, dict):
+        for key in ("taxAnnualAmount", "annualTax"):
+            val = _parse_float(reso.get(key))
+            if val is not None and val > 0:
+                return val
+    return None
+
+
+def _annual_insurance_from_property_dict(d: dict) -> float | None:
+    val = _parse_float(d.get("annualHomeownersInsurance"))
+    if val is not None:
+        return val
+    reso = d.get("resoFacts")
+    if isinstance(reso, dict):
+        return _parse_float(reso.get("annualHomeownersInsurance"))
+    return None
 
 
 def normalize_home_type(raw: object) -> str:
@@ -393,6 +456,12 @@ def _details_from_property_dict(obj: dict) -> ListingDetails:
         state=state,
         zip_code=zip_code,
         neighborhood=neighborhood,
+        annual_tax=_annual_tax_from_property_dict(obj),
+        annual_insurance=_annual_insurance_from_property_dict(obj),
+        tax_assessed_value=_parse_float(
+            obj.get("taxAssessedValue") or obj.get("assessedValue")
+        ),
+        property_tax_rate=_normalize_property_tax_rate(obj.get("propertyTaxRate")),
     )
 
 
@@ -734,6 +803,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
     """Prefer earlier sources; fill gaps from later ones."""
     price = beds = baths = sqft = hoa = None
     year: int | None = None
+    annual_tax = annual_insurance = tax_assessed_value = property_tax_rate = None
     city = state = zip_code = address = neighborhood = home_type = ""
     for part in parts:
         price = _coalesce(price, part.list_price)
@@ -742,6 +812,10 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         sqft = _coalesce(sqft, part.sqft)
         hoa = _coalesce(hoa, part.hoa_fee)
         year = _coalesce_int(year, part.year_built)
+        annual_tax = _coalesce(annual_tax, part.annual_tax)
+        annual_insurance = _coalesce(annual_insurance, part.annual_insurance)
+        tax_assessed_value = _coalesce(tax_assessed_value, part.tax_assessed_value)
+        property_tax_rate = _coalesce(property_tax_rate, part.property_tax_rate)
         home_type = _coalesce_str(home_type, part.home_type)
         city = _coalesce_str(city, part.city)
         state = _coalesce_str(state, part.state)
@@ -761,6 +835,10 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         zip_code=zip_code,
         address=address,
         neighborhood=neighborhood,
+        annual_tax=annual_tax,
+        annual_insurance=annual_insurance,
+        tax_assessed_value=tax_assessed_value,
+        property_tax_rate=property_tax_rate,
     )
 
 
@@ -792,6 +870,10 @@ def extract_listing_details(html: str) -> ListingDetails:
             zip_code=merged.zip_code,
             address=merged.address,
             neighborhood=neighborhood,
+            annual_tax=merged.annual_tax,
+            annual_insurance=merged.annual_insurance,
+            tax_assessed_value=merged.tax_assessed_value,
+            property_tax_rate=merged.property_tax_rate,
         )
     return merged
 

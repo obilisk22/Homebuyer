@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from app.core import db
 from app.core.models import FinancialAssumptions, Property
 from app.core.property_service import PropertyService
@@ -95,3 +93,30 @@ def test_sync_keeps_hoa_when_listing_omits_hoa(tmp_path, monkeypatch):
     assert fin.list_price == 200_000
     assert fin.annual_property_tax == 0.0
     assert fin.annual_insurance == 0.0
+
+
+def test_update_financial_clears_source_captions_on_manual_save(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(address="1 Test St, Seattle, WA 98101", zillow_url="https://www.zillow.com/homedetails/x_3_zpid/")
+    fin = FinancialAssumptions(
+        list_price=500_000,
+        annual_property_tax=9_000.0,
+        annual_insurance=3_000.0,
+        property_tax_source="Zillow",
+        insurance_source="Zillow",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    svc = PropertyService(session)
+    updated = svc.update_financial(
+        prop.id,
+        annual_property_tax=12_000.0,
+        annual_insurance=4_500.0,
+    )
+
+    assert updated.annual_property_tax == 12_000.0
+    assert updated.annual_insurance == 4_500.0
+    assert updated.property_tax_source == ""
+    assert updated.insurance_source == ""

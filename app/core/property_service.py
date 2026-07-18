@@ -686,6 +686,10 @@ class PropertyService:
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
+        if "annual_property_tax" in fields:
+            fin.property_tax_source = ""
+        if "annual_insurance" in fields:
+            fin.insurance_source = ""
         self.session.commit()
         self.session.refresh(fin)
         return fin

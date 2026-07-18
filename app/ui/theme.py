@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nicegui import ui
 
 from app.core.map_basemap import FULLSCREEN_ICON_URL
@@ -29,8 +31,76 @@ COLORS = {
 }
 
 _THEME_APPLIED_ATTR = "_homebuy_theme_applied"
+_FONTS_DIR = Path(__file__).resolve().parents[1] / "static" / "fonts"
+
+# (family, relative path under fonts/, weight)
+_FONT_CANDIDATES: list[tuple[str, str, int]] = [
+    ("Creato Display", "creato_display/CreatoDisplay-Thin.otf", 100),
+    ("Creato Display", "creato_display/CreatoDisplay-Light.otf", 300),
+    ("Creato Display", "creato_display/CreatoDisplay-Regular.otf", 400),
+    ("Creato Display", "creato_display/CreatoDisplay-Medium.otf", 500),
+    ("Creato Display", "creato_display/CreatoDisplay-Bold.otf", 700),
+    ("Creato Display", "creato_display/CreatoDisplay-ExtraBold.otf", 800),
+    ("Creato Display", "creato_display/CreatoDisplay-Black.otf", 900),
+    # Flat fallbacks if files are moved to fonts/ root
+    ("Creato Display", "CreatoDisplay-Regular.otf", 400),
+    ("Creato Display", "CreatoDisplay-Medium.otf", 500),
+    ("Creato Display", "CreatoDisplay-Bold.otf", 700),
+    ("Akira Expanded", "akira_expanded/Akira Expanded Demo.otf", 700),
+    ("Akira Expanded", "Akira Expanded Demo.otf", 700),
+    ("Akira Expanded", "AkiraExpanded.otf", 700),
+]
+
+
+def _font_face(family: str, rel_path: str, weight: int | str) -> str:
+    path = _FONTS_DIR / rel_path
+    if not path.is_file():
+        return ""
+    # CSS url path: encode spaces in filenames
+    url_path = "/static/fonts/" + "/".join(
+        part.replace(" ", "%20") for part in Path(rel_path).parts
+    )
+    return f"""
+@font-face {{
+  font-family: "{family}";
+  src: url("{url_path}") format("opentype");
+  font-weight: {weight};
+  font-style: normal;
+  font-display: swap;
+}}
+"""
+
+
+def _build_font_faces() -> str:
+    """Emit @font-face rules for every font file found on disk."""
+    chunks: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for family, rel_path, weight in _FONT_CANDIDATES:
+        key = (family, rel_path, str(weight))
+        if key in seen:
+            continue
+        seen.add(key)
+        face = _font_face(family, rel_path, weight)
+        if not face:
+            continue
+        chunks.append(face)
+        # Single-cut display fonts (Akira Super Bold): map all common
+        # weights to the same file so Quasar/body weights still match.
+        if family == "Akira Expanded":
+            for w in (400, 500, 600, 700, 800, 900):
+                if w == weight:
+                    continue
+                extra = _font_face(family, rel_path, w)
+                if extra:
+                    chunks.append(extra)
+    return "".join(chunks)
+
+
+_FONT_FACES = _build_font_faces()
+
 
 _CSS = f"""
+{_FONT_FACES}
 :root {{
   --hb-bg: {COLORS["bg"]};
   --hb-bg-elevated: {COLORS["bg_elevated"]};
@@ -44,6 +114,30 @@ _CSS = f"""
   --hb-neon-2: {COLORS["neon_2"]};
   --hb-neon-3: {COLORS["neon_3"]};
   --hb-amber: {NEON["amber"]};
+  --hb-font-display: "Akira Expanded", Impact, system-ui, sans-serif;
+  --hb-font-body: "Creato Display", system-ui, sans-serif;
+  --hb-library-address-size: clamp(1.35rem, 4vw, 2.5rem);
+  --hb-library-price-size: 1.35rem;
+  --hb-space-1: 0.25rem;
+  --hb-space-2: 0.5rem;
+  --hb-space-3: 0.75rem;
+  --hb-space-4: 1rem;
+  /* Dark neumorphism — soft extrusion on near-black */
+  --hb-neo-face: #14181f;
+  --hb-neo-dark: #080a0d;
+  --hb-neo-light: #1e2530;
+  --hb-neo-out:
+    5px 5px 12px var(--hb-neo-dark),
+    -4px -4px 10px var(--hb-neo-light);
+  --hb-neo-out-sm:
+    3px 3px 7px var(--hb-neo-dark),
+    -2px -2px 6px var(--hb-neo-light);
+  --hb-neo-in:
+    inset 4px 4px 9px var(--hb-neo-dark),
+    inset -3px -3px 7px var(--hb-neo-light);
+  --hb-neo-in-sm:
+    inset 2px 2px 5px var(--hb-neo-dark),
+    inset -2px -2px 4px var(--hb-neo-light);
 }}
 
 body,
@@ -51,6 +145,7 @@ body.body--dark,
 .q-body--dark {{
   background: var(--hb-bg) !important;
   color: var(--hb-text);
+  font-family: var(--hb-font-body);
 }}
 
 .nicegui-content {{
@@ -75,31 +170,226 @@ body.body--dark,
 }}
 
 .hb-brand {{
+  font-family: "Akira Expanded", var(--hb-font-display) !important;
   color: var(--hb-neon) !important;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-shadow: 0 0 12px rgba(0, 229, 255, 0.45);
-  font-weight: 600;
+  font-weight: 800 !important;
+  font-size: 1.05rem;
+  font-synthesis: none;
 }}
 
 .hb-header-title {{
+  font-family: var(--hb-font-body);
   color: var(--hb-text-muted) !important;
+  font-weight: 500;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
 }}
 
-/* Cards / surfaces */
+/* Page chrome — Creato headings, shared library shell */
+.hb-page-title {{
+  font-family: var(--hb-font-body);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--hb-text);
+  line-height: 1.2;
+}}
+
+.hb-page-meta {{
+  font-family: var(--hb-font-body);
+  font-size: 0.875rem;
+  color: var(--hb-text-muted);
+}}
+
+.hb-page-hint {{
+  font-family: var(--hb-font-body);
+  font-size: 0.875rem;
+  color: var(--hb-text-muted);
+  line-height: 1.4;
+}}
+
+.hb-section-title {{
+  font-family: var(--hb-font-body);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--hb-text);
+  margin-top: 0.25rem;
+}}
+
+/* Gemini output — Creato body hierarchy (no Akira; AI text is L3 content) */
+.hb-gemini-prose {{
+  font-family: var(--hb-font-body);
+  color: var(--hb-text);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  max-width: 52rem;
+}}
+
+.hb-gemini-prose p {{
+  margin: 0 0 0.75rem;
+  color: var(--hb-text);
+}}
+
+.hb-gemini-prose p:last-child {{
+  margin-bottom: 0;
+}}
+
+.hb-gemini-prose h1,
+.hb-gemini-prose h2,
+.hb-gemini-prose h3,
+.hb-gemini-prose h4 {{
+  font-family: var(--hb-font-body);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--hb-text);
+  line-height: 1.25;
+  margin: 1rem 0 0.45rem;
+}}
+
+.hb-gemini-prose h1 {{ font-size: 1.25rem; }}
+.hb-gemini-prose h2 {{ font-size: 1.1rem; }}
+.hb-gemini-prose h3,
+.hb-gemini-prose h4 {{
+  font-size: 1rem;
+  color: var(--hb-neon);
+  text-shadow: none;
+  font-weight: 600;
+}}
+
+.hb-gemini-prose ul,
+.hb-gemini-prose ol {{
+  margin: 0.35rem 0 0.85rem;
+  padding-left: 1.25rem;
+}}
+
+.hb-gemini-prose li {{
+  margin: 0.25rem 0;
+  color: var(--hb-text);
+}}
+
+.hb-gemini-prose strong {{
+  font-weight: 700;
+  color: var(--hb-text);
+}}
+
+.hb-gemini-prose a {{
+  color: var(--hb-neon);
+  text-decoration: none;
+}}
+
+.hb-gemini-prose a:hover {{
+  color: var(--hb-neon-3);
+}}
+
+.hb-gemini-prose--stale {{
+  color: var(--hb-text-muted);
+  opacity: 0.85;
+}}
+
+.hb-gemini-prose--stale h1,
+.hb-gemini-prose--stale h2,
+.hb-gemini-prose--stale h3,
+.hb-gemini-prose--stale h4,
+.hb-gemini-prose--stale strong {{
+  color: var(--hb-text-muted);
+}}
+
+.hb-library-shell {{
+  width: 100%;
+  max-width: 72rem; /* ~max-w-6xl — room for Akira streets */
+  margin-left: auto;
+  margin-right: auto;
+}}
+
+.hb-property-shell {{
+  width: 100%;
+  max-width: 80rem;
+  margin-left: auto;
+  margin-right: auto;
+}}
+
+/* Financials form: 2×2 for four sections (Your deal / Loan / Ownership / Buy vs rent) */
+.hb-financial-form {{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  align-items: start;
+}}
+
+.hb-financial-form__deal {{
+  min-width: 0;
+}}
+
+@media (max-width: 900px) {{
+  .hb-financial-form {{
+    grid-template-columns: 1fr;
+  }}
+}}
+
+.hb-add-card {{
+  padding: 0.7rem 0.85rem !important;
+}}
+
+.hb-add-card .q-card__section {{
+  padding: 0 !important;
+}}
+
+/* Add-home card stays flat — not a listing */
+.hb-add-card:hover {{
+  border-color: var(--hb-border) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35) !important;
+  transform: none !important;
+}}
+
+.hb-toolbar-row {{
+  gap: 0.75rem;
+  align-items: center;
+}}
+
+.hb-empty-state {{
+  font-family: var(--hb-font-body);
+  color: var(--hb-text-muted);
+  font-size: 0.95rem;
+  padding: 1.25rem 0.5rem;
+  border: 1px dashed var(--hb-border);
+  border-radius: 10px;
+  background: rgba(28, 34, 44, 0.35);
+  text-align: center;
+}}
+
+/* Single focus ring language (L1) */
+.q-btn:focus-visible,
+.q-field--outlined.q-field--focused .q-field__control:before,
+a:focus-visible {{
+  outline: none;
+}}
+.q-btn:focus-visible {{
+  box-shadow: 0 0 0 2px var(--hb-bg), 0 0 0 4px var(--hb-neon), 0 0 14px rgba(0, 229, 255, 0.35);
+}}
+
+/* Cards / surfaces — no always-on cyan hairline; L2 hover only on library cards */
 .q-card {{
   background: var(--hb-surface) !important;
   color: var(--hb-text);
   border: 1px solid var(--hb-border);
   border-radius: 10px;
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.04), 0 8px 28px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }}
 
 .q-card:hover {{
-  border-color: rgba(0, 229, 255, 0.28);
-  box-shadow: 0 0 16px rgba(0, 229, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.4);
+  border-color: var(--hb-border);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }}
 
-/* Inputs */
+/* Inputs — labels ABOVE the box; value / $/% / spinner centered inside */
+.q-field {{
+  font-family: var(--hb-font-body);
+}}
+
 .q-field--outlined .q-field__control {{
   background: var(--hb-surface-2);
   border-radius: 8px;
@@ -115,11 +405,119 @@ body.body--dark,
   box-shadow: 0 0 0 1px var(--hb-neon), 0 0 14px rgba(0, 229, 255, 0.25);
 }}
 
+/* Room above the control so labels never sit on the border */
+.q-field--outlined.q-field--labeled:not(.q-textarea) {{
+  padding-top: 1.15rem;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__control {{
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  align-items: center;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__control-container {{
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}}
+
+/* Label sits fully above the outlined box (no border tangent) */
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__label {{
+  top: -1.2rem !important;
+  left: 0 !important;
+  right: auto !important;
+  max-width: 100%;
+  transform: none !important;
+  font-size: 0.78rem !important;
+  font-weight: 500;
+  line-height: 1.2 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__native,
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__input {{
+  min-height: 0 !important;
+  height: 100% !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 40px !important;
+  display: flex;
+  align-items: center;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__prefix,
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__suffix {{
+  display: flex;
+  align-items: center;
+  align-self: center;
+  height: 40px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 40px !important;
+  color: var(--hb-text-muted) !important;
+  opacity: 0.9;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__marginal {{
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  align-items: center;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__append,
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__prepend {{
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 40px;
+  padding: 0 2px;
+}}
+
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__append .q-btn,
+.q-field--outlined.q-field--labeled:not(.q-textarea) .q-field__prepend .q-btn {{
+  padding: 0;
+  min-height: 16px;
+  max-height: 16px;
+  line-height: 16px;
+}}
+
+/* Unlabeled single-line fields (rare) — same 40px center */
+.q-field--outlined:not(.q-field--labeled):not(.q-textarea) .q-field__control {{
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  align-items: center;
+}}
+
+.q-field--with-bottom {{
+  padding-bottom: 8px;
+}}
+
+/* Captions under fields — clear of the control / spinner */
+.q-field + .hb-page-meta,
+.q-field + .hb-page-hint {{
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}}
+
 .q-field__native,
 .q-field__input,
 .q-field__label,
 .q-placeholder {{
   color: var(--hb-text) !important;
+  font-family: var(--hb-font-body);
 }}
 
 .q-field__label {{
@@ -130,46 +528,185 @@ body.body--dark,
   color: var(--hb-neon) !important;
 }}
 
-/* Buttons — soft neon on interactive */
+.q-select .q-field__native {{
+  line-height: 40px !important;
+}}
+
+/* Buttons — dark neumorphism (raised face; neon only for hierarchy) */
+.q-btn {{
+  font-family: var(--hb-font-body) !important;
+  border-radius: 10px !important;
+  transition:
+    box-shadow 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+}}
+
+.q-btn:not(.q-btn--round):not(.q-btn--dense) {{
+  min-height: 2.35rem;
+}}
+
+/* Default / unelevated — extruded soft face */
+.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline),
+.q-btn--standard:not(.bg-primary),
+.q-btn.bg-grey-9,
+.q-btn.bg-dark {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text) !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+}}
+
+.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline):hover,
+.q-btn--standard:not(.bg-primary):hover,
+.q-btn.bg-grey-9:hover,
+.q-btn.bg-dark:hover {{
+  background: #171c25 !important;
+  box-shadow: var(--hb-neo-out) !important;
+}}
+
+.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline):active,
+.q-btn--standard:not(.bg-primary):active,
+.q-btn.bg-grey-9:active,
+.q-btn.bg-dark:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+  transform: translateY(1px);
+}}
+
+/* Primary CTA — raised neo + cyan emission (L2) */
 .q-btn--unelevated.bg-primary,
 .q-btn.bg-primary {{
-  box-shadow: 0 0 14px rgba(0, 229, 255, 0.35);
-}}
-
-.q-btn--outline {{
-  border-color: var(--hb-neon) !important;
+  background: linear-gradient(160deg, #1a2430 0%, #121820 100%) !important;
   color: var(--hb-neon) !important;
-}}
-
-.q-btn--outline:hover {{
-  background: rgba(0, 229, 255, 0.08) !important;
-  box-shadow: 0 0 12px rgba(0, 229, 255, 0.2);
-}}
-
-.q-btn--flat:hover {{
-  background: rgba(0, 229, 255, 0.1) !important;
-}}
-
-/* Tabs */
-.q-tabs {{
-  border-bottom: 1px solid var(--hb-border);
-}}
-
-.q-tab {{
-  color: var(--hb-text-muted) !important;
-  text-transform: none;
-  letter-spacing: 0.02em;
-}}
-
-.q-tab--active {{
-  color: var(--hb-neon) !important;
+  border: 1px solid rgba(0, 229, 255, 0.28) !important;
+  box-shadow:
+    var(--hb-neo-out-sm),
+    0 0 14px rgba(0, 229, 255, 0.22) !important;
   text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
 }}
 
+.q-btn--unelevated.bg-primary:hover,
+.q-btn.bg-primary:hover {{
+  background: linear-gradient(160deg, #1e2a38 0%, #151c26 100%) !important;
+  border-color: rgba(0, 229, 255, 0.45) !important;
+  box-shadow:
+    var(--hb-neo-out),
+    0 0 18px rgba(0, 229, 255, 0.32) !important;
+}}
+
+.q-btn--unelevated.bg-primary:active,
+.q-btn.bg-primary:active {{
+  box-shadow:
+    var(--hb-neo-in-sm),
+    0 0 10px rgba(0, 229, 255, 0.18) !important;
+  transform: translateY(1px);
+}}
+
+/* Outline — extruded ring, cyan stroke */
+.q-btn--outline {{
+  background: var(--hb-neo-face) !important;
+  border-color: rgba(0, 229, 255, 0.45) !important;
+  color: var(--hb-neon) !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+}}
+
+.q-btn--outline:hover {{
+  background: #171c25 !important;
+  border-color: var(--hb-neon) !important;
+  box-shadow:
+    var(--hb-neo-out),
+    0 0 12px rgba(0, 229, 255, 0.18) !important;
+}}
+
+.q-btn--outline:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+  transform: translateY(1px);
+}}
+
+/* Flat — quieter; light neo on hover only */
+.q-btn--flat {{
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--hb-text-muted) !important;
+}}
+
+.q-btn--flat:hover {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text) !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+}}
+
+.q-btn--flat:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+}}
+
+/* Round icon buttons — circular extrusion */
+.q-btn--round {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text-muted) !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+}}
+
+.q-btn--round:hover {{
+  color: var(--hb-neon) !important;
+  box-shadow:
+    var(--hb-neo-out),
+    0 0 10px rgba(0, 229, 255, 0.15) !important;
+}}
+
+.q-btn--round:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+}}
+
+/* Number-field spinners stay flat (too small for neo) */
+.q-field__append .q-btn,
+.q-field__prepend .q-btn {{
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 4px !important;
+  min-height: 16px !important;
+  transform: none !important;
+}}
+
+/* Tabs — extruded / pressed pills (no recessed tray) */
+.q-tabs {{
+  border-bottom: none;
+  padding: 2px 0 6px;
+  background: transparent;
+  box-shadow: none;
+  margin-bottom: 0.35rem;
+}}
+
+.q-tabs .q-tab {{
+  color: var(--hb-text-muted) !important;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--hb-font-body);
+  border-radius: 9px;
+  margin: 0 3px;
+  min-height: 2.4rem;
+  background: var(--hb-neo-face);
+  box-shadow: var(--hb-neo-out-sm);
+  transition:
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}}
+
+.q-tabs .q-tab:hover {{
+  color: var(--hb-text) !important;
+  box-shadow: var(--hb-neo-out);
+}}
+
+.q-tabs .q-tab--active {{
+  color: var(--hb-neon) !important;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+  background: #12161d;
+  box-shadow: var(--hb-neo-in-sm);
+}}
+
 .q-tab__indicator {{
-  background: var(--hb-neon) !important;
-  box-shadow: 0 0 10px rgba(0, 229, 255, 0.55);
-  height: 2px;
+  display: none;
 }}
 
 .q-tab-panels {{
@@ -203,7 +740,6 @@ a {{
 
 a:hover {{
   color: var(--hb-neon-3);
-  text-shadow: 0 0 8px rgba(184, 255, 60, 0.35);
 }}
 
 /* Muted / secondary text overrides for Quasar grey helpers */
@@ -236,73 +772,141 @@ a:hover {{
 
 /* Library — list-style home cards */
 .hb-library-card {{
-  padding: 0.85rem 1.1rem;
+  padding: 0.7rem 0.85rem;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }}
 
 .hb-library-card:hover {{
-  border-color: rgba(0, 229, 255, 0.55) !important;
-  box-shadow: 0 0 22px rgba(0, 229, 255, 0.18), 0 10px 32px rgba(0, 0, 0, 0.45) !important;
+  border-color: rgba(0, 229, 255, 0.45) !important;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.12), 0 10px 32px rgba(0, 0, 0, 0.45) !important;
   transform: translateY(-1px);
-}}
-
-.hb-library-thumb {{
-  width: 180px;
-  height: 135px;
-  min-width: 180px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--hb-border);
-  flex-shrink: 0;
-}}
-
-.hb-library-thumb--empty {{
-  width: 180px;
-  height: 135px;
-  min-width: 180px;
-  border-radius: 8px;
-  border: 1px dashed var(--hb-border);
-  background: var(--hb-surface-2);
-  color: var(--hb-text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
 }}
 
 .hb-library-card-body {{
   flex-grow: 1;
   min-width: 0;
+  align-items: stretch;
+}}
+
+/* Thumb stretches to match the text column height beside it */
+.hb-library-thumb-wrap {{
+  width: clamp(168px, 20vw, 220px);
+  min-width: 168px;
+  flex-shrink: 0;
+  align-self: stretch;
+  border-radius: 8px;
+  border: 1px solid var(--hb-border);
+  overflow: hidden;
+  background: var(--hb-surface-2);
+}}
+
+.hb-library-thumb-wrap--empty {{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--hb-text-muted);
+}}
+
+.hb-library-thumb {{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border: none;
+  border-radius: 0;
+}}
+
+.hb-library-address {{
+  font-family: "Akira Expanded", var(--hb-font-display) !important;
+  font-size: var(--hb-library-address-size);
+  font-weight: 800 !important;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: var(--hb-text);
+  font-synthesis: none;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}}
+
+/* Stack library card row on narrow viewports (overrides Quasar flex-nowrap) */
+@media (max-width: 800px) {{
+  .hb-library-card .flex-nowrap {{
+    flex-wrap: wrap !important;
+  }}
+
+  .hb-library-card-body {{
+    width: 100%;
+    flex-basis: 100%;
+    flex-wrap: wrap !important;
+  }}
+
+  .hb-library-thumb-wrap {{
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 180px;
+    align-self: stretch;
+  }}
+}}
+
+.hb-library-place {{
+  font-family: var(--hb-font-body);
+  font-size: 0.8rem;
+  color: var(--hb-text-muted);
+  margin-top: 0.1rem;
 }}
 
 .hb-library-price {{
+  font-family: var(--hb-font-body);
+  font-size: var(--hb-library-price-size);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
   color: var(--hb-neon) !important;
-  font-weight: 700;
-  text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.25);
+  margin-top: 0.15rem;
+  font-synthesis: none;
 }}
 
 .hb-meta-chip {{
+  font-family: var(--hb-font-body);
   background: var(--hb-surface-2);
-  border: 1px solid var(--hb-border);
+  border: 1px solid rgba(42, 51, 64, 0.95);
   border-radius: 999px;
-  padding: 0.15rem 0.65rem;
-  font-size: 0.78rem;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--hb-text);
   white-space: nowrap;
 }}
 
 .hb-meta-chip--quiet {{
   color: var(--hb-text-muted);
+  opacity: 0.85;
   border-color: transparent;
   background: transparent;
-  padding: 0.15rem 0.2rem;
+  padding: 0.12rem 0.25rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }}
 
 .hb-meta-chip--hoa-high {{
   color: var(--hb-amber) !important;
   border-color: rgba(255, 193, 7, 0.55);
   background: rgba(255, 193, 7, 0.12);
+  opacity: 1;
+  font-weight: 600;
+}}
+
+.hb-library-notes {{
+  font-family: var(--hb-font-body);
+  font-size: 0.8rem;
+  color: var(--hb-text-muted);
+  opacity: 0.9;
+  line-height: 1.35;
 }}
 
 .hb-photo-card--library-thumb {{
@@ -336,7 +940,14 @@ a:hover {{
   width: 100%;
   max-width: none;
   margin: 0;
+  padding: 0 !important;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}}
+
+.hb-photo-frame {{
+  position: relative;
+  width: 100%;
+  line-height: 0;
 }}
 
 .hb-photo-thumb {{
@@ -347,8 +958,44 @@ a:hover {{
   display: block;
 }}
 
+.hb-photo-pin {{
+  position: absolute !important;
+  top: 0.35rem !important;
+  right: 0.35rem !important;
+  z-index: 2;
+  min-height: 1.5rem !important;
+  min-width: 1.5rem !important;
+  padding: 0 !important;
+  opacity: 0.35;
+  color: #fff !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  transition: opacity 0.15s ease;
+}}
+
+.hb-photo-pin::before,
+.hb-photo-pin::after {{
+  box-shadow: none !important;
+}}
+
+.hb-photo-pin .q-icon {{
+  color: #fff !important;
+  font-size: 1rem !important;
+}}
+
+.hb-photo-card:hover .hb-photo-pin,
+.hb-photo-pin--active {{
+  opacity: 0.75;
+}}
+
+.hb-photo-pin:hover {{
+  opacity: 1 !important;
+}}
+
 .hb-photo-card .q-card__section {{
-  padding: 0.2rem 0.35rem !important;
+  display: none !important;
+  padding: 0 !important;
 }}
 
 .hb-photo-card:hover {{
@@ -388,14 +1035,97 @@ a:hover {{
 }}
 
 .hb-map-layers {{
-  gap: 0.75rem 1.25rem;
+  gap: 0.25rem 0.4rem;
   align-items: center;
   flex-wrap: wrap;
+  margin: 0 0 0.15rem;
+}}
+
+/* Match property tab neo pills — muted off, cyan text only when on */
+.hb-map-layers .hb-map-layer-btn,
+.hb-map-layers .hb-map-layer-btn.bg-primary,
+.hb-map-layers .hb-map-layer-btn.bg-dark {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text-muted) !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+  border: none !important;
+  border-radius: 9px !important;
+  min-height: 1.85rem !important;
+  padding: 0.15rem 0.65rem !important;
+  font-size: 0.82rem !important;
+  font-family: var(--hb-font-body) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em;
+  text-transform: none !important;
+  text-shadow: none !important;
+  line-height: 1.2 !important;
+  transition:
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    text-shadow 0.15s ease;
+}}
+
+.hb-map-layers .hb-map-layer-btn:hover {{
+  color: var(--hb-text) !important;
+  box-shadow: var(--hb-neo-out) !important;
+  text-shadow: none !important;
+}}
+
+.hb-map-layers .hb-map-layer-btn:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+}}
+
+/* Glow only when on — never on the off / hover-off states above */
+.hb-map-layers .hb-map-layer-btn--on,
+.hb-map-layers .hb-map-layer-btn--on.bg-primary,
+.hb-map-layers .hb-map-layer-btn--on.bg-dark {{
+  background: #12161d !important;
+  color: var(--hb-neon) !important;
+  box-shadow:
+    var(--hb-neo-in-sm),
+    0 0 12px rgba(0, 229, 255, 0.22) !important;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+}}
+
+.hb-map-layers .hb-map-layer-btn--on:hover {{
+  color: var(--hb-neon) !important;
+  box-shadow:
+    var(--hb-neo-in-sm),
+    0 0 14px rgba(0, 229, 255, 0.28) !important;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
+}}
+
+.hb-map-layers .hb-map-layer-btn.disabled,
+.hb-map-layers .hb-map-layer-btn[disabled] {{
+  opacity: 0.38 !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+  color: var(--hb-text-muted) !important;
+  text-shadow: none !important;
 }}
 
 .hb-map-status {{
-  min-height: 1.25rem;
+  min-height: 0;
+  margin: 0;
+  line-height: 1.25;
   color: var(--hb-text-muted) !important;
+}}
+
+.hb-map-status:empty {{
+  display: none;
+}}
+
+.hb-map-legend {{
+  margin: 0.15rem 0 0;
+  gap: 0.2rem;
+}}
+
+.hb-map-legend:empty {{
+  display: none;
+}}
+
+.hb-map-box {{
+  margin-top: 0.35rem;
 }}
 
 /* Zoom + fullscreen controls readable on dark basemap.
@@ -427,6 +1157,48 @@ a:hover {{
 .homebuy-sv {{
   border: 1px solid var(--hb-border) !important;
   box-shadow: 0 0 24px rgba(0, 229, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.45) !important;
+}}
+
+/* Gallery lightbox — dark neo (classes applied by gallery.py) */
+.hb-lightbox {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text) !important;
+  border: 1px solid var(--hb-border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--hb-neo-out), 0 16px 48px rgba(0, 0, 0, 0.55) !important;
+}}
+
+.hb-lightbox-close,
+.hb-lightbox-nav {{
+  background: var(--hb-neo-face) !important;
+  color: var(--hb-text-muted) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+  text-shadow: none !important;
+  transition:
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}}
+
+.hb-lightbox-close:hover,
+.hb-lightbox-nav:hover {{
+  color: var(--hb-neon) !important;
+  box-shadow:
+    var(--hb-neo-out),
+    0 0 12px rgba(0, 229, 255, 0.22) !important;
+}}
+
+.hb-lightbox-close:active,
+.hb-lightbox-nav:active {{
+  box-shadow: var(--hb-neo-in-sm) !important;
+}}
+
+.hb-lightbox-caption {{
+  font-family: var(--hb-font-body);
+  font-size: 0.875rem;
+  color: var(--hb-text-muted);
+  line-height: 1.4;
 }}
 
 /* Scrollbars */

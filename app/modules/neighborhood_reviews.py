@@ -40,7 +40,7 @@ def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
 
     with container:
-        status = ui.label("").classes("text-caption text-grey-7")
+        status = ui.label("").classes("hb-page-meta")
         body = ui.column().classes("w-full gap-4")
 
         def load() -> Property | None:
@@ -107,11 +107,9 @@ def render(prop: Property, container: ui.element) -> None:
 
             with body:
                 with ui.row().classes("w-full items-baseline gap-3 flex-wrap"):
-                    ui.label(display or "—").classes("text-h5").style(
-                        "color: var(--hb-neon); text-shadow: 0 0 12px rgba(0, 229, 255, 0.35);"
-                    )
+                    ui.label(display or "—").classes("hb-page-title")
                     ui.label(_source_label(source, has_override=bool(override))).classes(
-                        "text-caption text-grey-7"
+                        "hb-page-meta"
                     )
 
                 with ui.row().classes("w-full items-end gap-3 flex-wrap"):
@@ -121,7 +119,7 @@ def render(prop: Property, container: ui.element) -> None:
                             value=override or display,
                             placeholder="e.g. Mar Vista",
                         )
-                        .props("dense outlined dark")
+                        .props("dense outlined dark stack-label")
                         .classes("flex-grow")
                         .style("min-width: 220px; max-width: 420px;")
                     )
@@ -147,7 +145,7 @@ def render(prop: Property, container: ui.element) -> None:
                         redraw()
 
                     ui.button("Save name", on_click=save_override).props(
-                        "unelevated color=primary"
+                        "unelevated color=primary dense"
                     )
                     ui.button("Refresh from Zillow", on_click=refresh_zillow).props(
                         "outline dense"
@@ -155,120 +153,116 @@ def render(prop: Property, container: ui.element) -> None:
 
                 ui.separator().style("border-color: var(--hb-border);")
 
-                ui.label("Gemini overview").classes("text-subtitle1").style(
-                    "color: var(--hb-neon-2);"
-                )
+                ui.label("Gemini neighborhood assessment").classes("hb-section-title")
                 overview_box = ui.column().classes("w-full gap-2")
+                overview_actions = ui.row().classes("w-full gap-2 flex-wrap")
 
                 def render_overview(text: str) -> None:
                     overview_box.clear()
                     with overview_box:
                         if text:
-                            ui.markdown(text).classes("text-body1").style(
-                                "line-height: 1.65; color: #E8ECF2; max-width: 52rem;"
-                            )
+                            ui.markdown(text).classes("hb-gemini-prose")
                         else:
                             ui.label(
-                                "Generate a short AI overview of how this neighborhood feels "
-                                "and what’s nearby."
-                            ).classes("text-caption text-grey-7")
+                                "No overview yet — use Ask Gemini below for a candid "
+                                "long-term take on this neighborhood (header Gemini "
+                                "insights still works too)."
+                            ).classes("hb-empty-state w-full")
+
+                    overview_actions.clear()
+                    with overview_actions:
+                        ui.button(
+                            "Ask Gemini about this neighborhood",
+                            on_click=lambda: ask_overview(force=False),
+                            icon="auto_awesome",
+                        ).props("unelevated color=secondary dense")
+                        if text:
+                            ui.button(
+                                "Regenerate",
+                                on_click=lambda: ask_overview(force=True),
+                                icon="refresh",
+                            ).props("outline dense")
+
+                def ask_overview(*, force: bool) -> None:
+                    status.set_text("Asking Gemini for a neighborhood overview…")
+                    try:
+                        with get_session() as session:
+                            updated = PropertyService(session).ensure_gemini_overview(
+                                property_id, force=force
+                            )
+                        text = (updated.neighborhood_gemini or "").strip()
+                        render_overview(text)
+                        status.set_text("")
+                        ui.notify(
+                            "Neighborhood overview ready"
+                            if force or text
+                            else "Overview unchanged (cached)",
+                            type="positive",
+                        )
+                    except Exception as exc:
+                        status.set_text(str(exc))
+                        ui.notify(str(exc), type="negative")
 
                 render_overview(gemini)
 
-                def ask_gemini(*, force: bool = False) -> None:
-                    if not display and not (override_input.value or "").strip():
-                        ui.notify("Set a neighborhood name first", type="warning")
-                        return
-                    # Persist override field if user typed a new name without saving
-                    typed = (override_input.value or "").strip()
-                    if typed and typed != override:
-                        with get_session() as session:
-                            PropertyService(session).update_property(
-                                property_id, neighborhood_override=typed
-                            )
-                    status.set_text("Asking Gemini…")
-                    try:
-                        with get_session() as session:
-                            PropertyService(session).ensure_gemini_overview(
-                                property_id, force=force
-                            )
-                        status.set_text("")
-                        ui.notify("Overview ready", type="positive")
-                    except Exception as exc:
-                        status.set_text("")
-                        ui.notify(str(exc), type="negative")
-                    redraw()
-
-                with ui.row().classes("gap-2 flex-wrap"):
-                    ui.button(
-                        "Ask Gemini about this neighborhood",
-                        on_click=lambda: ask_gemini(force=False),
-                        icon="auto_awesome",
-                    ).props("unelevated color=secondary")
-                    if gemini:
-                        ui.button(
-                            "Regenerate",
-                            on_click=lambda: ask_gemini(force=True),
-                            icon="refresh",
-                        ).props("outline dense")
+                ui.label(
+                    "Uses the neighborhood name above. Overview and things-to-do "
+                    "are cached separately — regenerating one does not wipe the other."
+                ).classes("hb-page-hint")
 
                 ui.separator().style("border-color: var(--hb-border);")
 
-                ui.label("Cool things to do nearby").classes("text-subtitle1").style(
-                    "color: var(--hb-neon-2);"
-                )
+                ui.label("Cool things to do nearby").classes("hb-section-title")
                 things_box = ui.column().classes("w-full gap-2")
+                things_actions = ui.row().classes("w-full gap-2 flex-wrap")
 
                 def render_things(text: str) -> None:
                     things_box.clear()
                     with things_box:
                         if text:
-                            ui.markdown(text).classes("text-body1").style(
-                                "line-height: 1.65; color: #E8ECF2; max-width: 52rem;"
-                            )
+                            ui.markdown(text).classes("hb-gemini-prose")
                         else:
                             ui.label(
-                                "Ask Gemini for walkable parks, food, and nearby spots — "
-                                "each with a Google Maps link."
-                            ).classes("text-caption text-grey-7")
+                                "No list yet — use Ask Gemini below for walkable "
+                                "spots with Google Maps links (header Gemini "
+                                "insights still works too)."
+                            ).classes("hb-empty-state w-full")
 
-                render_things(things)
+                    things_actions.clear()
+                    with things_actions:
+                        ui.button(
+                            "Ask Gemini: things to do",
+                            on_click=lambda: ask_things(force=False),
+                            icon="auto_awesome",
+                        ).props("unelevated color=secondary dense")
+                        if text:
+                            ui.button(
+                                "Regenerate",
+                                on_click=lambda: ask_things(force=True),
+                                icon="refresh",
+                            ).props("outline dense")
 
-                def ask_things(*, force: bool = False) -> None:
-                    if not display and not (override_input.value or "").strip():
-                        ui.notify("Set a neighborhood name first", type="warning")
-                        return
-                    typed = (override_input.value or "").strip()
-                    if typed and typed != override:
-                        with get_session() as session:
-                            PropertyService(session).update_property(
-                                property_id, neighborhood_override=typed
-                            )
+                def ask_things(*, force: bool) -> None:
                     status.set_text("Asking Gemini for things to do…")
                     try:
                         with get_session() as session:
-                            PropertyService(session).ensure_gemini_things_to_do(
-                                property_id, force=force
-                            )
+                            updated = PropertyService(
+                                session
+                            ).ensure_gemini_things_to_do(property_id, force=force)
+                        text = (updated.neighborhood_things_to_do or "").strip()
+                        render_things(text)
                         status.set_text("")
-                        ui.notify("Things to do ready", type="positive")
+                        ui.notify(
+                            "Things to do ready"
+                            if force or text
+                            else "Things to do unchanged (cached)",
+                            type="positive",
+                        )
                     except Exception as exc:
-                        status.set_text("")
+                        status.set_text(str(exc))
                         ui.notify(str(exc), type="negative")
-                    redraw()
 
-                with ui.row().classes("gap-2 flex-wrap"):
-                    ui.button(
-                        "Ask Gemini: things to do",
-                        on_click=lambda: ask_things(force=False),
-                        icon="auto_awesome",
-                    ).props("unelevated color=secondary")
-                    if things:
-                        ui.button(
-                            "Regenerate",
-                            on_click=lambda: ask_things(force=True),
-                            icon="refresh",
-                        ).props("outline dense")
+                render_things(things)
 
                 ui.separator().style("border-color: var(--hb-border);")
 
@@ -300,7 +294,7 @@ def render(prop: Property, container: ui.element) -> None:
                             value=live.neighborhood_notes or "",
                             placeholder="Your notes…",
                         )
-                        .props("outlined dark autogrow")
+                        .props("outlined dark autogrow dense stack-label")
                         .classes("w-full")
                     )
 
@@ -319,7 +313,7 @@ def render(prop: Property, container: ui.element) -> None:
                 ui.label(
                     "Gemini output is AI-generated and may be wrong — verify before deciding. "
                     "Neighborhood name is taken from the Zillow listing when available."
-                ).classes("text-caption text-grey-7 q-mt-md")
+                ).classes("hb-page-hint q-mt-md")
 
         redraw(prop)
 

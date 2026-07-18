@@ -13,6 +13,7 @@ from app.core.finance import (
 from app.core.gemini_financial import build_financial_fingerprint
 from app.core.module_registry import ModuleSpec
 from app.core.models import Property
+from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
 from app.core.property_service import PropertyService
 
 # Neon cyberpunk chart palette (cyan / magenta / lime / amber)
@@ -183,12 +184,46 @@ def render(prop: Property, container: ui.element) -> None:
                 rate = ui.number(
                     "Interest rate", value=values["interest_rate_pct"], format="%.3f"
                 ).props("suffix=% dense outlined stack-label").classes("w-full")
+                rate_src_label = ui.label(
+                    (fin.interest_rate_source or "").strip()
+                ).classes("hb-page-meta")
+                if not (fin.interest_rate_source or "").strip():
+                    rate_src_label.set_visibility(False)
                 term = ui.number(
                     "Term", value=values["loan_term_years"], format="%.0f"
                 ).props("suffix=years dense outlined stack-label").classes("w-full")
                 closing = ui.number(
                     "Closing costs", value=values["closing_cost_pct"], format="%.1f"
                 ).props("suffix=% dense outlined stack-label").classes("w-full")
+
+            rate_source_state = {"value": (fin.interest_rate_source or "").strip()}
+            suppress_rate_manual = {"on": False}
+
+            def _show_rate_source(text: str) -> None:
+                rate_source_state["value"] = text
+                rate_src_label.set_text(text)
+                rate_src_label.set_visibility(bool(text))
+
+            def _apply_pmms_rate_for_term() -> None:
+                if not should_autofill_interest_rate(rate_source_state["value"]):
+                    return
+                new_rate, src = resolve_interest_rate(int(term.value or 30))
+                if new_rate is None:
+                    return
+                suppress_rate_manual["on"] = True
+                try:
+                    rate.value = new_rate
+                finally:
+                    suppress_rate_manual["on"] = False
+                _show_rate_source(src)
+
+            def _mark_rate_manual(_: object = None) -> None:
+                if suppress_rate_manual["on"]:
+                    return
+                _show_rate_source("Manual")
+
+            term.on_value_change(lambda _: _apply_pmms_rate_for_term())
+            rate.on_value_change(_mark_rate_manual)
 
             with _section("Ownership costs", quiet=True):
                 ui.label("Usually filled from the listing.").classes("hb-page-meta")

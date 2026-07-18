@@ -15,8 +15,9 @@ def page_header(title: str) -> None:
             ui.button(icon="home", on_click=lambda: ui.navigate.to("/")).props(
                 "flat round color=primary"
             )
-            ui.label("Homebuy").classes("text-h6 hb-brand")
-            ui.label(title).classes("text-subtitle1 hb-header-title")
+            brand = ui.label("Homebuy").classes("hb-brand").style("cursor: pointer")
+            brand.on("click", lambda: ui.navigate.to("/"))
+            ui.label(title).classes("hb-header-title")
 
 
 def _format_price(value: float | None) -> str:
@@ -145,6 +146,38 @@ def _truncate_notes(notes: str, limit: int = 100) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+def _street_address_line(
+    address: str,
+    *,
+    city: str = "",
+    state: str = "",
+    zip_code: str = "",
+) -> str:
+    """Street-only line for library cards (city/state/ZIP shown separately)."""
+    text = (address or "").strip()
+    if not text:
+        return ""
+    from app.core.geocode import _split_us_address
+
+    parts = _split_us_address(text)
+    if parts and parts[0]:
+        return parts[0]
+    # Strip known trailing ", City, ST ZIP" when structured fields exist
+    city_s, state_s, zip_s = city.strip(), state.strip(), (zip_code or "").strip()
+    if city_s and state_s:
+        tail = f", {city_s}, {state_s}"
+        if zip_s and text.endswith(zip_s):
+            text = text[: -len(zip_s)].rstrip()
+        if text.lower().endswith(tail.lower()):
+            return text[: -len(tail)].rstrip(" ,")
+        # Comma-first segment often is the street
+        if "," in text:
+            return text.split(",", 1)[0].strip()
+    if "," in text:
+        return text.split(",", 1)[0].strip()
+    return text
+
+
 def _parse_filter_float(raw: str | float | None) -> float | None:
     if raw is None:
         return None
@@ -167,20 +200,20 @@ def library_page() -> None:
         "Price ↓": "price_desc",
     }
 
-    with ui.column().classes("w-full max-w-5xl mx-auto q-pa-md gap-4"):
+    with ui.column().classes("w-full hb-library-shell q-pa-md gap-3"):
         with ui.row().classes("items-baseline gap-3"):
-            ui.label("Your homes").classes("text-h5")
-            count_label = ui.label("").classes("text-body2 text-grey-6")
+            ui.label("Your homes").classes("hb-page-title")
+            count_label = ui.label("").classes("hb-page-meta")
         hint_label = ui.label(
             "Paste a Zillow listing link — address, photos, and details import automatically."
-        ).classes("text-body2 text-grey-6")
+        ).classes("hb-page-hint")
 
-        with ui.card().classes("w-full"):
-            with ui.row().classes("w-full gap-4 items-end flex-wrap"):
+        with ui.card().classes("w-full hb-add-card"):
+            with ui.row().classes("w-full gap-3 items-end flex-wrap"):
                 url_input = ui.input(
                     "Zillow URL",
                     placeholder="https://www.zillow.com/homedetails/...",
-                ).classes("flex-grow min-w-64")
+                ).classes("flex-grow min-w-64").props("dense outlined stack-label")
 
                 def add_home() -> None:
                     try:
@@ -201,29 +234,37 @@ def library_page() -> None:
                     except Exception as exc:  # noqa: BLE001
                         ui.notify(f"Failed: {exc}", type="negative")
 
-                ui.button("Add home", on_click=add_home).props("color=primary")
+                ui.button("Add home", on_click=add_home).props(
+                    "color=primary unelevated"
+                )
 
-        with ui.row().classes("w-full items-center gap-3 flex-wrap"):
+        with ui.row().classes("w-full hb-toolbar-row flex-wrap"):
             sort_select = ui.select(
                 options=list(sort_options.keys()),
                 value="Newest",
                 label="Sort",
-            ).classes("w-40")
-            filter_expansion = ui.expansion("Filter", icon="filter_list").classes("flex-grow")
+            ).classes("w-40").props("dense outlined stack-label")
+            filter_expansion = ui.expansion("Filter", icon="filter_list").classes(
+                "flex-grow"
+            )
             with filter_expansion:
                 with ui.row().classes("w-full gap-3 items-end flex-wrap q-pt-sm"):
                     search_input = ui.input(
                         "Search",
                         placeholder="Address or city",
-                    ).classes("flex-grow min-w-48")
-                    min_price_input = ui.input("Min price", placeholder="e.g. 500000").classes(
-                        "w-36"
+                    ).classes("flex-grow min-w-48").props("dense outlined stack-label")
+                    min_price_input = ui.input(
+                        "Min price", placeholder="e.g. 500000"
+                    ).classes("w-36").props("dense outlined stack-label")
+                    max_price_input = ui.input(
+                        "Max price", placeholder="e.g. 1200000"
+                    ).classes("w-36").props("dense outlined stack-label")
+                    min_beds_input = ui.input(
+                        "Min beds", placeholder="e.g. 3"
+                    ).classes("w-28").props("dense outlined stack-label")
+                    ui.button("Apply", on_click=lambda: refresh()).props(
+                        "outline color=primary dense"
                     )
-                    max_price_input = ui.input("Max price", placeholder="e.g. 1200000").classes(
-                        "w-36"
-                    )
-                    min_beds_input = ui.input("Min beds", placeholder="e.g. 3").classes("w-28")
-                    ui.button("Filter", on_click=lambda: refresh()).props("outline color=primary")
                     ui.button(
                         "Clear",
                         on_click=lambda: (
@@ -233,11 +274,10 @@ def library_page() -> None:
                             min_beds_input.set_value(""),
                             refresh(),
                         ),
-                    ).props("flat")
-
-                search_input.on("keydown.enter", lambda: refresh())
+                    ).props("flat dense")
 
         list_box = ui.column().classes("w-full gap-3")
+        filter_debounce = None
 
         def delete_home(property_id: int) -> None:
             with get_session() as session:
@@ -247,8 +287,8 @@ def library_page() -> None:
 
         def confirm_delete(property_id: int, address: str) -> None:
             with ui.dialog() as dialog, ui.card():
-                ui.label("Delete this home?").classes("text-subtitle1")
-                ui.label(address).classes("text-body2 text-grey-6")
+                ui.label("Delete this home?").classes("hb-page-title")
+                ui.label(address).classes("hb-page-meta")
                 with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                     ui.button("Cancel", on_click=dialog.close).props("flat")
                     ui.button(
@@ -270,6 +310,10 @@ def library_page() -> None:
             return n
 
         def refresh() -> None:
+            nonlocal filter_debounce
+            if filter_debounce is not None:
+                filter_debounce.deactivate()
+                filter_debounce = None
             list_box.clear()
             sort_key = sort_options.get(str(sort_select.value or "Newest"), "newest")
             active = _active_filter_count()
@@ -289,17 +333,24 @@ def library_page() -> None:
                 )
                 has_any = True if props else service.has_any_properties()
             hint_label.set_visibility(not has_any)
-            count_label.set_text(
-                f"{len(props)} home" + ("" if len(props) == 1 else "s") if props else ""
-            )
+            if props:
+                count_label.set_text(
+                    f"{len(props)} home" + ("" if len(props) == 1 else "s")
+                )
+            elif has_any:
+                count_label.set_text("0 homes")
+            else:
+                count_label.set_text("")
             with list_box:
                 if not props:
                     if not has_any:
-                        ui.label("No homes yet — paste a Zillow link above.").classes(
-                            "text-grey-6"
-                        )
+                        ui.label(
+                            "No homes yet — paste a Zillow link above."
+                        ).classes("hb-empty-state w-full")
                     else:
-                        ui.label("No homes match these filters.").classes("text-grey-6")
+                        ui.label("No homes match these filters.").classes(
+                            "hb-empty-state w-full"
+                        )
                     return
                 for prop in props:
                     primary_chips = _library_primary_chips(
@@ -322,6 +373,12 @@ def library_page() -> None:
                     prop_id = prop.id
                     address = prop.address
                     list_price = prop.list_price
+                    city = (prop.city or "").strip()
+                    state = (prop.state or "").strip()
+                    zip_code = (prop.zip_code or "").strip()
+                    street = _street_address_line(
+                        address, city=city, state=state, zip_code=zip_code
+                    )
 
                     with ui.card().classes("w-full hb-library-card") as card:
                         card.on(
@@ -329,41 +386,52 @@ def library_page() -> None:
                             lambda p=prop_id: ui.navigate.to(f"/property/{p}"),
                         )
                         with ui.row().classes(
-                            "w-full items-start justify-between gap-4 flex-nowrap"
+                            "w-full items-stretch justify-between gap-3 flex-nowrap"
                         ):
                             with ui.row().classes(
-                                "items-start gap-4 flex-grow hb-library-card-body"
+                                "items-stretch gap-3 flex-grow hb-library-card-body"
                             ):
                                 if thumb:
-                                    ui.image(thumb).classes("hb-library-thumb")
+                                    with ui.element("div").classes(
+                                        "hb-library-thumb-wrap"
+                                    ):
+                                        ui.image(thumb).classes("hb-library-thumb")
                                 else:
-                                    with ui.element("div").classes("hb-library-thumb--empty"):
+                                    with ui.element("div").classes(
+                                        "hb-library-thumb-wrap hb-library-thumb-wrap--empty"
+                                    ):
                                         ui.icon("home", size="2rem")
-                                with ui.column().classes("gap-1"):
-                                    ui.label(address).classes(
-                                        "text-subtitle1 text-weight-medium"
+                                with ui.column().classes("gap-1 flex-grow").style(
+                                    "min-width: 0"
+                                ):
+                                    ui.label(street or address).classes(
+                                        "hb-library-address"
                                     )
+                                    place = ", ".join(
+                                        p for p in (city, state) if p
+                                    )
+                                    if place:
+                                        ui.label(place).classes("hb-library-place")
                                     if list_price is not None:
                                         ui.label(_format_price(list_price)).classes(
-                                            "text-h6 hb-library-price"
+                                            "hb-library-price"
                                         )
                                     if primary_chips:
-                                        with ui.row().classes("gap-2 flex-wrap"):
+                                        with ui.row().classes("gap-1 flex-wrap"):
                                             for chip in primary_chips:
                                                 ui.label(chip).classes("hb-meta-chip")
                                     if secondary_chips:
-                                        with ui.row().classes("gap-2 flex-wrap"):
+                                        with ui.row().classes("gap-1 flex-wrap"):
                                             for label, classes in secondary_chips:
                                                 ui.label(label).classes(classes)
                                     if not primary_chips and not secondary_chips:
                                         ui.label(
                                             "Details pending — open and refresh listing"
-                                        ).classes("text-caption text-grey-6")
+                                        ).classes("hb-page-meta")
                                     if notes_teaser:
-                                        ui.label(notes_teaser).classes(
-                                            "text-caption text-grey-6"
-                                        )
-                            with ui.element("div").classes("flex-shrink-0"):
+                                        ui.label(notes_teaser).classes("hb-library-notes")
+
+                            with ui.element("div").classes("flex-shrink-0 self-start"):
                                 menu_btn = ui.button(icon="more_vert").props(
                                     "flat round dense"
                                 )
@@ -390,6 +458,21 @@ def library_page() -> None:
                                             ),
                                         )
 
+        def _schedule_filter_refresh() -> None:
+            nonlocal filter_debounce
+            if filter_debounce is not None:
+                filter_debounce.deactivate()
+            filter_debounce = ui.timer(0.35, refresh, once=True)
+
+        for _field in (
+            search_input,
+            min_price_input,
+            max_price_input,
+            min_beds_input,
+        ):
+            _field.on("keydown.enter", lambda: refresh())
+            _field.on_value_change(lambda _: _schedule_filter_refresh())
+
         sort_select.on_value_change(lambda: refresh())
         refresh()
 
@@ -399,9 +482,11 @@ def property_page(property_id: int) -> None:
         prop = PropertyService(session).get_property(property_id)
         if prop is None:
             page_header("Missing")
-            with ui.column().classes("q-pa-md"):
-                ui.label("Property not found.")
-                ui.button("Back to library", on_click=lambda: ui.navigate.to("/"))
+            with ui.column().classes("hb-property-shell q-pa-md gap-3"):
+                ui.label("Property not found.").classes("hb-empty-state w-full")
+                ui.button("Back to library", on_click=lambda: ui.navigate.to("/")).props(
+                    "outline color=primary dense"
+                )
             return
         # Capture fields while session is open
         address = prop.address
@@ -424,27 +509,40 @@ def property_page(property_id: int) -> None:
 
     page_header("Property")
 
-    with ui.column().classes("w-full max-w-7xl mx-auto q-pa-md gap-4"):
-        with ui.row().classes("w-full items-start justify-between flex-wrap gap-4"):
-            with ui.column().classes("gap-1"):
-                ui.label(address).classes("text-h5")
-                meta_line = "  ·  ".join(
-                    _listing_meta_bits(
-                        list_price=list_price,
-                        beds=beds,
-                        baths=baths,
-                        sqft=sqft,
-                        hoa_fee=hoa_fee,
-                        year_built=year_built,
-                        home_type=home_type,
-                        city=city,
-                        state=state,
-                    )
+    city_s = (city or "").strip()
+    state_s = (state or "").strip()
+    zip_s = (zip_code or "").strip()
+    street = _street_address_line(
+        address, city=city_s, state=state_s, zip_code=zip_s
+    )
+    primary_chips = _library_primary_chips(
+        beds=beds, baths=baths, sqft=sqft, list_price=list_price
+    )
+    secondary_chips = _library_secondary_chips(
+        home_type=home_type, year_built=year_built, hoa_fee=hoa_fee
+    )
+
+    with ui.column().classes("w-full hb-property-shell q-pa-md gap-3"):
+        with ui.row().classes("w-full items-start justify-between flex-wrap gap-3"):
+            with ui.column().classes("gap-1 flex-grow").style("min-width: 0"):
+                ui.label(street or address).classes("hb-library-address")
+                place = ", ".join(p for p in (city_s, state_s) if p)
+                if place:
+                    ui.label(place).classes("hb-library-place")
+                if list_price is not None:
+                    ui.label(_format_price(list_price)).classes("hb-library-price")
+                if primary_chips:
+                    with ui.row().classes("gap-1 flex-wrap"):
+                        for chip in primary_chips:
+                            ui.label(chip).classes("hb-meta-chip")
+                if secondary_chips:
+                    with ui.row().classes("gap-1 flex-wrap"):
+                        for label, classes in secondary_chips:
+                            ui.label(label).classes(classes)
+                ui.link("View on Zillow", zillow_url, new_tab=True).classes(
+                    "hb-page-meta"
                 )
-                if meta_line:
-                    ui.label(meta_line).classes("text-subtitle1 text-grey-6")
-                ui.link("View on Zillow", zillow_url, new_tab=True)
-            with ui.row().classes("gap-2"):
+            with ui.row().classes("gap-2 flex-wrap"):
                 def refresh_details() -> None:
                     try:
                         ui.notify("Refreshing listing details…", type="ongoing", timeout=0)
@@ -455,44 +553,155 @@ def property_page(property_id: int) -> None:
                     except Exception as exc:  # noqa: BLE001
                         ui.notify(f"Refresh failed: {exc}", type="negative")
 
-                ui.button("Refresh listing details", on_click=refresh_details).props("outline")
-                ui.button("Back", on_click=lambda: ui.navigate.to("/")).props("outline")
+                def run_gemini_insights() -> None:
+                    try:
+                        ui.notify(
+                            "Generating Gemini insights… (neighborhood + finances)",
+                            type="ongoing",
+                            timeout=0,
+                        )
+                        with get_session() as session:
+                            results = PropertyService(session).ensure_gemini_insights(
+                                prop_id, force=True
+                            )
+                        ok_bits = [
+                            label
+                            for key, label in (
+                                ("overview", "assessment"),
+                                ("things_to_do", "things to do"),
+                                ("financial", "financials"),
+                            )
+                            if results.get(key) in {"ok", "cached"}
+                        ]
+                        fail_bits = [
+                            f"{label}: {results[key]}"
+                            for key, label in (
+                                ("overview", "assessment"),
+                                ("things_to_do", "things to do"),
+                                ("financial", "financials"),
+                            )
+                            if results.get(key) not in {"ok", "cached", None}
+                        ]
+                        if ok_bits and not fail_bits:
+                            ui.notify(
+                                "Gemini insights ready — see Neighborhood & Financials tabs",
+                                type="positive",
+                            )
+                        elif ok_bits and fail_bits:
+                            ui.notify(
+                                "Partial Gemini insights: "
+                                + "; ".join(fail_bits[:2]),
+                                type="warning",
+                            )
+                        else:
+                            ui.notify(
+                                fail_bits[0] if fail_bits else "Gemini insights failed",
+                                type="negative",
+                            )
+                        ui.navigate.to(f"/property/{prop_id}")
+                    except Exception as exc:  # noqa: BLE001
+                        ui.notify(f"Gemini insights failed: {exc}", type="negative")
+
+                ui.button("Refresh listing details", on_click=refresh_details).props(
+                    "outline color=primary dense"
+                )
+                ui.button(
+                    "Gemini insights",
+                    on_click=run_gemini_insights,
+                    icon="auto_awesome",
+                ).props("outline color=primary dense")
 
         with ui.expansion("Edit listing details", icon="edit").classes("w-full"):
-            edit_url = ui.input("Zillow URL", value=zillow_url).classes("w-full")
-            edit_address = ui.input("Address", value=address).classes("w-full")
+            edit_url = (
+                ui.input("Zillow URL", value=zillow_url)
+                .classes("w-full")
+                .props("dense outlined stack-label")
+            )
+            edit_address = (
+                ui.input("Address", value=address)
+                .classes("w-full")
+                .props("dense outlined stack-label")
+            )
             with ui.row().classes("w-full gap-3 flex-wrap"):
-                edit_price = ui.input(
-                    "List price",
-                    value="" if list_price is None else str(int(list_price) if list_price == int(list_price) else list_price),
-                ).classes("w-40")
-                edit_beds = ui.input(
-                    "Beds",
-                    value="" if beds is None else f"{beds:g}",
-                ).classes("w-28")
-                edit_baths = ui.input(
-                    "Baths",
-                    value="" if baths is None else f"{baths:g}",
-                ).classes("w-28")
-                edit_sqft = ui.input(
-                    "Sqft",
-                    value="" if sqft is None else f"{sqft:g}",
-                ).classes("w-28")
-                edit_hoa = ui.input(
-                    "HOA $/mo",
-                    value="" if hoa_fee is None else f"{hoa_fee:g}",
-                ).classes("w-28")
-                edit_year = ui.input(
-                    "Year built",
-                    value="" if year_built is None else str(year_built),
-                ).classes("w-28")
-                edit_home_type = ui.input("Home type", value=home_type).classes(
-                    "w-40"
+                edit_price = (
+                    ui.input(
+                        "List price",
+                        value=""
+                        if list_price is None
+                        else str(
+                            int(list_price)
+                            if list_price == int(list_price)
+                            else list_price
+                        ),
+                    )
+                    .classes("w-40")
+                    .props("dense outlined stack-label")
                 )
-                edit_city = ui.input("City", value=city or "").classes("flex-grow min-w-40")
-                edit_state = ui.input("State", value=state or "").classes("w-24")
-                edit_zip = ui.input("ZIP", value=zip_code or "").classes("w-28")
-            edit_notes = ui.textarea("Notes", value=notes).classes("w-full")
+                edit_beds = (
+                    ui.input(
+                        "Beds",
+                        value="" if beds is None else f"{beds:g}",
+                    )
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+                edit_baths = (
+                    ui.input(
+                        "Baths",
+                        value="" if baths is None else f"{baths:g}",
+                    )
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+                edit_sqft = (
+                    ui.input(
+                        "Sqft",
+                        value="" if sqft is None else f"{sqft:g}",
+                    )
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+                edit_hoa = (
+                    ui.input(
+                        "HOA $/mo",
+                        value="" if hoa_fee is None else f"{hoa_fee:g}",
+                    )
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+                edit_year = (
+                    ui.input(
+                        "Year built",
+                        value="" if year_built is None else str(year_built),
+                    )
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+                edit_home_type = (
+                    ui.input("Home type", value=home_type)
+                    .classes("w-40")
+                    .props("dense outlined stack-label")
+                )
+                edit_city = (
+                    ui.input("City", value=city or "")
+                    .classes("flex-grow min-w-40")
+                    .props("dense outlined stack-label")
+                )
+                edit_state = (
+                    ui.input("State", value=state or "")
+                    .classes("w-24")
+                    .props("dense outlined stack-label")
+                )
+                edit_zip = (
+                    ui.input("ZIP", value=zip_code or "")
+                    .classes("w-28")
+                    .props("dense outlined stack-label")
+                )
+            edit_notes = (
+                ui.textarea("Notes", value=notes)
+                .classes("w-full")
+                .props("dense outlined stack-label")
+            )
 
             def save_meta() -> None:
                 try:
@@ -518,7 +727,9 @@ def property_page(property_id: int) -> None:
                 except ValueError as exc:
                     ui.notify(str(exc), type="negative")
 
-            ui.button("Save", on_click=save_meta).props("color=primary")
+            ui.button("Save", on_click=save_meta).props(
+                "unelevated color=primary dense"
+            )
 
         modules = get_modules()
         if not modules:

@@ -1,0 +1,7 @@
+Copyright (c) 2021 by Anugrah Pasau, with Reserved Font Name 'Creato Display'
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://scripts.sil.org/OFL
+
+Full SIL Open Font License 1.1 text ships with the Creato Display download from
+https://www.dafont.com/creato-display.font — keep that copy alongside the .otf files.

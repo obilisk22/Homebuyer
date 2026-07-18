@@ -1,196 +1,194 @@
 from __future__ import annotations
 
+import hashlib
 import os
-from typing import Mapping
+from dataclasses import dataclass
+from typing import Sequence
 
 from dotenv import load_dotenv
 
-from app.core.finance import MortgageSummary
-
 load_dotenv()
 
+# Financials uses URL context + Google Search. On the free tier those tools are
+# more reliably available on 2.5 Flash-Lite than on Gemini 3.x (Search grounding
+# is paid-only for 3.1 Flash-Lite). Override with GEMINI_FINANCIAL_MODEL or GEMINI_MODEL.
 DEFAULT_MODEL = "gemini-2.5-flash-lite"
-FINANCIAL_PROMPT_VERSION = "fin_v1"
+# fin_v4: Zillow URL context only — Gemini fetches listings; no app calculator dump
+FINANCIAL_PROMPT_VERSION = "fin_v4"
 
 
-def _money(n: float) -> str:
-    return f"${n:,.0f}"
+@dataclass(frozen=True)
+class ZillowListingRef:
+    """A library home identified by its Zillow URL (Gemini fetches the page)."""
+
+    property_id: int
+    zillow_url: str
+    label: str = ""  # short address for human orientation only
 
 
-def _money_exact(n: float) -> str:
-    return f"${n:,.2f}"
+def _normalize_url(url: str) -> str:
+    return (url or "").strip()
 
 
-def _fmt_num(n: float | int) -> str:
-    if isinstance(n, float) and n == int(n):
-        return str(int(n))
-    return str(n)
+def zillow_urls_digest(
+    subject_url: str,
+    peers: Sequence[ZillowListingRef] = (),
+) -> str:
+    """Stable fingerprint from Zillow URLs only."""
+    urls = [_normalize_url(subject_url)]
+    for p in sorted(peers, key=lambda x: x.property_id):
+        u = _normalize_url(p.zillow_url)
+        if u:
+            urls.append(u)
+    joined = "\n".join(u for u in urls if u)
+    if not joined:
+        return "empty"
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
 def build_financial_fingerprint(
     *,
-    list_price: float = 0.0,
-    offer_price: float = 0.0,
-    down_payment_pct: float = 20.0,
-    interest_rate_pct: float = 6.5,
-    loan_term_years: int = 30,
-    annual_property_tax: float = 0.0,
-    annual_insurance: float = 0.0,
-    monthly_hoa: float = 0.0,
-    closing_cost_pct: float = 0.0,
+    subject_zillow_url: str = "",
+    peer_refs: Sequence[ZillowListingRef] = (),
+    # Legacy kwargs ignored (kept so old call sites fail loudly if mis-used)
+    **_ignored: object,
 ) -> str:
-    """Cache key: prompt version + round-trip-stable assumption fields."""
-    parts = [
-        FINANCIAL_PROMPT_VERSION,
-        _fmt_num(float(list_price or 0)),
-        _fmt_num(float(offer_price or 0)),
-        _fmt_num(float(down_payment_pct or 0)),
-        _fmt_num(float(interest_rate_pct or 0)),
-        _fmt_num(int(loan_term_years or 30)),
-        _fmt_num(float(annual_property_tax or 0)),
-        _fmt_num(float(annual_insurance or 0)),
-        _fmt_num(float(monthly_hoa or 0)),
-        _fmt_num(float(closing_cost_pct or 0)),
-    ]
-    return "|".join(parts)
+    """Cache key: prompt version + hash of subject + peer Zillow URLs."""
+    digest = zillow_urls_digest(subject_zillow_url, peer_refs)
+    return f"{FINANCIAL_PROMPT_VERSION}|{digest}"
 
 
 def build_financial_prompt(
     *,
-    address: str,
-    home_type: str,
-    beds: float | None,
-    baths: float | None,
-    sqft: float | None,
-    listing_hoa: float | None,
-    summary: MortgageSummary,
-    assumptions: Mapping[str, float | int],
+    subject_zillow_url: str,
+    subject_label: str = "",
+    peer_refs: Sequence[ZillowListingRef] = (),
 ) -> str:
-    """Build a prompt that feeds calculator outputs — Gemini must not invent prices."""
-    list_price = float(assumptions.get("list_price") or 0)
-    offer_price = float(assumptions.get("offer_price") or 0)
-    down_pct = float(assumptions.get("down_payment_pct") or 0)
-    rate = float(assumptions.get("interest_rate_pct") or 0)
-    term = int(assumptions.get("loan_term_years") or 30)
-    annual_tax = float(assumptions.get("annual_property_tax") or 0)
-    annual_ins = float(assumptions.get("annual_insurance") or 0)
-    monthly_hoa = float(assumptions.get("monthly_hoa") or 0)
-    closing_pct = float(assumptions.get("closing_cost_pct") or 0)
+    """Prompt that points Gemini at Zillow URLs — no app-sourced numbers."""
+    subject = _normalize_url(subject_zillow_url)
+    if not subject:
+        raise ValueError("Subject Zillow URL is required.")
 
-    listing_bits: list[str] = []
-    if (home_type or "").strip():
-        listing_bits.append(f"type={home_type.strip()}")
-    if beds is not None:
-        listing_bits.append(f"beds={beds:g}")
-    if baths is not None:
-        listing_bits.append(f"baths={baths:g}")
-    if sqft is not None:
-        listing_bits.append(f"sqft={sqft:g}")
-    if listing_hoa is not None:
-        listing_bits.append(f"listing HOA/mo={_money(float(listing_hoa))}")
-    listing_line = ", ".join(listing_bits) if listing_bits else "details limited"
+    label = (subject_label or "").strip() or "subject listing"
+    peer_lines: list[str] = []
+    for p in peer_refs:
+        url = _normalize_url(p.zillow_url)
+        if not url:
+            continue
+        name = (p.label or "").strip() or f"library home #{p.property_id}"
+        peer_lines.append(f"- {name}: {url}")
 
-    offer_line = (
-        f"Offer price: {_money(offer_price)}"
-        if offer_price > 0
-        else "Offer price: (not set — mortgage uses list)"
-    )
-
-    pmi_line = (
-        f"PMI: {_money_exact(summary.monthly_pmi)}/mo"
-        if summary.monthly_pmi > 0
-        else "PMI: $0.00/mo (down ≥ 20% or no loan)"
-    )
+    if peer_lines:
+        peers_block = (
+            "Other Zillow listings this buyer is also researching "
+            "(open each URL with the URL context tool):\n"
+            + "\n".join(peer_lines)
+        )
+    else:
+        peers_block = (
+            "Other library Zillow listings: (none — research the subject listing "
+            "and its area only)."
+        )
 
     return (
-        "You are helping a homebuyer review the finances of a specific listing. "
-        "Use ONLY the numbers provided below — do not invent or substitute prices, "
-        "taxes, insurance, HOA, rates, or payment amounts. If something is zero or "
-        "missing, say so rather than guessing.\n\n"
-        f"Property: {(address or '').strip() or 'Unknown address'}\n"
-        f"Listing context: {listing_line}\n\n"
-        "Buyer assumptions (inputs):\n"
-        f"- List price: {_money(list_price)}\n"
-        f"- {offer_line}\n"
-        f"- Price used for mortgage (effective): {_money(summary.effective_price)}\n"
-        f"- Down payment: {down_pct:g}% → {_money(summary.down_payment)}\n"
-        f"- Interest rate: {rate:g}%\n"
-        f"- Loan term: {term} years\n"
-        f"- Loan amount: {_money(summary.loan_amount)}\n"
-        f"- Closing costs: {closing_pct:g}% → {_money(summary.closing_costs)}\n"
-        f"- Cash to close (down + closing): {_money(summary.cash_to_close)}\n"
-        f"- Annual property tax assumption: {_money(annual_tax)}\n"
-        f"- Annual insurance assumption: {_money(annual_ins)}\n"
-        f"- Monthly HOA assumption: {_money(monthly_hoa)}\n\n"
-        "Calculated monthly housing cost (source of truth from our PITI calculator):\n"
-        f"- Principal & interest (P&I): {_money_exact(summary.monthly_principal_interest)}\n"
-        f"- Property tax: {_money_exact(summary.monthly_tax)}\n"
-        f"- Insurance: {_money_exact(summary.monthly_insurance)}\n"
-        f"- HOA: {_money_exact(summary.monthly_hoa)}\n"
-        f"- {pmi_line}\n"
-        f"- Total monthly (PITI+HOA+PMI): {_money_exact(summary.monthly_total)}\n"
-        f"- Estimated total interest over the loan: {_money(summary.total_interest)}\n\n"
-        "Write your response in markdown with exactly two sections:\n\n"
-        "## Breakdown\n"
-        "A short restatement of the key numbers (price basis, cash to close, monthly "
-        "total and its main components). Keep it factual and brief.\n\n"
-        "## Opinion\n"
-        "A candid buy-side opinion: affordability flags, risks (tax/insurance/HOA "
-        "assumptions, PMI, interest burden), and what to verify before offering. "
-        "Be practical and balanced — not salesy. Optionally end with a short bullet "
-        "list of 3–5 things to double-check.\n\n"
-        "This is an AI opinion for research only, not financial advice. "
-        "Do not invent comps or claim local tax rates you were not given."
+        "You are a candid buy-side housing research analyst. The buyer already has "
+        "their own mortgage calculator in another app — do NOT invent or dump a full "
+        "PITI spreadsheet. Your job is interpretation from live Zillow pages.\n\n"
+        "Tools: Use the URL context tool to open every Zillow URL listed below. "
+        "Read asking price, Zestimate, rent Zestimate, tax history, HOA, beds/baths/"
+        "sqft, neighborhood, and any market/price-history signals on those pages. "
+        "You may also use Google Search for broader market context for that city/"
+        "neighborhood, but prioritize the Zillow listing pages.\n\n"
+        "Hard rules:\n"
+        "- Do not invent listing facts that are not on the pages you retrieved.\n"
+        "- If a Zillow URL fails to load, say so and work from what you could fetch.\n"
+        "- Avoid absolute \"too expensive / unaffordable\" in a vacuum; stay relative "
+        "to the peer Zillow listings and the local market.\n"
+        "- Do not restate every number as a table — explain meaning and tradeoffs.\n\n"
+        f"Subject listing ({label}):\n{subject}\n\n"
+        f"{peers_block}\n\n"
+        "Write markdown with exactly three sections:\n\n"
+        "## Why the numbers look like this\n"
+        "Explain what drives price / $/sqft / HOA / tax / rent signals on the subject "
+        "Zillow page versus the peer Zillow listings (size, type, location, history).\n\n"
+        "## Market & location take\n"
+        "What the market and neighborhood appear to imply for this buy, grounded in "
+        "the Zillow pages (and light search if needed). No fake comps outside those URLs.\n\n"
+        "## Buy vs rent\n"
+        "Using Zillow rent Zestimate / price history when present on the pages, argue "
+        "when buying may beat renting (or not) for a typical buyer of this home — "
+        "horizon, cash drag, appreciation risk, lifestyle. Be practical, not salesy.\n\n"
+        "This is research commentary only, not financial advice."
     )
 
 
-def _call_gemini(prompt: str) -> str:
+def _call_gemini_with_web_tools(prompt: str) -> str:
+    """Gemini generateContent with URL context (+ Google Search) enabled."""
     api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not api_key:
         raise ValueError(
             "GEMINI_API_KEY is not set. Add it to your .env file and restart the app."
         )
 
-    model = (os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    model = (
+        (os.getenv("GEMINI_FINANCIAL_MODEL") or "").strip()
+        or (os.getenv("GEMINI_MODEL") or "").strip()
+        or DEFAULT_MODEL
+    )
 
     try:
         from google import genai
+        from google.genai import types
     except ImportError as exc:
         raise ValueError("google-genai is not installed. Run: pip install google-genai") from exc
 
     client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(model=model, contents=prompt)
+    tools = [
+        types.Tool(url_context=types.UrlContext()),
+        types.Tool(google_search=types.GoogleSearch()),
+    ]
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(tools=tools),
+    )
     text = (getattr(response, "text", None) or "").strip()
     if not text:
-        raise ValueError("Gemini returned an empty response.")
+        raise ValueError(
+            "Gemini returned an empty response "
+            "(Zillow pages may have blocked URL fetch — try again or check the links)."
+        )
     return text
 
 
 def generate_financial_commentary(
     *,
-    address: str,
-    home_type: str = "",
-    beds: float | None = None,
-    baths: float | None = None,
-    sqft: float | None = None,
-    listing_hoa: float | None = None,
-    summary: MortgageSummary,
-    assumptions: Mapping[str, float | int],
+    subject_zillow_url: str,
+    subject_label: str = "",
+    peer_refs: Sequence[ZillowListingRef] = (),
 ) -> str:
-    """Call Gemini with calculator outputs; return breakdown + opinion markdown."""
-    list_price = float(assumptions.get("list_price") or 0)
-    offer_price = float(assumptions.get("offer_price") or 0)
-    if list_price <= 0 and offer_price <= 0:
-        raise ValueError("Set a list or offer price before asking Gemini about finances.")
+    """Ask Gemini to research Zillow URLs and return opinion markdown."""
+    url = _normalize_url(subject_zillow_url)
+    if not url:
+        raise ValueError("This home needs a Zillow URL before asking Gemini about finances.")
 
     prompt = build_financial_prompt(
-        address=address,
-        home_type=home_type,
-        beds=beds,
-        baths=baths,
-        sqft=sqft,
-        listing_hoa=listing_hoa,
-        summary=summary,
-        assumptions=assumptions,
+        subject_zillow_url=url,
+        subject_label=subject_label,
+        peer_refs=peer_refs,
     )
-    return _call_gemini(prompt)
+    return _call_gemini_with_web_tools(prompt)
+
+
+# --- Back-compat aliases (older imports / tests migrating) ---
+LibraryCompSnapshot = ZillowListingRef  # type: ignore[misc,assignment]
+
+
+def library_comps_digest(comps: Sequence[ZillowListingRef]) -> str:
+    """Deprecated name — digest peers only (no subject). Prefer zillow_urls_digest."""
+    return zillow_urls_digest("", comps)
+
+
+def format_buy_vs_rent_notes(*_a: object, **_k: object) -> str:
+    """Deprecated — buy-vs-rent now comes from Zillow rent Zestimate via URL context."""
+    return ""

@@ -248,3 +248,8 @@ def _migrate_sqlite() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE financial_assumptions ADD COLUMN appreciation_zillow_pct FLOAT"
                 )
+            if "interest_rate_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN interest_rate_source "
+                    "VARCHAR(96) NOT NULL DEFAULT ''"
+                )

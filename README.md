@@ -99,7 +99,7 @@ Responses are cached under `data/cache/` (gitignored with other `data/*`).
 
 The **Neighborhood** tab prefers the neighborhood name from the **Zillow listing**, with Nominatim/Google fallbacks and a manual override.
 
-Click **Ask Gemini about this neighborhood** for a short AI overview (vibe + character). Separately, **Ask Gemini: things to do** generates a practical bullet list of nearby parks, food, walks, and activities. Requires `GEMINI_API_KEY` in `.env` (see `.env.example`). Optional `GEMINI_MODEL` (default `gemini-2.5-flash-lite`). Overview and things-to-do are cached independently per neighborhood/city.
+Click **Ask Gemini about this neighborhood** for a short AI overview (vibe + character). Separately, **Ask Gemini: things to do** generates a practical bullet list of nearby parks, food, walks, and activities. Requires `GEMINI_API_KEY` in `.env` (see `.env.example`). Optional `GEMINI_MODEL` (default `gemini-3.1-flash-lite`). Overview and things-to-do are cached independently per neighborhood/city.
 
 Outbound deep links (Reddit, City-Data, Niche place pages, etc.) and your own notes live under **More links & notes**.
 
@@ -113,7 +113,7 @@ Property tax resolves Zillow's annual tax → Zillow assessed value × rate → 
 
 Three standard charts (monthly breakdown, equity, amortization) are followed by a fourth: **Buy vs rent + invest (net worth)** — cyan line = buy path (home equity minus a **6%** selling cost each year), magenta line = rent + invest (cash-to-close plus monthly `PITI − rent` invested at **10%/yr**). The caption under the chart shows blended appreciation, FHFA/Zillow components when known, and the fixed 6%/10% assumptions.
 
-Below the charts, the **Gemini financial take** opens the subject Zillow URL plus your other library Zillow links (Gemini **URL context** tool) and writes opinion on why pricing looks as it does, market/location, and buy vs rent — not a restatement of your calculator. Cache key is `fin_v4` over those URLs. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood. Note: if Zillow blocks the URL fetch, Gemini may return a thin/empty take — regenerate or check the listing links.
+Below the charts, the **Gemini financial take** opens the subject Zillow URL plus your other library Zillow links (Gemini **URL context** tool) and writes opinion on why pricing looks as it does, market/location, and buy vs rent — not a restatement of your calculator. Cache key is `fin_v4` over those URLs. Same `GEMINI_API_KEY`; Financials defaults to `gemini-2.5-flash-lite` (override with `GEMINI_FINANCIAL_MODEL`) so free-tier URL context + Google Search keep working. Note: if Zillow blocks the URL fetch, Gemini may return a thin/empty take — regenerate or check the listing links.
 
 ## Extending with a new module
 

@@ -14,30 +14,37 @@ def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
 
     with container:
-        ui.label("Photos").classes("text-h6")
-        ui.label("Auto-imported from the Zillow listing. Click any photo to expand.").classes(
-            "text-caption text-grey-7"
-        )
+        ui.label("Photos").classes("hb-page-title")
+        ui.label(
+            "Auto-imported from the Zillow listing. Click any photo to expand."
+        ).classes("hb-page-hint")
 
-        status = ui.label("").classes("text-body2 text-grey-6 q-mt-xs")
-        gallery = ui.element("div").classes("hb-photo-gallery q-mt-sm")
+        status = ui.label("").classes("hb-page-meta q-mt-xs")
 
         with ui.dialog().props("maximized") as lightbox, ui.card().classes(
-            "w-full h-full bg-black text-white items-center justify-center"
+            "hb-lightbox w-full h-full items-center justify-center"
         ):
             with ui.row().classes("w-full items-center justify-between q-px-md q-pt-md"):
-                lightbox_caption = ui.label("").classes("text-subtitle1")
-                ui.button(icon="close", on_click=lightbox.close).props(
-                    "flat round dense color=white"
-                )
+                lightbox_caption = ui.label("").classes("hb-lightbox-caption")
+                ui.button(icon="close", on_click=lightbox.close).classes(
+                    "hb-lightbox-close"
+                ).props("flat round dense")
             lightbox_image = (
                 ui.image()
                 .classes("w-full")
                 .style("max-height: calc(100vh - 80px); object-fit: contain;")
             )
             with ui.row().classes("q-gutter-sm q-pa-md"):
-                prev_btn = ui.button(icon="chevron_left").props("flat round color=white")
-                next_btn = ui.button(icon="chevron_right").props("flat round color=white")
+                prev_btn = (
+                    ui.button(icon="chevron_left")
+                    .classes("hb-lightbox-nav")
+                    .props("flat round dense")
+                )
+                next_btn = (
+                    ui.button(icon="chevron_right")
+                    .classes("hb-lightbox-nav")
+                    .props("flat round dense")
+                )
 
         photo_urls: list[str] = []
         photo_captions: list[str] = []
@@ -75,9 +82,9 @@ def render(prop: Property, container: ui.element) -> None:
 
             with gallery:
                 if not photos:
-                    ui.label("No photos yet — import from Zillow or upload manually.").classes(
-                        "text-grey-6"
-                    )
+                    ui.label(
+                        "No photos yet — import from Zillow or upload manually."
+                    ).classes("hb-empty-state w-full")
                     return
 
                 for idx, photo in enumerate(photos):
@@ -92,41 +99,43 @@ def render(prop: Property, container: ui.element) -> None:
                         card_classes += " hb-photo-card--library-thumb"
 
                     with ui.card().tight().classes(card_classes):
-                        if abs_path.exists():
-                            img = ui.image(src).classes(
-                                "w-full h-full object-cover hb-photo-thumb"
-                            )
-                            img.on("click", lambda _e=None, i=idx: show_lightbox(i))
-                        else:
-                            ui.label("Missing file").classes("q-pa-md")
-                        with ui.card_section().classes("q-pa-xs"):
-                            with ui.row().classes(
-                                "w-full items-center justify-between gap-1 no-wrap"
-                            ):
-                                label_bits = caption
-                                if is_library_thumb:
-                                    label_bits = f"{caption} · Library thumb"
-                                ui.label(label_bits).classes("text-caption ellipsis")
-                                pin_btn = ui.button(icon="push_pin").props(
-                                    "flat round dense size=sm color=primary"
-                                ).tooltip("Use as library thumbnail")
-
-                                def set_thumb(pid=photo.id) -> None:
-                                    try:
-                                        with get_session() as session:
-                                            PropertyService(session).set_library_thumbnail(
-                                                property_id, pid
-                                            )
-                                        ui.notify("Library thumbnail updated", type="positive")
-                                    except ValueError as exc:
-                                        ui.notify(str(exc), type="negative")
-                                    refresh_gallery()
-
-                                pin_btn.on(
-                                    "click",
-                                    set_thumb,
-                                    js_handler="(e) => { e.stopPropagation(); emit(e); }",
+                        with ui.element("div").classes("hb-photo-frame"):
+                            if abs_path.exists():
+                                img = ui.image(src).classes(
+                                    "w-full h-full object-cover hb-photo-thumb"
                                 )
+                                img.on("click", lambda _e=None, i=idx: show_lightbox(i))
+                            else:
+                                ui.label("Missing file").classes(
+                                    "hb-empty-state q-pa-md"
+                                )
+
+                            pin_classes = "hb-photo-pin"
+                            if is_library_thumb:
+                                pin_classes += " hb-photo-pin--active"
+                            pin_btn = (
+                                ui.button(icon="push_pin")
+                                .classes(pin_classes)
+                                .props("flat unelevated round dense size=sm")
+                                .tooltip("Use as library thumbnail")
+                            )
+
+                            def set_thumb(pid=photo.id) -> None:
+                                try:
+                                    with get_session() as session:
+                                        PropertyService(session).set_library_thumbnail(
+                                            property_id, pid
+                                        )
+                                    ui.notify("Library thumbnail updated", type="positive")
+                                except ValueError as exc:
+                                    ui.notify(str(exc), type="negative")
+                                refresh_gallery()
+
+                            pin_btn.on(
+                                "click",
+                                set_thumb,
+                                js_handler="(e) => { e.stopPropagation(); emit(e); }",
+                            )
 
         def import_from_zillow(replace: bool = False) -> None:
             try:
@@ -170,17 +179,17 @@ def render(prop: Property, container: ui.element) -> None:
                 "Import from Zillow",
                 on_click=lambda: import_from_zillow(False),
                 icon="cloud_download",
-            ).props("color=primary")
+            ).props("unelevated color=primary dense")
             ui.button(
                 "Re-import (replace)",
                 on_click=lambda: import_from_zillow(True),
                 icon="refresh",
-            ).props("outline color=primary")
+            ).props("outline color=primary dense")
             ui.button(
                 "Auto-pick again",
                 on_click=auto_pick_again,
                 icon="auto_awesome",
-            ).props("outline color=primary")
+            ).props("outline color=primary dense")
 
         ui.upload(
             label="Or upload photos",
@@ -189,6 +198,7 @@ def render(prop: Property, container: ui.element) -> None:
             multiple=True,
         ).props('accept="image/*"').classes("q-mt-sm")
 
+        gallery = ui.element("div").classes("hb-photo-gallery q-mt-sm")
         refresh_gallery(prop)
 
 

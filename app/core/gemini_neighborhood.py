@@ -6,13 +6,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 PROMPT_TEMPLATE = (
-    "I am thinking of buying a home in the {neighborhood} neighborhood in {city}. "
-    "Write one clear paragraph (about 120–180 words) about the area: how it feels to live there, "
-    "vibe and character, and some local things to do nearby. "
-    "Be practical and balanced — not salesy. Do not use bullet points or headings."
+    "I am seriously considering buying a home in the {neighborhood} neighborhood in {city}. "
+    "Help me decide whether this is a good place to live long-term — be honest and direct, "
+    "not a travel brochure or realtor pitch. Write 2 short paragraphs (about 160–220 words total).\n\n"
+    "Cover what I would actually want to know after living there for years: daily quality of life; "
+    "noise, traffic, parking, density; walkability and practical errands; schools/family fit if relevant; "
+    "safety and street feel (with nuance, not fear-mongering); housing stock and whether costs/HOA or "
+    "maintenance pressures are common; flood/heat/climate or wildfire exposure if relevant to the area; "
+    "and who the neighborhood tends to suit vs who may be unhappy there. "
+    "Call out real tradeoffs and downsides alongside upsides. "
+    "If you are unsure about something, say so rather than inventing certainty. "
+    "No bullet points, no headings, no closing pep talk."
 )
 
 THINGS_TO_DO_PROMPT_TEMPLATE = (

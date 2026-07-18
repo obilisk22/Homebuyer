@@ -5,8 +5,13 @@ from __future__ import annotations
 import pytest
 
 from app.core.census_acs import (
+    AVG_KIDS_BREAKS,
+    HOME_VALUE_BREAKS,
+    MEDIAN_AGE_BREAKS,
     bbox_around,
+    fill_color_for_breaks,
     income_fill_color,
+    parse_acs_avg_kids_rows,
     parse_acs_tract_rows,
 )
 from app.core.crime_socrata import (
@@ -45,6 +50,101 @@ def test_income_fill_color_breaks():
     assert income_fill_color(30_000) == "#1a237e"
     assert income_fill_color(90_000) == "#00E5FF"
     assert income_fill_color(200_000) == "#FF2BD6"
+
+
+def test_home_value_and_age_fill_breaks():
+    assert fill_color_for_breaks(350_000, HOME_VALUE_BREAKS) == "#1a237e"
+    assert fill_color_for_breaks(900_000, HOME_VALUE_BREAKS) == "#00E5FF"
+    assert fill_color_for_breaks(2_000_000, HOME_VALUE_BREAKS) == "#FF2BD6"
+    assert fill_color_for_breaks(28, MEDIAN_AGE_BREAKS) == "#00838f"
+    assert fill_color_for_breaks(42, MEDIAN_AGE_BREAKS) == "#B8FF3C"
+    assert fill_color_for_breaks(55, MEDIAN_AGE_BREAKS) == "#FF2BD6"
+
+
+def test_parse_acs_avg_kids_rows():
+    rows = [
+        ["NAME", "B09001_001E", "B25003_001E", "state", "county", "tract"],
+        ["Tract A", "100", "200", "06", "037", "123456"],
+        ["Tract B", "50", "0", "06", "037", "123457"],
+        ["Tract C", "-666666666", "100", "06", "037", "123458"],
+        ["Tract D", "0", "80", "06", "037", "123459"],
+    ]
+    parsed = parse_acs_avg_kids_rows(rows)
+    assert parsed["06037123456"] == pytest.approx(0.5)
+    assert parsed["06037123457"] is None
+    assert parsed["06037123458"] is None
+    assert parsed["06037123459"] == pytest.approx(0.0)
+    assert fill_color_for_breaks(0.5, AVG_KIDS_BREAKS) == "#283593"
+
+
+def test_parse_owner_occ_year_rent_bachelors():
+    from app.core.census_acs import (
+        BACHELORS_BREAKS,
+        GROSS_RENT_BREAKS,
+        OWNER_OCC_BREAKS,
+        YEAR_BUILT_BREAKS,
+        parse_acs_bachelors_pct_rows,
+        parse_acs_gross_rent_rows,
+        parse_acs_owner_occ_pct_rows,
+        parse_acs_year_built_rows,
+    )
+
+    owner_rows = [
+        ["NAME", "B25003_001E", "B25003_002E", "state", "county", "tract"],
+        ["A", "100", "80", "06", "037", "111111"],
+        ["B", "0", "10", "06", "037", "222222"],
+    ]
+    owners = parse_acs_owner_occ_pct_rows(owner_rows)
+    assert owners["06037111111"] == pytest.approx(80.0)
+    assert owners["06037222222"] is None
+    assert fill_color_for_breaks(80, OWNER_OCC_BREAKS) == "#00E5FF"
+
+    year_rows = [
+        ["NAME", "B25035_001E", "state", "county", "tract"],
+        ["A", "1974", "06", "037", "111111"],
+        ["B", "-666666666", "06", "037", "222222"],
+    ]
+    years = parse_acs_year_built_rows(year_rows)
+    assert years["06037111111"] == 1974.0
+    assert years["06037222222"] is None
+    assert fill_color_for_breaks(1974, YEAR_BUILT_BREAKS) == "#7b1fa2"
+
+    rent_rows = [
+        ["NAME", "B25064_001E", "state", "county", "tract"],
+        ["A", "2750", "06", "037", "111111"],
+    ]
+    rents = parse_acs_gross_rent_rows(rent_rows)
+    assert rents["06037111111"] == 2750.0
+    assert fill_color_for_breaks(2750, GROSS_RENT_BREAKS) == "#00E5FF"
+
+    edu_rows = [
+        [
+            "NAME",
+            "B15003_001E",
+            "B15003_022E",
+            "B15003_023E",
+            "B15003_024E",
+            "B15003_025E",
+            "state",
+            "county",
+            "tract",
+        ],
+        ["A", "100", "30", "10", "5", "5", "06", "037", "111111"],
+    ]
+    edu = parse_acs_bachelors_pct_rows(edu_rows)
+    assert edu["06037111111"] == pytest.approx(50.0)
+    assert fill_color_for_breaks(50, BACHELORS_BREAKS) == "#00E5FF"
+
+
+def test_acs_layers_include_new_demos():
+    from app.core.census_acs import ACS_LAYERS
+
+    assert {
+        "owner_occ",
+        "year_built",
+        "gross_rent",
+        "bachelors",
+    }.issubset(ACS_LAYERS)
 
 
 def test_crime_city_resolution():

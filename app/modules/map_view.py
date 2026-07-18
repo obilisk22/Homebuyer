@@ -7,9 +7,9 @@ from typing import Any
 from nicegui import ui
 
 from app.core.census_acs import (
+    ACS_LAYERS,
     CensusKeyMissing,
-    INCOME_LEGEND,
-    build_income_geojson,
+    build_acs_geojson,
     has_census_key,
 )
 from app.core.crime_density import CRIME_LEGEND, build_crime_density_geojson
@@ -20,6 +20,7 @@ from app.core.map_basemap import apply_dark_basemap, leaflet_map_kwargs
 from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.property_service import PropertyService
+from app.core.zoning_gis import ZONING_LEGEND, build_zoning_geojson, zoning_supported
 from app.modules.street_view import render_street_view
 
 _STYLE_JS = (
@@ -31,22 +32,84 @@ _POPUP_JS = (
     "{layer.bindPopup(f.properties.popup);}}"
 )
 
+_ACS_LAYER_LABELS = {
+    "income": "Income",
+    "home_value": "Home value",
+    "median_age": "Med. age",
+    "avg_kids": "Kids / HH",
+    "owner_occ": "Owner-occ",
+    "year_built": "Year built",
+    "gross_rent": "Rent",
+    "bachelors": "Bachelor's+",
+}
+
+_ACS_ORDER = (
+    "income",
+    "home_value",
+    "median_age",
+    "avg_kids",
+    "owner_occ",
+    "year_built",
+    "gross_rent",
+    "bachelors",
+)
+
 
 def render(prop: Property, container: ui.element) -> None:
     with container:
-        with ui.row().classes("w-full hb-map-layers q-mt-sm"):
-            flood_cb = ui.checkbox("Flood (FEMA)", value=False)
-            income_cb = ui.checkbox("Median income (ACS)", value=False)
-            crime_cb = ui.checkbox("Crime near pin", value=False)
+        layer_btns: dict[str, Any] = {}
+        layer_on: dict[str, bool] = {}
 
-        status = ui.label("").classes("text-caption hb-map-status q-mt-xs")
-        legend_box = ui.column().classes("w-full q-mt-xs")
-        map_box = ui.column().classes("w-full q-mt-sm")
+        def set_layer_on(key: str, on: bool) -> None:
+            """Sync button glow: --on class only when the layer is enabled."""
+            layer_on[key] = bool(on)
+            btn = layer_btns[key]
+            # Rebuild class string so add/remove cannot drift out of sync with state.
+            kept = [
+                c
+                for c in list(btn.classes)
+                if c not in ("hb-map-layer-btn", "hb-map-layer-btn--on")
+            ]
+            parts = kept + ["hb-map-layer-btn"]
+            if layer_on[key]:
+                parts.append("hb-map-layer-btn--on")
+            btn.classes(replace=" ".join(parts))
+
+        def make_layer_btn(key: str, label: str) -> None:
+            btn = (
+                ui.button(label)
+                .props("unelevated dense no-caps color=dark")
+                .classes("hb-map-layer-btn")
+            )
+            layer_btns[key] = btn
+            layer_on[key] = False
+
+        ui.label("Map").classes("hb-page-title")
+        ui.label("Overlays and Street View for this pin.").classes("hb-page-hint")
+
+        with ui.row().classes("w-full hb-map-layers"):
+            make_layer_btn("flood", "Flood")
+            make_layer_btn("zoning", "Zoning")
+            for layer_id in _ACS_ORDER:
+                make_layer_btn(layer_id, _ACS_LAYER_LABELS[layer_id])
+            make_layer_btn("crime", "Crime")
+
+        status = ui.label("").classes("hb-page-meta hb-map-status")
+        legend_box = ui.column().classes("w-full hb-map-legend")
+        map_box = ui.column().classes("w-full hb-map-box")
 
         with ui.expansion("Pin tools", icon="tune").classes("w-full q-mt-md"):
             with ui.row().classes("w-full items-end gap-4 flex-wrap"):
-                lat_input = ui.number("Latitude", value=prop.latitude, format="%.6f").classes("w-40")
-                lng_input = ui.number("Longitude", value=prop.longitude, format="%.6f").classes("w-40")
+                lat_input = (
+                    ui.number("Latitude", value=prop.latitude, format="%.6f")
+                    .classes("w-40")
+                    .props("dense outlined stack-label")
+                )
+                lng_input = (
+                    ui.number("Longitude", value=prop.longitude, format="%.6f")
+                    .classes("w-40")
+                    .props("dense outlined stack-label")
+                )
 
                 def save_coords() -> None:
                     lat = lat_input.value
@@ -62,7 +125,9 @@ def render(prop: Property, container: ui.element) -> None:
                     ui.notify("Coordinates saved", type="positive")
                     redraw()
 
-                ui.button("Save pin", on_click=save_coords).props("color=primary")
+                ui.button("Save pin", on_click=save_coords).props(
+                    "unelevated color=primary dense"
+                )
 
                 def regeocode() -> None:
                     try:
@@ -75,23 +140,27 @@ def render(prop: Property, container: ui.element) -> None:
                     except ValueError as exc:
                         ui.notify(str(exc), type="negative")
 
-                ui.button("Re-geocode from address", on_click=regeocode).props("outline")
+                ui.button("Re-geocode from address", on_click=regeocode).props(
+                    "outline dense"
+                )
 
         sv_box = ui.column().classes("w-full")
 
         state: dict[str, Any] = {
             "map": None,
             "flood": None,
-            "income": None,
+            "zoning": None,
+            "acs_layers": {lid: None for lid in _ACS_ORDER},
+            "show_acs_legend": {lid: False for lid in _ACS_ORDER},
+            "show_zoning_legend": False,
             "crime": None,
-            "show_income_legend": False,
             "show_crime_legend": False,
             "city": prop.city or "",
             "suppress_toggle": False,
         }
 
         def _legend_swatches(title: str, items: list[tuple[str, str]]) -> None:
-            ui.label(title).classes("text-caption text-grey-7")
+            ui.label(title).classes("hb-page-meta")
             with ui.row().classes("gap-3 flex-wrap items-center"):
                 for label, color in items:
                     with ui.row().classes("items-center gap-1"):
@@ -99,17 +168,22 @@ def render(prop: Property, container: ui.element) -> None:
                             f"width:14px;height:14px;border-radius:2px;background:{color};"
                             "border:1px solid #2A3340;"
                         )
-                        ui.label(label).classes("text-caption")
+                        ui.label(label).classes("hb-page-meta")
 
         def _render_legends() -> None:
             legend_box.clear()
-            show_income = bool(state.get("show_income_legend"))
+            any_acs = any(state["show_acs_legend"].values())
+            show_zoning = bool(state.get("show_zoning_legend"))
             show_crime = bool(state.get("show_crime_legend"))
-            if not show_income and not show_crime:
+            if not any_acs and not show_zoning and not show_crime:
                 return
             with legend_box:
-                if show_income:
-                    _legend_swatches("Median household income (ACS tracts)", INCOME_LEGEND)
+                if show_zoning:
+                    _legend_swatches("Zoning (near pin)", ZONING_LEGEND)
+                for lid in _ACS_ORDER:
+                    if state["show_acs_legend"].get(lid):
+                        cfg = ACS_LAYERS[lid]
+                        _legend_swatches(cfg.legend_title, cfg.legend)
                 if show_crime:
                     _legend_swatches("Crime incidents per hex (near pin)", CRIME_LEGEND)
 
@@ -119,6 +193,17 @@ def render(prop: Property, container: ui.element) -> None:
                 return
             m.run_layer_method(layer.id, ":setStyle", _STYLE_JS)
             m.run_layer_method(layer.id, ":eachLayer", _POPUP_JS)
+
+        def _clear_acs_layer(layer_id: str) -> None:
+            m = state.get("map")
+            layer = state["acs_layers"].get(layer_id)
+            if m is not None and layer is not None:
+                try:
+                    m.remove_layer(layer)
+                except (ValueError, RuntimeError):
+                    pass
+            state["acs_layers"][layer_id] = None
+            state["show_acs_legend"][layer_id] = False
 
         def toggle_flood(enabled: bool) -> None:
             if state["suppress_toggle"]:
@@ -138,67 +223,130 @@ def render(prop: Property, container: ui.element) -> None:
             state["flood"] = m.wms_layer(url_template=url, options=options)
             status.set_text("Flood zones: FEMA NFHL WMS")
 
-        def toggle_income(enabled: bool) -> None:
+        def toggle_zoning(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
             if m is None:
                 return
-            if state["income"] is not None:
+            if state["zoning"] is not None:
                 try:
-                    m.remove_layer(state["income"])
+                    m.remove_layer(state["zoning"])
                 except (ValueError, RuntimeError):
                     pass
-                state["income"] = None
-            state["show_income_legend"] = False
+                state["zoning"] = None
+            state["show_zoning_legend"] = False
             _render_legends()
             if not enabled:
                 return
-            if not has_census_key():
-                state["suppress_toggle"] = True
-                income_cb.value = False
-                state["suppress_toggle"] = False
-                status.set_text(
-                    "Income layer needs CENSUS_API_KEY — add it to .env "
-                    "(free signup: https://api.census.gov/data/key_signup.html), then restart."
-                )
-                ui.notify("Add CENSUS_API_KEY to enable income layer", type="warning")
-                return
+
             with get_session() as session:
                 fresh = PropertyService(session).get_property(prop.id)
             if fresh is None or fresh.latitude is None or fresh.longitude is None:
                 state["suppress_toggle"] = True
-                income_cb.value = False
+                set_layer_on("zoning", False)
                 state["suppress_toggle"] = False
-                status.set_text("Income layer needs a map pin.")
+                status.set_text("Zoning layer needs a map pin.")
                 return
+
+            city = fresh.city or state.get("city") or ""
+            plat = float(fresh.latitude)
+            plng = float(fresh.longitude)
+            if not zoning_supported(city, plat, plng):
+                state["suppress_toggle"] = True
+                set_layer_on("zoning", False)
+                state["suppress_toggle"] = False
+                status.set_text(
+                    "No zoning layer for this area — v1 covers City of Los Angeles, "
+                    "Santa Monica, and unincorporated LA County."
+                )
+                ui.notify("Zoning overlay not available for this area", type="info")
+                return
+
             status.set_text("Loading…")
             try:
-                geo = build_income_geojson(float(fresh.latitude), float(fresh.longitude))
-            except CensusKeyMissing as exc:
+                geo = build_zoning_geojson(city, plat, plng)
+            except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
-                income_cb.value = False
+                set_layer_on("zoning", False)
                 state["suppress_toggle"] = False
-                status.set_text(str(exc))
-                ui.notify(str(exc), type="warning")
-                return
-            except Exception as exc:  # noqa: BLE001 — surface API errors in UI
-                state["suppress_toggle"] = True
-                income_cb.value = False
-                state["suppress_toggle"] = False
-                status.set_text(f"Income layer failed: {exc}")
-                ui.notify(f"Income layer failed: {exc}", type="negative")
+                status.set_text(f"Zoning layer failed: {exc}")
+                ui.notify(f"Zoning layer failed: {exc}", type="negative")
                 return
 
             fc = {"type": "FeatureCollection", "features": geo.get("features") or []}
             layer = m.generic_layer(name="geoJSON", args=[fc, {}])
-            state["income"] = layer
+            state["zoning"] = layer
             _apply_choropleth_style(layer)
-            state["show_income_legend"] = True
+            state["show_zoning_legend"] = bool(fc["features"])
             _render_legends()
-            n = len(fc["features"])
-            year = geo.get("meta", {}).get("year", "")
-            status.set_text(f"Income: {n} tracts near pin (ACS B19013, {year})")
+            status.set_text(str((geo.get("meta") or {}).get("message") or "Zoning loaded"))
+
+        def make_toggle_acs(layer_id: str):
+            cfg = ACS_LAYERS[layer_id]
+
+            def toggle_acs(enabled: bool) -> None:
+                if state["suppress_toggle"]:
+                    return
+                m = state.get("map")
+                if m is None:
+                    return
+                _clear_acs_layer(layer_id)
+                _render_legends()
+                if not enabled:
+                    return
+                if not has_census_key():
+                    state["suppress_toggle"] = True
+                    set_layer_on(layer_id, False)
+                    state["suppress_toggle"] = False
+                    status.set_text(
+                        "ACS layers need CENSUS_API_KEY — add it to .env "
+                        "(free signup: https://api.census.gov/data/key_signup.html), then restart."
+                    )
+                    ui.notify("Add CENSUS_API_KEY to enable ACS layers", type="warning")
+                    return
+                with get_session() as session:
+                    fresh = PropertyService(session).get_property(prop.id)
+                if fresh is None or fresh.latitude is None or fresh.longitude is None:
+                    state["suppress_toggle"] = True
+                    set_layer_on(layer_id, False)
+                    state["suppress_toggle"] = False
+                    status.set_text(f"{cfg.popup_metric} layer needs a map pin.")
+                    return
+                status.set_text("Loading…")
+                try:
+                    geo = build_acs_geojson(
+                        layer_id, float(fresh.latitude), float(fresh.longitude)
+                    )
+                except CensusKeyMissing as exc:
+                    state["suppress_toggle"] = True
+                    set_layer_on(layer_id, False)
+                    state["suppress_toggle"] = False
+                    status.set_text(str(exc))
+                    ui.notify(str(exc), type="warning")
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    state["suppress_toggle"] = True
+                    set_layer_on(layer_id, False)
+                    state["suppress_toggle"] = False
+                    status.set_text(f"{cfg.popup_metric} failed: {exc}")
+                    ui.notify(f"{cfg.popup_metric} failed: {exc}", type="negative")
+                    return
+
+                fc = {"type": "FeatureCollection", "features": geo.get("features") or []}
+                layer = m.generic_layer(name="geoJSON", args=[fc, {}])
+                state["acs_layers"][layer_id] = layer
+                _apply_choropleth_style(layer)
+                state["show_acs_legend"][layer_id] = True
+                _render_legends()
+                n = len(fc["features"])
+                year = geo.get("meta", {}).get("year", "")
+                status.set_text(
+                    f"{cfg.popup_metric}: {n} tracts near pin "
+                    f"(ACS {cfg.variable_label}, {year})"
+                )
+
+            return toggle_acs
 
         def toggle_crime(enabled: bool) -> None:
             if state["suppress_toggle"]:
@@ -221,7 +369,7 @@ def render(prop: Property, container: ui.element) -> None:
                 fresh = PropertyService(session).get_property(prop.id)
             if fresh is None or fresh.latitude is None or fresh.longitude is None:
                 state["suppress_toggle"] = True
-                crime_cb.value = False
+                set_layer_on("crime", False)
                 state["suppress_toggle"] = False
                 status.set_text("Crime layer needs a map pin.")
                 return
@@ -231,7 +379,7 @@ def render(prop: Property, container: ui.element) -> None:
             plng = float(fresh.longitude)
             if not crime_supported(city, plat, plng):
                 state["suppress_toggle"] = True
-                crime_cb.value = False
+                set_layer_on("crime", False)
                 state["suppress_toggle"] = False
                 status.set_text(
                     "No crime layer for this area — open data covers "
@@ -245,7 +393,7 @@ def render(prop: Property, container: ui.element) -> None:
                 result = fetch_crime_near_pin(city, plat, plng)
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
-                crime_cb.value = False
+                set_layer_on("crime", False)
                 state["suppress_toggle"] = False
                 status.set_text(f"Crime layer failed: {exc}")
                 ui.notify(f"Crime layer failed: {exc}", type="negative")
@@ -270,13 +418,46 @@ def render(prop: Property, container: ui.element) -> None:
                 status.set_text(
                     f"Crime: {incidents} incidents in {cells} cells near pin"
                 )
-        flood_cb.on_value_change(lambda e: toggle_flood(bool(e.value)))
-        income_cb.on_value_change(lambda e: toggle_income(bool(e.value)))
-        crime_cb.on_value_change(lambda e: toggle_crime(bool(e.value)))
+
+        def wire_layer(key: str, handler: Any) -> None:
+            handlers[key] = handler
+
+            def _click() -> None:
+                if state["suppress_toggle"]:
+                    return
+                turning_on = not layer_on[key]
+                if turning_on:
+                    # Exclusive overlays: only one layer active at a time.
+                    for other, other_handler in handlers.items():
+                        if other == key or not layer_on[other]:
+                            continue
+                        set_layer_on(other, False)
+                        other_handler(False)
+                    set_layer_on(key, True)
+                    handler(True)
+                else:
+                    set_layer_on(key, False)
+                    handler(False)
+
+            layer_btns[key].on_click(_click)
+
+        handlers: dict[str, Any] = {}
+        wire_layer("flood", toggle_flood)
+        wire_layer("zoning", toggle_zoning)
+        for lid in _ACS_ORDER:
+            wire_layer(lid, make_toggle_acs(lid))
+        wire_layer("crime", toggle_crime)
+
+        if not zoning_supported(prop.city, prop.latitude, prop.longitude):
+            layer_btns["zoning"].props("disable")
+            layer_btns["zoning"].tooltip(
+                "Zoning overlay: City of Los Angeles, Santa Monica, "
+                "unincorporated LA County"
+            )
 
         if not crime_supported(prop.city, prop.latitude, prop.longitude):
-            crime_cb.props("disable")
-            crime_cb.tooltip(
+            layer_btns["crime"].props("disable")
+            layer_btns["crime"].tooltip(
                 "Crime overlay available for Los Angeles County and Seattle"
             )
 
@@ -295,14 +476,15 @@ def render(prop: Property, container: ui.element) -> None:
                 lng_input.value = lng
 
             state["suppress_toggle"] = True
-            flood_cb.value = False
-            income_cb.value = False
-            crime_cb.value = False
+            for key in layer_btns:
+                set_layer_on(key, False)
             state["suppress_toggle"] = False
             state["flood"] = None
-            state["income"] = None
+            state["zoning"] = None
+            state["show_zoning_legend"] = False
+            state["acs_layers"] = {lid: None for lid in _ACS_ORDER}
+            state["show_acs_legend"] = {lid: False for lid in _ACS_ORDER}
             state["crime"] = None
-            state["show_income_legend"] = False
             state["show_crime_legend"] = False
             state["map"] = None
             _render_legends()
@@ -321,7 +503,7 @@ def render(prop: Property, container: ui.element) -> None:
                     )
                     apply_dark_basemap(m)
                     ui.label("No pin yet — geocode the address or enter coordinates.").classes(
-                        "text-caption text-grey-7 q-mt-sm"
+                        "hb-empty-state w-full q-mt-sm"
                     )
 
             sv_box.clear()

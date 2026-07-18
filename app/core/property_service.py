@@ -25,6 +25,7 @@ from app.core.gemini_neighborhood import (
 from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.home_insurance import resolve_annual_insurance
 from app.core.models import FinancialAssumptions, Photo, Property
+from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
@@ -228,7 +229,7 @@ class PropertyService:
         self._sync_financial_from_listing(prop, details)
 
     def _sync_financial_from_listing(self, prop: Property, details: ListingDetails) -> None:
-        """Overwrite listing-derived Financials fields; never touch loan-term inputs."""
+        """Overwrite listing-derived Financials fields; preserve Manual loan inputs."""
         if prop.financial is None:
             prop.financial = FinancialAssumptions()
         fin = prop.financial
@@ -303,6 +304,19 @@ class PropertyService:
             )
             fin.appreciation_pct = float(blended)
             fin.appreciation_source = source
+
+        self._apply_mortgage_rate_autofill(fin)
+
+    def _apply_mortgage_rate_autofill(self, fin: FinancialAssumptions) -> None:
+        """Fill interest rate from Freddie Mac PMMS for the current loan term."""
+        if not should_autofill_interest_rate(fin.interest_rate_source):
+            return
+        term = int(fin.loan_term_years or 30)
+        rate, src = resolve_interest_rate(term)
+        if rate is None or rate <= 0:
+            return
+        fin.interest_rate_pct = float(rate)
+        fin.interest_rate_source = src
 
     def _fill_location_from_address(self, prop: Property) -> None:
         if prop.city and prop.state:
@@ -647,11 +661,21 @@ class PropertyService:
         self.session.commit()
 
     def ensure_financial(self, prop: Property) -> FinancialAssumptions:
-        if prop.financial is None:
+        created = prop.financial is None
+        if created:
             prop.financial = FinancialAssumptions()
             self.session.commit()
             self.session.refresh(prop)
         assert prop.financial is not None
+        if created or should_autofill_interest_rate(prop.financial.interest_rate_source):
+            before = float(prop.financial.interest_rate_pct or 0)
+            before_src = (prop.financial.interest_rate_source or "").strip()
+            self._apply_mortgage_rate_autofill(prop.financial)
+            after = float(prop.financial.interest_rate_pct or 0)
+            after_src = (prop.financial.interest_rate_source or "").strip()
+            if after != before or after_src != before_src:
+                self.session.commit()
+                self.session.refresh(prop.financial)
         return prop.financial
 
     def _financial_assumption_dict(self, fin: FinancialAssumptions) -> dict[str, float | int]:
@@ -818,6 +842,9 @@ class PropertyService:
         prev_ins = float(fin.annual_insurance or 0)
         prev_rent = float(fin.monthly_rent or 0)
         prev_appr = float(fin.appreciation_pct or 0)
+        prev_rate = float(fin.interest_rate_pct or 0)
+        prev_term = int(fin.loan_term_years or 30)
+        prev_rate_src = (fin.interest_rate_source or "").strip()
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
@@ -829,6 +856,26 @@ class PropertyService:
             fin.rent_source = "Manual"
         if "appreciation_pct" in fields and float(fields["appreciation_pct"]) != prev_appr:
             fin.appreciation_source = "Manual"
+        term_changed = (
+            "loan_term_years" in fields and int(fields["loan_term_years"]) != prev_term
+        )
+        rate_changed = (
+            "interest_rate_pct" in fields
+            and float(fields["interest_rate_pct"]) != prev_rate
+        )
+        if rate_changed and term_changed and should_autofill_interest_rate(prev_rate_src):
+            # UI may refresh rate when Term changes; keep PMMS if it still matches.
+            expected, src = resolve_interest_rate(int(fin.loan_term_years or 30))
+            if expected is not None and abs(float(fin.interest_rate_pct) - expected) < 0.001:
+                fin.interest_rate_pct = float(expected)
+                fin.interest_rate_source = src
+            else:
+                fin.interest_rate_source = "Manual"
+        elif term_changed and should_autofill_interest_rate(prev_rate_src):
+            fin.interest_rate_source = prev_rate_src
+            self._apply_mortgage_rate_autofill(fin)
+        elif rate_changed:
+            fin.interest_rate_source = "Manual"
         self.session.commit()
         self.session.refresh(fin)
         return fin

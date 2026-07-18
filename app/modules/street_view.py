@@ -105,14 +105,16 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
 
         with ui.expansion("Street View", icon="streetview", value=True).classes("w-full q-mt-md"):
             if not _has_coords(live):
-                with ui.column().classes("w-full items-start gap-3 q-py-md"):
-                    ui.label("Street View needs a map pin").classes("text-body2")
+                with ui.column().classes("w-full items-stretch gap-3 q-py-md"):
+                    ui.label("Street View needs a map pin").classes(
+                        "hb-empty-state w-full"
+                    )
                     ui.label(
                         "Geocode the address above, then Street View will appear here."
-                    ).classes("text-caption text-grey-7")
+                    ).classes("hb-page-hint")
                     if address:
                         ui.button("Open in Google Maps").props(
-                            f'outline color=primary icon=map '
+                            f'outline color=primary dense icon=map '
                             f'href="{maps_search_url(address)}" target=_blank'
                         )
                 return

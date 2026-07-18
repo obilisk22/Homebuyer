@@ -21,6 +21,7 @@ def test_sync_overwrites_listing_fields_preserves_loan_terms(tmp_path, monkeypat
         purchase_price=500_000,
         down_payment_pct=15.0,
         interest_rate_pct=5.5,
+        interest_rate_source="Manual",
         loan_term_years=15,
         closing_cost_pct=2.0,
         annual_property_tax=1.0,
@@ -41,6 +42,10 @@ def test_sync_overwrites_listing_fields_preserves_loan_terms(tmp_path, monkeypat
     monkeypatch.setattr(
         "app.core.property_service.resolve_annual_insurance",
         lambda **kwargs: (3_000.0, "Zillow"),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (9.9, "Freddie Mac PMMS should not apply"),
     )
 
     details = ListingDetails(
@@ -63,8 +68,45 @@ def test_sync_overwrites_listing_fields_preserves_loan_terms(tmp_path, monkeypat
     assert fin.offer_price == 480_000
     assert fin.down_payment_pct == 15.0
     assert fin.interest_rate_pct == 5.5
+    assert fin.interest_rate_source == "Manual"
     assert fin.loan_term_years == 15
     assert fin.closing_cost_pct == 2.0
+
+
+def test_sync_autofills_pmms_interest_rate_for_term(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_rate_zpid/",
+        state="WA",
+    )
+    fin = FinancialAssumptions(list_price=400_000, loan_term_years=15)
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (5.93, f"Freddie Mac PMMS 15-yr FRM · test"),
+    )
+
+    PropertyService(session)._sync_financial_from_listing(
+        prop, ListingDetails(list_price=400_000, state="WA")
+    )
+    session.commit()
+    session.refresh(fin)
+
+    assert fin.interest_rate_pct == 5.93
+    assert fin.interest_rate_source.startswith("Freddie Mac")
+    assert fin.loan_term_years == 15
 
 
 def test_sync_keeps_hoa_when_listing_omits_hoa(tmp_path, monkeypatch):

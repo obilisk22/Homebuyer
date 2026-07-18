@@ -5,7 +5,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | # | Status | One-liner |
 |---|--------|-----------|
 | TODO-001 | Done | Richer Zillow scrape (beds, price, sqft, HOA, year built, home type) |
-| TODO-002 | Partial | Area signals — flood/ACS demographics/crime done; zoning, AQI, fire, Redfin open |
+| TODO-002 | Partial | Area signals — flood/zoning/ACS/crime done; AQI, fire, Redfin open |
 | TODO-003 | Done | Cost/Sqft display *(list price ÷ sqft)* |
 | TODO-004 | Done | Neighborhood: Gemini cool things to do |
 | TODO-005 | Done | Financials: Gemini breakdown + opinion |
@@ -15,6 +15,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-009 | Done | Honest Gemini neighborhood prompt |
 | TODO-010 | Done | Map + Street View combined |
 | TODO-011 | Done | Financials: autofill list/HOA/tax/insurance from Zillow + ACS/state tables |
+| TODO-012 | Done | Financials: autofill interest rate from Freddie Mac PMMS by loan term |
 
 ---
 
@@ -37,7 +38,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 **Add:** crime, median income, air quality, fire risk, average home price / demographics.
 
-**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **ACS** (income, home value, median age, avg kids/HH, % owner-occupied, year built, gross rent, % bachelor's+), and **LA County + Seattle crime** (hex density). UX = toggles only (no Neighborhood chips). Still pending: **zoning**, air quality, fire risk, Redfin sale-price choropleth.
+**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **Zoning** (LA City / Santa Monica / County), **ACS** demographics, and **LA County + Seattle crime** (hex density). Still pending: air quality, fire risk, Redfin sale-price choropleth.
 
 **Notes**
 - See [`docs/RESEARCH.md`](RESEARCH.md). Core helpers: `census_acs.py`, `fema_flood.py`, `crime_socrata.py`, `crime_density.py`, `overlay_cache.py`.
@@ -76,14 +77,14 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ## TODO-005 — Financials: Gemini breakdown + opinion
 
-**Status:** Done (2026-07-18)
+**Status:** Done (2026-07-18; revised fin_v4 URL-context)
 
-**In the Financials tab:** ask Gemini for a financial breakdown and an opinion on the property’s finances (offer, PITI, taxes/insurance assumptions, HOA, etc.).
+**In the Financials tab:** ask Gemini for a market / buy-vs-rent opinion grounded in Zillow listing pages.
 
 **Shipped**
-- Columns `financial_gemini` + `financial_gemini_for` on `Property` (fingerprint `fin_v1|list|offer|down|rate|term|tax|ins|hoa|closing`).
-- Helper `app/core/gemini_financial.py` builds a prompt from `summarize()` calculator outputs + assumptions; asks for markdown Breakdown + Opinion sections.
-- `PropertyService.ensure_gemini_financial` caches by fingerprint; UI section below charts with Ask / Regenerate; stale take when assumptions change.
+- Columns `financial_gemini` + `financial_gemini_for` on `Property` (fingerprint `fin_v4|<url-hash>` over subject + peer Zillow URLs).
+- Helper `app/core/gemini_financial.py` prompts with Zillow URLs only; Gemini **URL context** (+ Google Search) fetches listings — no app calculator dump.
+- `PropertyService.ensure_gemini_financial` caches by URL fingerprint; UI Ask / Regenerate; stale when library Zillow links change.
 
 **Touch:** `app/modules/financial.py`, `app/core/gemini_financial.py`, `models.py`, `db.py`, `property_service.py`, tests
 
@@ -158,7 +159,23 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 - Zillow scrape gains `annual_tax`, `tax_assessed_value`, `property_tax_rate`, `annual_insurance` (`app/core/zillow_listing.py`).
 - `resolve_annual_property_tax` chain: Zillow annual tax → Zillow assessed × rate → ACS county effective rate (`B25103`/`B25077`) × assessed → × list price (`app/core/property_tax.py`, `census_acs.county_effective_property_tax_rate`).
 - `resolve_annual_insurance`: Zillow annual insurance → state avg-premium table scaled to list price (`app/core/home_insurance.py`, `app/data/home_insurance_rates.json`).
-- `PropertyService._sync_financial_from_listing` overwrites `list_price`/`monthly_hoa`/`annual_property_tax`/`annual_insurance` from the listing on add, refresh, and post-geocode re-sync; loan terms (down payment/rate/term/closing) are never touched; unresolved tax/insurance fall back to `0` instead of fake defaults; explicit `$0` HOA overwrites but a missing HOA value keeps the previous one.
+- `PropertyService._sync_financial_from_listing` overwrites `list_price`/`monthly_hoa`/`annual_property_tax`/`annual_insurance` from the listing on add, refresh, and post-geocode re-sync; down payment / term / closing are never touched (interest rate: see TODO-012); unresolved tax/insurance fall back to `0` instead of fake defaults; explicit `$0` HOA overwrites but a missing HOA value keeps the previous one.
 - New `FinancialAssumptions` columns `property_tax_source` / `insurance_source` (e.g. `Zillow`, `Zillow assessed × rate`, `Estimated: ACS county`, `Estimated: CA avg premium`) surfaced as captions under the Ownership costs inputs.
 
 **Touch:** `app/core/zillow_listing.py`, `app/core/property_tax.py`, `app/core/home_insurance.py`, `app/core/census_acs.py`, `app/core/property_service.py`, `app/core/models.py`, `app/core/db.py`, `app/modules/financial.py`, `.env.example`, tests
+
+---
+
+## TODO-012 — Financials: average mortgage rate by loan term ✅ Done
+
+**Status:** Done (2026-07-18)
+
+**Autofill Interest rate** from national average fixed mortgage rates for the selected loan duration.
+
+**Shipped**
+- `app/core/mortgage_rates.py` fetches Freddie Mac PMMS 15-yr / 30-yr averages (HTML primary, FRED data-page fallback), caches under `data/cache/mortgage_rates/` (~6h).
+- Term mapping: pick the closer of 15 vs 30 (e.g. 20 → 15-yr, 25 → 30-yr).
+- Applied on add/refresh sync + `ensure_financial` unless `interest_rate_source` is `Manual`; changing Term refreshes the matching average; editing the rate marks Manual.
+- Caption under Interest rate (e.g. `Freddie Mac PMMS 30-yr FRM · 2026-07-16`).
+
+**Touch:** `app/core/mortgage_rates.py`, `property_service.py`, `models.py`, `db.py`, `app/modules/financial.py`, tests, `AGENTS.md`

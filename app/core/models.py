@@ -94,9 +94,10 @@ class FinancialAssumptions(Base):
     annual_insurance: Mapped[float] = mapped_column(Float, default=0.0)
     monthly_hoa: Mapped[float] = mapped_column(Float, default=0.0)
     closing_cost_pct: Mapped[float] = mapped_column(Float, default=3.0)
-    # Source labels for tax/insurance resolution (e.g. "Zillow", "Estimated: ACS county").
+    # Source labels for tax/insurance/rate resolution (e.g. "Zillow", "Freddie Mac PMMS…").
     property_tax_source: Mapped[str] = mapped_column(String(64), default="")
     insurance_source: Mapped[str] = mapped_column(String(64), default="")
+    interest_rate_source: Mapped[str] = mapped_column(String(96), default="")
     monthly_rent: Mapped[float] = mapped_column(Float, default=0.0)
     rent_source: Mapped[str] = mapped_column(String(64), default="")
     appreciation_pct: Mapped[float] = mapped_column(Float, default=3.0)

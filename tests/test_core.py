@@ -1,4 +1,6 @@
 from app.core.finance import (
+    down_payment_dollars,
+    down_payment_pct_from_dollars,
     effective_price,
     estimate_monthly_pmi,
     monthly_payment,
@@ -53,6 +55,15 @@ def test_effective_price_prefers_offer():
     assert effective_price(500_000, 480_000) == 480_000
     assert effective_price(500_000, 0) == 500_000
     assert effective_price(500_000) == 500_000
+
+
+def test_down_payment_dollars_and_pct_round_trip():
+    assert down_payment_dollars(500_000, 20) == 100_000
+    assert down_payment_pct_from_dollars(500_000, 100_000) == 20.0
+    assert down_payment_dollars(0, 20) == 0.0
+    assert down_payment_pct_from_dollars(0, 50_000) == 0.0
+    # Under 20% for PMI warning threshold
+    assert down_payment_pct_from_dollars(500_000, 50_000) == 10.0
 
 
 def test_summarize_uses_offer_over_list():

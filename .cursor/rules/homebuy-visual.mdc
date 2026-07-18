@@ -1,0 +1,20 @@
+---
+description: Homebuy visual system — emission hierarchy, fonts, density
+globs: app/ui/**/*.py, app/modules/**/*.py
+alwaysApply: false
+---
+
+# Homebuy visuals
+
+- Dark near-black + cyan hierarchy. Neon is a **priority signal**, not decoration.
+- L1 (always emissive): focused field, primary CTA, active tab; brand wordmark.
+- L2: library card border glow on hover only (one hover language). Add form card stays flat.
+- L3: chips/meta — no glow. Amber only for HOA ≥ $400.
+- Fonts: **Akira Expanded** = street address + brand; **Creato Display** = body/UI/price/Gemini prose. Self-hosted under `app/static/fonts/`.
+- Gemini sections: `.hb-section-title` + `.hb-gemini-prose`; in-tab Ask/Regenerate on Neighborhood + Financials; empty prompts use `.hb-empty-state`.
+- Library: street is the hero; price is quieter Creato under it; thumb stretches to match text column height; address clamps and cards stack under ~800px.
+- Density: tighter gaps; dense outlined fields on Add/Filter; never hide listing chips to save space.
+- Page chrome: `.hb-page-title` / `.hb-page-meta` / `.hb-empty-state` — don’t leave Quasar `text-h5` / grey helpers on library shell.
+- Controls: **dark neumorphism** on buttons, tabs, and map layer chips (`.hb-map-layer-btn` / `--on`). Photos lightbox: `.hb-lightbox*`. Financials form: 2×2 `.hb-financial-form`.
+- Focus: one cyan focus ring on buttons/fields — don’t invent a second glow system.
+- Do not introduce purple-on-white or cream-terracotta defaults; stay on the existing token set in `theme.py`.

@@ -95,6 +95,7 @@ def render(prop: Property, container: ui.element) -> None:
             city = (live.city or "").strip()
             state = (live.state or "").strip()
             gemini = (live.neighborhood_gemini or "").strip()
+            things = (live.neighborhood_things_to_do or "").strip()
 
             if display:
                 status.set_text("")
@@ -205,6 +206,64 @@ def render(prop: Property, container: ui.element) -> None:
                         ui.button(
                             "Regenerate",
                             on_click=lambda: ask_gemini(force=True),
+                            icon="refresh",
+                        ).props("outline dense")
+
+                ui.separator().style("border-color: var(--hb-border);")
+
+                ui.label("Cool things to do nearby").classes("text-subtitle1").style(
+                    "color: var(--hb-neon-2);"
+                )
+                things_box = ui.column().classes("w-full gap-2")
+
+                def render_things(text: str) -> None:
+                    things_box.clear()
+                    with things_box:
+                        if text:
+                            ui.markdown(text).classes("text-body1").style(
+                                "line-height: 1.65; color: #E8ECF2; max-width: 52rem;"
+                            )
+                        else:
+                            ui.label(
+                                "Ask Gemini for walkable parks, food, and nearby spots — "
+                                "each with a Google Maps link."
+                            ).classes("text-caption text-grey-7")
+
+                render_things(things)
+
+                def ask_things(*, force: bool = False) -> None:
+                    if not display and not (override_input.value or "").strip():
+                        ui.notify("Set a neighborhood name first", type="warning")
+                        return
+                    typed = (override_input.value or "").strip()
+                    if typed and typed != override:
+                        with get_session() as session:
+                            PropertyService(session).update_property(
+                                property_id, neighborhood_override=typed
+                            )
+                    status.set_text("Asking Gemini for things to do…")
+                    try:
+                        with get_session() as session:
+                            PropertyService(session).ensure_gemini_things_to_do(
+                                property_id, force=force
+                            )
+                        status.set_text("")
+                        ui.notify("Things to do ready", type="positive")
+                    except Exception as exc:
+                        status.set_text("")
+                        ui.notify(str(exc), type="negative")
+                    redraw()
+
+                with ui.row().classes("gap-2 flex-wrap"):
+                    ui.button(
+                        "Ask Gemini: things to do",
+                        on_click=lambda: ask_things(force=False),
+                        icon="auto_awesome",
+                    ).props("unelevated color=secondary")
+                    if things:
+                        ui.button(
+                            "Regenerate",
+                            on_click=lambda: ask_things(force=True),
                             icon="refresh",
                         ).props("outline dense")
 

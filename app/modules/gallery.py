@@ -19,8 +19,8 @@ def render(prop: Property, container: ui.element) -> None:
             "text-caption text-grey-7"
         )
 
-        status = ui.label("").classes("text-body2 text-grey-6 q-mt-sm")
-        gallery = ui.row().classes("w-full flex-wrap gap-3 q-mt-md")
+        status = ui.label("").classes("text-body2 text-grey-6 q-mt-xs")
+        gallery = ui.element("div").classes("hb-photo-gallery q-mt-sm")
 
         with ui.dialog().props("maximized") as lightbox, ui.card().classes(
             "w-full h-full bg-black text-white items-center justify-center"
@@ -82,29 +82,17 @@ def render(prop: Property, container: ui.element) -> None:
                     photo_captions.append(caption)
 
                     with ui.card().tight().classes(
-                        "w-52 cursor-pointer hb-photo-card"
+                        "hb-photo-card cursor-pointer overflow-hidden"
                     ):
                         if abs_path.exists():
-                            img = ui.image(src).classes("w-full h-36 object-cover")
+                            img = ui.image(src).classes(
+                                "w-full h-full object-cover hb-photo-thumb"
+                            )
                             img.on("click", lambda _e=None, i=idx: show_lightbox(i))
                         else:
                             ui.label("Missing file").classes("q-pa-md")
-                        with ui.card_section().classes("q-pa-sm"):
+                        with ui.card_section().classes("q-pa-xs"):
                             ui.label(caption).classes("text-caption ellipsis")
-                            pid = photo.id
-
-                            def make_delete(photo_id: int):
-                                def _delete() -> None:
-                                    with get_session() as session:
-                                        PropertyService(session).delete_photo(photo_id)
-                                    ui.notify("Photo removed", type="positive")
-                                    refresh_gallery()
-
-                                return _delete
-
-                            ui.button("Remove", on_click=make_delete(pid)).props(
-                                "flat dense color=negative"
-                            )
 
         def import_from_zillow(replace: bool = False) -> None:
             try:
@@ -134,7 +122,7 @@ def render(prop: Property, container: ui.element) -> None:
             ui.notify("Photo added", type="positive")
             refresh_gallery()
 
-        with ui.row().classes("q-mt-md gap-2 flex-wrap"):
+        with ui.row().classes("q-mt-sm gap-2 flex-wrap"):
             ui.button(
                 "Import from Zillow",
                 on_click=lambda: import_from_zillow(False),

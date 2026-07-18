@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-17 (initial git commit)
+> Last updated: 2026-07-18 (Library home page visual refresh — list layout)
 
 ## What this is
 
@@ -120,15 +120,17 @@ Restart the app — the tab appears automatically.
 | Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
 | Photo import | `app/core/zillow_photos.py` |
 | Listing fields extract | `app/core/zillow_listing.py` |
-| Neighborhood + Gemini overview | `app/core/neighborhood.py`, `app/core/gemini_neighborhood.py` |
+| Neighborhood + Gemini overview / things-to-do | `app/core/neighborhood.py`, `app/core/gemini_neighborhood.py` |
 | Library thumbnail pick | `app/core/thumbnail.py` |
 | Mortgage math | `app/core/finance.py` |
-| Modules | `app/modules/{gallery,map_view,street_view,neighborhood_reviews,financial}.py` |
+| Map overlays | `app/core/{census_acs,fema_flood,crime_socrata,overlay_cache}.py` |
+| Dark basemap | `app/core/map_basemap.py` (CARTO `dark_all` after `ui.leaflet`) |
+| Modules | `app/modules/{gallery,map_view,neighborhood_reviews,financial}.py` (+ `street_view.py` helpers, no tab) |
 | Env template | `.env.example` |
 
 ### Data model (high level)
 
-**Property:** `address`, `zillow_url`, `list_price`, `beds`, `baths`, `city`, `state`, `zip_code`, `latitude`, `longitude`, `thumbnail_photo_id`, `notes`, `neighborhood_name`, `neighborhood_source`, `neighborhood_override`, `neighborhood_notes`
+**Property:** `address`, `zillow_url`, `list_price`, `beds`, `baths`, `sqft`, `hoa_fee`, `year_built`, `home_type`, `city`, `state`, `zip_code`, `latitude`, `longitude`, `thumbnail_photo_id`, `notes`, `neighborhood_name`, `neighborhood_source`, `neighborhood_override`, `neighborhood_notes`, `neighborhood_gemini`, `neighborhood_gemini_for`, `neighborhood_things_to_do`, `neighborhood_things_to_do_for`
 
 **Photo:** `path`, `source_url`, `caption`, `sort_order`
 
@@ -141,6 +143,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Project bootstrap, NiceGUI shell, module registry
 - [x] Add home from Zillow URL only; import photos + listing details
 - [x] Photos gallery + lightbox; exterior-ish library thumbnails
+- [x] Gallery UX: denser larger tiles; no per-photo Remove (re-import replace only)
 - [x] Map geocode (Nominatim default; optional Google key); unit/apt address fix
 - [x] Street View free desktop 16:9 panel (no Cloud billing)
 - [x] Financials: offer vs list, PITI + PMI, neon Plotly charts
@@ -148,7 +151,13 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Cyberpunk dark theme
 - [x] Add-home is Zillow URL only (address from listing/URL)
 - [x] Initial Git commit + push to https://github.com/obilisk22/Homebuyer (`main`)
-- [x] Neighborhood Reviews: Zillow neighborhood name + Gemini overview paragraph + deep links/notes
+- [x] Neighborhood Reviews: Zillow neighborhood name + Gemini overview + things-to-do list + deep links/notes
+- [x] Map overlays (slice): FEMA flood WMS + ACS median income choropleth + LA/Santa Monica/Seattle crime
+- [x] Street View folded into Map tab (map on top, free svembed below; no standalone SV tab)
+- [x] Map tab Direction 1 polish: CARTO dark basemap, compact layer bar, taller map, quieter status, Pin tools + collapsible Street View below map
+- [x] Map fullscreen control (leaflet.fullscreen near zoom; survives redraw)
+- [x] Richer Zillow listing scrape: beds, price, sqft, HOA, year built, home type (library + header + edit)
+- [x] Library visual refresh: richer **list** cards (not a grid) — 160×120 thumb/placeholder, neon price, beds/baths/sqft/`$`-sqft chips + quieter type/year/HOA chips, whole-card click to property page, delete confirm dialog, collapsed Filter expansion, muted homes count
 
 ## In progress / next (as of last session)
 
@@ -157,16 +166,18 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `map-overlays-research` | **Done** | See [`docs/RESEARCH.md`](docs/RESEARCH.md) |
 | `neighborhood-reviews-research` | **Done** | See [`docs/RESEARCH.md`](docs/RESEARCH.md) |
 | `neighborhood-reviews-impl` | **Done** | Module `neighborhood_reviews` (order 35); deep links only |
-| `map-overlays-impl` | Pending | Part of TODO-002 — Census ACS + FEMA + Socrata (+ Redfin); see research |
-| `TODO-001` | Pending | Richer Zillow scrape: beds, price, sqft, HOA, year built, home type |
-| `TODO-002` | Pending | Crime, median income, air quality, fire risk, avg home price |
-| `TODO-003` | Pending | Display Cost/Sqft (needs sqft from TODO-001) |
-| `TODO-004` | Pending | Neighborhood tab: Gemini “cool things to do” |
+| `map-overlays-impl` | **Partial** | Flood + ACS income + LA/SM/Seattle crime; deferred Redfin / ACS value / AQI / fire |
+| `TODO-001` | **Done** | Beds/price/sqft/HOA/year/home type from gdpClientCache + LD+JSON |
+| `TODO-002` | **Partial** | Income + flood + LA/SM/Seattle crime on Map; still pending AQI, fire, avg home price |
+| `TODO-003` | **Done** | `$/sqft` on library cards + property header |
+| `TODO-004` | **Done** | Neighborhood tab: Gemini “cool things to do” (separate cache from overview) |
 | `TODO-005` | Pending | Financials tab: Gemini breakdown + opinion |
 | `TODO-006` | Pending | Clean up codebase |
-| `TODO-007` | Pending | Remove per-photo Remove button in gallery |
-| `TODO-008` | Pending | Larger gallery photos, less negative space |
+| `TODO-007` | **Done** | Per-photo Remove button dropped; re-import replace remains |
+| `TODO-008` | **Done** | Denser gallery: 4-column full-width grid, 4:3 thumbs |
 | `TODO-009` | Pending | Honest (less flowery) Gemini neighborhood prompt |
+| `TODO-010` | **Done** | Street View below map in Map tab; standalone SV tab removed |
+| `library-visual-refresh` | **Done** | List-layout polish of `/` — see "Product decisions" #8 below |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.
@@ -174,11 +185,14 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 ## Product decisions (locked)
 
 1. **Ingest:** Zillow URL → store link + resolved address. No full MLS API. Listing HTML via `curl_cffi` (Chrome impersonation) for photos/details — Zillow blocks plain httpx.
-2. **Street View:** Free Google `svembed` only; scale desktop viewport into 16:9 panel. No Maps Embed API keys for SV.
+2. **Street View:** Free Google `svembed` only; shown **below the map** on the Map tab in a collapsible expansion (open by default, shorter panel). No Maps Embed API keys for SV.
+2b. **Map chrome:** Dark CARTO basemap (`apply_dark_basemap`); compact layer toggles above the map; single status line; Pin tools expansion below the map (collapsed). Fullscreen via `leaflet.fullscreen` (CDN + `fullscreenControl` options from `leaflet_map_kwargs()`), control near zoom; Escape / browser exit restores the in-tab map. No always-on Census tip — message only when Income toggle fails / key missing.
 3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`.
-4. **Optional env:** `GOOGLE_MAPS_API_KEY` only for preferred Google geocoding — not required (Nominatim works).
+4. **Optional env:** `GOOGLE_MAPS_API_KEY` (preferred geocoding); `CENSUS_API_KEY` (Map income choropleth — required for that toggle); `SOCRATA_APP_TOKEN` (optional, crime rate limits); `GEMINI_API_KEY` (Neighborhood AI).
 5. **Theme accents:** Cyan `#00E5FF`, Magenta `#FF2BD6`, Lime `#B8FF3C`, Amber `#FFC107`.
-6. **Neighborhood reviews:** Prefer **Zillow listing neighborhood** name; fallback Nominatim/Google; manual override. **Gemini** (`GEMINI_API_KEY`, model `gemini-2.5-flash-lite` by default) writes a cached overview paragraph. Deep links only for Reddit/City-Data/Niche (no scrape); Niche uses a `/places-to-live/n/{hood}-{city}-{state}/` place URL when possible, else search. Notes in `neighborhood_notes`.
+6. **Neighborhood reviews:** Prefer **Zillow listing neighborhood** name; fallback Nominatim/Google; manual override. **Gemini** (`GEMINI_API_KEY`, model `gemini-2.5-flash-lite` by default) writes a cached overview paragraph (`neighborhood_gemini` / `neighborhood_gemini_for`) and a separate cached things-to-do list (`neighborhood_things_to_do` / `neighborhood_things_to_do_for`, key prefix `things_v1|`). Regenerating one does not wipe the other; both clear when the neighborhood override changes. Deep links only for Reddit/City-Data/Niche (no scrape); Niche uses a `/places-to-live/n/{hood}-{city}-{state}/` place URL when possible, else search. Notes in `neighborhood_notes`.
+7. **Map overlays:** Layer toggles only (no Neighborhood chips). FEMA NFHL WMS flood; ACS `B19013` tract income (needs `CENSUS_API_KEY`); crime near pin for **all of LA County** (merges LAPD Socrata + Santa Monica CKAN; densest in those PDs) and Seattle. Also resolves from pin lat/lng when city is empty. Cache under `data/cache/`.
+8. **Library page:** list layout, not a grid. Each row (`.hb-library-card`) is whole-card-clickable to `/property/{id}`; the Zillow link and delete icon stop click propagation (`js_handler` `stopPropagation`, combined with a Python `handler` for delete — needs NiceGUI ≥2.18 for both at once) so they don't also trigger navigation. Delete opens a confirm dialog (address snippet + Cancel/Delete) before calling `delete_property`. Price is pulled out of the meta string into its own neon `.hb-library-price` line; beds/baths/sqft/`$`-sqft render as `.hb-meta-chip` pills, home type/year/HOA as quieter `.hb-meta-chip--quiet` pills (city/state omitted — already in the address). No listing data yet → "Details pending — open and refresh listing". Filters (search/min/max price/min beds) live in a collapsed `ui.expansion("Filter")`; a muted "N homes" count sits next to the "Your homes" heading. Empty-DB and filtered-to-empty states have distinct copy.
 
 ## Working agreements for agents
 
@@ -191,12 +205,12 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 
 ## Quick verify checklist
 
-1. Library loads dark theme at http://127.0.0.1:8080  
-2. Paste a `/homedetails/..._zpid/` URL → Add home → photos + address appear  
+1. Library loads dark theme at http://127.0.0.1:8080 as a list of clickable home cards (thumb, neon price, meta chips); Filter is collapsed by default and a muted homes count shows next to the heading  
+2. Paste a `/homedetails/..._zpid/` URL → Add home → photos + address + beds/price/sqft/HOA/year/type appear; card click opens the property page, Zillow link/delete icon on a card don't trigger that navigation, delete asks for confirmation  
 3. Map pins (even with `UNIT` in the slug)  
-4. Street View is a single wide panel (no nested Map sub-tab)  
+4. Map tab: dark CARTO basemap; fullscreen control near zoom; flood/income/crime toggles; Street View expansion below map (free svembed, open by default); no always-on Census tip until Income is toggled without a key  
 5. Financials shows neon charts on dark paper  
-6. Neighborhood tab resolves a name, deep-link buttons open Reddit/City-Data/Niche/Google  
+6. Neighborhood tab resolves a name, deep-link buttons open Reddit/City-Data/Niche/Google; Gemini overview + things-to-do buttons work when `GEMINI_API_KEY` is set  
 7. `.\.venv\Scripts\pytest.exe -q` passes  
 
 ## Related docs

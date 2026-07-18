@@ -41,6 +41,10 @@ CrimeGrade scraping, GreatSchools paid API, FBI CDE for neighborhood maps, Zillo
 
 **Census ACS + Redfin ZIP + FEMA WMS + city Socrata crime** → Leaflet toggles on existing map; cache server-side; never load nationwide crime into the browser.
 
+### Implemented (2026-07-18 slice)
+
+Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood, ACS `B19013` income choropleth (`CENSUS_API_KEY`), LA + Seattle Socrata crime near pin. Deferred: Redfin sales, ACS home value, air quality, fire risk. Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
+
 ---
 
 ## Neighborhood reviews / locals’ opinions

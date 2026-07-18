@@ -137,6 +137,21 @@ def _migrate_sqlite() -> None:
                 "neighborhood_gemini_for",
                 "ALTER TABLE properties ADD COLUMN neighborhood_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
             ),
+            (
+                "neighborhood_things_to_do",
+                "ALTER TABLE properties ADD COLUMN neighborhood_things_to_do TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "neighborhood_things_to_do_for",
+                "ALTER TABLE properties ADD COLUMN neighborhood_things_to_do_for VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            ("sqft", "ALTER TABLE properties ADD COLUMN sqft FLOAT"),
+            ("hoa_fee", "ALTER TABLE properties ADD COLUMN hoa_fee FLOAT"),
+            ("year_built", "ALTER TABLE properties ADD COLUMN year_built INTEGER"),
+            (
+                "home_type",
+                "ALTER TABLE properties ADD COLUMN home_type VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
         ):
             if name not in prop_cols:
                 conn.exec_driver_sql(ddl)

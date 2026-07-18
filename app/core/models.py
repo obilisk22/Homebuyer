@@ -22,6 +22,10 @@ class Property(Base):
     list_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     beds: Mapped[float | None] = mapped_column(Float, nullable=True)
     baths: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hoa_fee: Mapped[float | None] = mapped_column(Float, nullable=True)
+    year_built: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    home_type: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     city: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     state: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     zip_code: Mapped[str] = mapped_column(String(16), default="", nullable=False)
@@ -36,6 +40,10 @@ class Property(Base):
     neighborhood_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     neighborhood_gemini: Mapped[str] = mapped_column(Text, default="", nullable=False)
     neighborhood_gemini_for: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    neighborhood_things_to_do: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    neighborhood_things_to_do_for: Mapped[str] = mapped_column(
+        String(256), default="", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

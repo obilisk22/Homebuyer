@@ -1,3 +1,8 @@
+"""Street View helpers — free Google svembed (no Maps Embed API / billing).
+
+Used from the Map tab (map on top, Street View below). Not a standalone module tab.
+"""
+
 from __future__ import annotations
 
 from urllib.parse import quote_plus
@@ -5,7 +10,6 @@ from urllib.parse import quote_plus
 from nicegui import ui
 
 from app.core.db import get_session
-from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.property_service import PropertyService
 
@@ -19,7 +23,7 @@ def _has_coords(prop: Property) -> bool:
     return prop.latitude is not None and prop.longitude is not None
 
 
-def _street_view_embed_url(lat: float, lng: float, heading: float = 0) -> str:
+def street_view_embed_url(lat: float, lng: float, heading: float = 0) -> str:
     """Free Google Street View iframe — no API key / Cloud billing."""
     return (
         "https://maps.google.com/maps"
@@ -29,11 +33,11 @@ def _street_view_embed_url(lat: float, lng: float, heading: float = 0) -> str:
     )
 
 
-def _maps_search_url(query: str) -> str:
+def maps_search_url(query: str) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
 
 
-def _street_view_open_url(lat: float, lng: float) -> str:
+def street_view_open_url(lat: float, lng: float) -> str:
     return (
         "https://www.google.com/maps/@?api=1&map_action=pano"
         f"&viewpoint={lat},{lng}"
@@ -47,8 +51,8 @@ def _panorama(src: str) -> None:
             container-type: inline-size;
             width: 100%;
             aspect-ratio: 16 / 9;
-            min-height: 420px;
-            max-height: min(75vh, 820px);
+            min-height: 280px;
+            max-height: min(50vh, 560px);
             overflow: hidden;
             border-radius: 12px;
             background: #111;
@@ -78,19 +82,20 @@ def _panorama(src: str) -> None:
     )
 
 
-def _ensure_pinned(property_id: int) -> Property | None:
+def ensure_pinned(property_id: int) -> Property | None:
     with get_session() as session:
         return PropertyService(session).ensure_coordinates(property_id)
 
 
-def render(prop: Property, container: ui.element) -> None:
+def render_street_view(prop: Property, container: ui.element | None = None) -> None:
+    """Render Street View panel (optionally into an existing container)."""
     property_id = prop.id
 
-    with container:
+    def body() -> None:
         live = prop
         if not _has_coords(live) and (live.address or "").strip():
             try:
-                pinned = _ensure_pinned(property_id)
+                pinned = ensure_pinned(property_id)
                 if pinned is not None:
                     live = pinned
             except Exception:
@@ -98,33 +103,37 @@ def render(prop: Property, container: ui.element) -> None:
 
         address = (live.address or "").strip()
 
-        if not _has_coords(live):
-            with ui.column().classes("w-full items-start gap-3 q-py-lg"):
-                ui.label("Street View needs a map pin").classes("text-subtitle1")
-                ui.label(
-                    "Open the Map tab to geocode this address, then return here."
-                ).classes("text-body2 text-grey-7")
-                if address:
-                    ui.button("Open in Google Maps").props(
-                        f'outline color=primary icon=map '
-                        f'href="{_maps_search_url(address)}" target=_blank'
-                    )
-            return
+        with ui.expansion("Street View", icon="streetview", value=True).classes("w-full q-mt-md"):
+            if not _has_coords(live):
+                with ui.column().classes("w-full items-start gap-3 q-py-md"):
+                    ui.label("Street View needs a map pin").classes("text-body2")
+                    ui.label(
+                        "Geocode the address above, then Street View will appear here."
+                    ).classes("text-caption text-grey-7")
+                    if address:
+                        ui.button("Open in Google Maps").props(
+                            f'outline color=primary icon=map '
+                            f'href="{maps_search_url(address)}" target=_blank'
+                        )
+                return
 
-        lat = float(live.latitude)  # type: ignore[arg-type]
-        lng = float(live.longitude)  # type: ignore[arg-type]
-        query = address or f"{lat},{lng}"
+            lat = float(live.latitude)  # type: ignore[arg-type]
+            lng = float(live.longitude)  # type: ignore[arg-type]
+            query = address or f"{lat},{lng}"
 
-        _panorama(_street_view_embed_url(lat, lng))
+            _panorama(street_view_embed_url(lat, lng))
 
-        with ui.row().classes("w-full justify-start items-center gap-2 q-mt-md flex-wrap"):
-            ui.button("Open in Google Maps").props(
-                f'outline dense color=primary icon=map href="{_maps_search_url(query)}" target=_blank'
-            )
-            ui.button("Open Street View").props(
-                f'unelevated dense color=primary icon=streetview '
-                f'href="{_street_view_open_url(lat, lng)}" target=_blank'
-            )
+            with ui.row().classes("w-full justify-start items-center gap-2 q-mt-sm flex-wrap"):
+                ui.button("Open in Google Maps").props(
+                    f'outline dense color=primary icon=map href="{maps_search_url(query)}" target=_blank'
+                )
+                ui.button("Open Street View").props(
+                    f'unelevated dense color=primary icon=streetview '
+                    f'href="{street_view_open_url(lat, lng)}" target=_blank'
+                )
 
-
-MODULE = ModuleSpec(id="street_view", title="Street View", order=30, render=render)
+    if container is None:
+        body()
+    else:
+        with container:
+            body()

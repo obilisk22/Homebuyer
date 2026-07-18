@@ -85,6 +85,77 @@ def test_extract_embedded_json_fields():
     assert details.zip_code == "78701"
 
 
+SAMPLE_ESCAPED_GDP_EXTENDED = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"property\":{\"zpid\":123,\"price\":1298000,\"bedrooms\":3,\"bathrooms\":2,\"livingArea\":2016,\"livingAreaValue\":2016,\"monthlyHoaFee\":250,\"hoaFee\":250,\"yearBuilt\":1958,\"homeType\":\"SINGLE_FAMILY\",\"city\":\"Seattle\",\"state\":\"WA\",\"zipcode\":\"98116\",\"parentRegion\":{\"name\":\"Alki\",\"regionId\":1}}}"}}}}
+</script>
+"""
+
+SAMPLE_ESCAPED_GDP_CONDO = r"""
+<script id="__NEXT_DATA__" type="application/json">
+{"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"ForSaleShopperPlatformFullRenderQuery\":{\"property\":{\"zpid\":99,\"price\":875000,\"bedrooms\":2,\"bathrooms\":2,\"livingArea\":1100,\"hoaFee\":425.5,\"yearBuilt\":2001,\"homeType\":\"CONDO\",\"propertyTypeDimension\":\"Condo\",\"city\":\"Santa Monica\",\"state\":\"CA\"}}}"}}}}
+</script>
+"""
+
+SAMPLE_LD_WITH_EXTENDED = """
+<html><head>
+<meta name="description" content="Zillow has photos of this $500,000 2 beds, 1 baths, 1,200 Square Feet condo located at 1 Main St, Austin, TX 78701 built in 1985."/>
+</head><body>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":["RealEstateListing","Product"],
+ "offers":{"@type":"Offer","price":500000,"priceCurrency":"USD",
+  "itemOffered":{"@type":"Apartment","numberOfBedrooms":2,
+   "floorSize":{"@type":"QuantitativeValue","value":1200,"unitCode":"FTK"},
+   "yearBuilt":1985,
+   "address":{"@type":"PostalAddress","streetAddress":"1 Main St",
+    "addressLocality":"Austin","addressRegion":"TX","postalCode":"78701"}}}}
+</script>
+</body></html>
+"""
+
+
+def test_extract_sqft_hoa_year_home_type_from_escaped_gdp():
+    details = extract_listing_details(SAMPLE_ESCAPED_GDP_EXTENDED)
+    assert details.list_price == 1_298_000
+    assert details.beds == 3
+    assert details.baths == 2
+    assert details.sqft == 2016
+    assert details.hoa_fee == 250
+    assert details.year_built == 1958
+    assert details.home_type == "Single Family"
+    assert details.neighborhood == "Alki"
+
+
+def test_extract_condo_fields_from_nested_gdp():
+    details = extract_listing_details(SAMPLE_ESCAPED_GDP_CONDO)
+    assert details.sqft == 1100
+    assert details.hoa_fee == 425.5
+    assert details.year_built == 2001
+    assert details.home_type == "Condo"
+
+
+def test_extract_sqft_year_home_type_from_ld_and_meta():
+    details = extract_listing_details(SAMPLE_LD_WITH_EXTENDED)
+    assert details.list_price == 500_000
+    assert details.sqft == 1200
+    assert details.year_built == 1985
+    assert details.home_type in {"Condo", "Apartment"}
+
+
+def test_extract_extended_fields_via_regex_fallback():
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"livingArea":980,"monthlyHoaFee":0,'
+        '"yearBuilt":1972,"homeType":"TOWNHOUSE"}}}'
+        "</script>"
+    )
+    details = extract_listing_details(html)
+    assert details.sqft == 980
+    assert details.hoa_fee == 0
+    assert details.year_built == 1972
+    assert details.home_type == "Townhouse"
+
+
 def test_parse_address_parts():
     assert parse_address_parts("123 Main St, Seattle, WA 98101") == (
         "Seattle",

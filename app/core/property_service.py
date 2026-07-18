@@ -9,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import UPLOADS_DIR
-from app.core.gemini_neighborhood import generate_neighborhood_overview
+from app.core.gemini_neighborhood import (
+    generate_neighborhood_overview,
+    generate_things_to_do,
+)
 from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.models import FinancialAssumptions, Photo, Property
 from app.core.neighborhood import effective_neighborhood_name
@@ -171,6 +174,17 @@ class PropertyService:
             prop.beds = details.beds
         if details.baths is not None:
             prop.baths = details.baths
+        if details.sqft is not None:
+            prop.sqft = details.sqft
+        if details.hoa_fee is not None:
+            prop.hoa_fee = details.hoa_fee
+            # Seed financial HOA when still at the default zero.
+            if prop.financial is not None and (prop.financial.monthly_hoa or 0) == 0:
+                prop.financial.monthly_hoa = float(details.hoa_fee)
+        if details.year_built is not None:
+            prop.year_built = details.year_built
+        if details.home_type:
+            prop.home_type = details.home_type
         if details.city:
             prop.city = details.city
         if details.state:
@@ -197,7 +211,7 @@ class PropertyService:
             prop.zip_code = zip_code
 
     def refresh_listing_details(self, property_id: int) -> Property:
-        """Re-fetch list price / beds / baths / city from the Zillow page."""
+        """Re-fetch list price / beds / baths / sqft / HOA / year / type from Zillow."""
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
@@ -374,6 +388,39 @@ class PropertyService:
         self.session.refresh(prop)
         return prop
 
+    def ensure_gemini_things_to_do(
+        self, property_id: int, *, force: bool = False
+    ) -> Property:
+        """Generate and cache a Gemini things-to-do list for the effective neighborhood."""
+        prop = self.ensure_neighborhood(property_id)
+        name = self.display_neighborhood(prop)
+        if not name:
+            raise ValueError(
+                "No neighborhood name yet — refresh from Zillow or set an override."
+            )
+
+        # Separate cache from overview; suffix keeps keys distinct if compared side-by-side.
+        cache_key = (
+            f"things_v2|{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        )
+        if (
+            not force
+            and (prop.neighborhood_things_to_do or "").strip()
+            and (prop.neighborhood_things_to_do_for or "").strip() == cache_key
+        ):
+            return prop
+
+        text = generate_things_to_do(
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
+        )
+        prop.neighborhood_things_to_do = text
+        prop.neighborhood_things_to_do_for = cache_key
+        self.session.commit()
+        self.session.refresh(prop)
+        return prop
+
     def update_property(
         self,
         property_id: int,
@@ -384,6 +431,10 @@ class PropertyService:
         list_price: float | None | str | object = _UNSET,
         beds: float | None | str | object = _UNSET,
         baths: float | None | str | object = _UNSET,
+        sqft: float | None | str | object = _UNSET,
+        hoa_fee: float | None | str | object = _UNSET,
+        year_built: int | None | str | object = _UNSET,
+        home_type: str | None = None,
         city: str | None = None,
         state: str | None = None,
         zip_code: str | None = None,
@@ -413,6 +464,15 @@ class PropertyService:
             prop.beds = _optional_float(beds)  # type: ignore[arg-type]
         if baths is not _UNSET:
             prop.baths = _optional_float(baths)  # type: ignore[arg-type]
+        if sqft is not _UNSET:
+            prop.sqft = _optional_float(sqft)  # type: ignore[arg-type]
+        if hoa_fee is not _UNSET:
+            prop.hoa_fee = _optional_float(hoa_fee)  # type: ignore[arg-type]
+        if year_built is not _UNSET:
+            raw_year = _optional_float(year_built)  # type: ignore[arg-type]
+            prop.year_built = int(raw_year) if raw_year is not None else None
+        if home_type is not None:
+            prop.home_type = home_type.strip()
         if city is not None:
             prop.city = city.strip()
         if state is not None:
@@ -432,6 +492,8 @@ class PropertyService:
             # Override change invalidates cached Gemini text for the old name.
             prop.neighborhood_gemini = ""
             prop.neighborhood_gemini_for = ""
+            prop.neighborhood_things_to_do = ""
+            prop.neighborhood_things_to_do_for = ""
         if neighborhood_notes is not None:
             prop.neighborhood_notes = neighborhood_notes
         if clear_neighborhood:
@@ -439,9 +501,13 @@ class PropertyService:
             prop.neighborhood_source = ""
             prop.neighborhood_gemini = ""
             prop.neighborhood_gemini_for = ""
+            prop.neighborhood_things_to_do = ""
+            prop.neighborhood_things_to_do_for = ""
         if clear_gemini:
             prop.neighborhood_gemini = ""
             prop.neighborhood_gemini_for = ""
+            prop.neighborhood_things_to_do = ""
+            prop.neighborhood_things_to_do_for = ""
 
         self.session.commit()
         self.session.refresh(prop)

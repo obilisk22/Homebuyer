@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from app.core.map_basemap import FULLSCREEN_ICON_URL
+
 # Accent set: cyan (primary), magenta (secondary), electric lime (highlight)
 NEON = {
     "cyan": "#00E5FF",
@@ -232,9 +234,105 @@ a:hover {{
   opacity: 1 !important;
 }}
 
-/* Photo gallery cards */
+/* Library — list-style home cards */
+.hb-library-card {{
+  padding: 0.85rem 1.1rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}}
+
+.hb-library-card:hover {{
+  border-color: rgba(0, 229, 255, 0.55) !important;
+  box-shadow: 0 0 22px rgba(0, 229, 255, 0.18), 0 10px 32px rgba(0, 0, 0, 0.45) !important;
+  transform: translateY(-1px);
+}}
+
+.hb-library-thumb {{
+  width: 160px;
+  height: 120px;
+  min-width: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--hb-border);
+  flex-shrink: 0;
+}}
+
+.hb-library-thumb--empty {{
+  width: 160px;
+  height: 120px;
+  min-width: 160px;
+  border-radius: 8px;
+  border: 1px dashed var(--hb-border);
+  background: var(--hb-surface-2);
+  color: var(--hb-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}}
+
+.hb-library-price {{
+  color: var(--hb-neon) !important;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+}}
+
+.hb-meta-chip {{
+  background: var(--hb-surface-2);
+  border: 1px solid var(--hb-border);
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--hb-text);
+  white-space: nowrap;
+}}
+
+.hb-meta-chip--quiet {{
+  color: var(--hb-text-muted);
+  border-color: transparent;
+  background: transparent;
+  padding: 0.15rem 0.2rem;
+}}
+
+/* Photo gallery — 4-across, full-bleed within the tab panel */
+.hb-photo-gallery {{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}}
+
+@media (max-width: 900px) {{
+  .hb-photo-gallery {{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }}
+}}
+
+@media (max-width: 600px) {{
+  .hb-photo-gallery {{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }}
+}}
+
 .hb-photo-card {{
+  width: 100%;
+  max-width: none;
+  margin: 0;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}}
+
+.hb-photo-thumb {{
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  height: auto !important;
+  min-height: 0;
+  display: block;
+}}
+
+.hb-photo-card .q-card__section {{
+  padding: 0.2rem 0.35rem !important;
 }}
 
 .hb-photo-card:hover {{
@@ -254,6 +352,60 @@ a:hover {{
   border: 1px solid var(--hb-border);
   border-radius: 10px;
   box-shadow: 0 0 20px rgba(0, 229, 255, 0.08);
+}}
+
+.hb-map {{
+  width: 100%;
+  height: 32rem;
+  max-height: min(60vh, 40rem);
+  border-radius: 10px;
+}}
+
+/* Fullscreen must ignore the in-tab height cap */
+.leaflet-container:fullscreen,
+.leaflet-container:-webkit-full-screen,
+.leaflet-pseudo-fullscreen {{
+  max-height: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}}
+
+.hb-map-layers {{
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  flex-wrap: wrap;
+}}
+
+.hb-map-status {{
+  min-height: 1.25rem;
+  color: var(--hb-text-muted) !important;
+}}
+
+/* Zoom + fullscreen controls readable on dark basemap.
+   Use background-color (not shorthand background) so leaflet.fullscreen's
+   background-image icon sprite is not wiped by !important. */
+.leaflet-bar a {{
+  background-color: var(--hb-surface) !important;
+  color: var(--hb-text) !important;
+  border-bottom-color: var(--hb-border) !important;
+}}
+.leaflet-bar a:hover {{
+  background-color: var(--hb-surface-2) !important;
+  color: var(--hb-neon) !important;
+}}
+/* Absolute icon URL keeps the expand/exit sprite even if plugin relative url() breaks. */
+.leaflet-control-fullscreen a.leaflet-fullscreen-icon {{
+  background-color: var(--hb-surface) !important;
+  background-image: url("{FULLSCREEN_ICON_URL}") !important;
+  background-size: 26px 52px !important;
+  background-repeat: no-repeat !important;
+  /* SVG sprite is black; invert → white on dark control chrome */
+  filter: invert(1);
+}}
+.leaflet-control-fullscreen a.leaflet-fullscreen-icon:hover {{
+  background-color: var(--hb-surface-2) !important;
+  filter: invert(1) brightness(1.15);
 }}
 
 .homebuy-sv {{

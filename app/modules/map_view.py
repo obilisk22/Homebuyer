@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from nicegui import ui
@@ -13,7 +12,8 @@ from app.core.census_acs import (
     build_income_geojson,
     has_census_key,
 )
-from app.core.crime_socrata import crime_supported, fetch_crime_near_pin
+from app.core.crime_density import CRIME_LEGEND, build_crime_density_geojson
+from app.core.crime_socrata import DEFAULT_DAYS as CRIME_DAYS, crime_supported, fetch_crime_near_pin
 from app.core.db import get_session
 from app.core.fema_flood import flood_wms_layer_args
 from app.core.map_basemap import apply_dark_basemap, leaflet_map_kwargs
@@ -83,27 +83,37 @@ def render(prop: Property, container: ui.element) -> None:
             "map": None,
             "flood": None,
             "income": None,
-            "crime": [],
+            "crime": None,
+            "show_income_legend": False,
+            "show_crime_legend": False,
             "city": prop.city or "",
             "suppress_toggle": False,
         }
 
-        def _render_legend(show_income: bool) -> None:
+        def _legend_swatches(title: str, items: list[tuple[str, str]]) -> None:
+            ui.label(title).classes("text-caption text-grey-7")
+            with ui.row().classes("gap-3 flex-wrap items-center"):
+                for label, color in items:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.element("div").style(
+                            f"width:14px;height:14px;border-radius:2px;background:{color};"
+                            "border:1px solid #2A3340;"
+                        )
+                        ui.label(label).classes("text-caption")
+
+        def _render_legends() -> None:
             legend_box.clear()
-            if not show_income:
+            show_income = bool(state.get("show_income_legend"))
+            show_crime = bool(state.get("show_crime_legend"))
+            if not show_income and not show_crime:
                 return
             with legend_box:
-                ui.label("Median household income (ACS tracts)").classes("text-caption text-grey-7")
-                with ui.row().classes("gap-3 flex-wrap items-center"):
-                    for label, color in INCOME_LEGEND:
-                        with ui.row().classes("items-center gap-1"):
-                            ui.element("div").style(
-                                f"width:14px;height:14px;border-radius:2px;background:{color};"
-                                "border:1px solid #2A3340;"
-                            )
-                            ui.label(label).classes("text-caption")
+                if show_income:
+                    _legend_swatches("Median household income (ACS tracts)", INCOME_LEGEND)
+                if show_crime:
+                    _legend_swatches("Crime incidents per hex (near pin)", CRIME_LEGEND)
 
-        def _apply_income_style(layer: Any) -> None:
+        def _apply_choropleth_style(layer: Any) -> None:
             m = state["map"]
             if m is None:
                 return
@@ -140,7 +150,8 @@ def render(prop: Property, container: ui.element) -> None:
                 except (ValueError, RuntimeError):
                     pass
                 state["income"] = None
-            _render_legend(False)
+            state["show_income_legend"] = False
+            _render_legends()
             if not enabled:
                 return
             if not has_census_key():
@@ -182,8 +193,9 @@ def render(prop: Property, container: ui.element) -> None:
             fc = {"type": "FeatureCollection", "features": geo.get("features") or []}
             layer = m.generic_layer(name="geoJSON", args=[fc, {}])
             state["income"] = layer
-            _apply_income_style(layer)
-            _render_legend(True)
+            _apply_choropleth_style(layer)
+            state["show_income_legend"] = True
+            _render_legends()
             n = len(fc["features"])
             year = geo.get("meta", {}).get("year", "")
             status.set_text(f"Income: {n} tracts near pin (ACS B19013, {year})")
@@ -194,12 +206,14 @@ def render(prop: Property, container: ui.element) -> None:
             m = state.get("map")
             if m is None:
                 return
-            for layer in state["crime"]:
+            if state["crime"] is not None:
                 try:
-                    m.remove_layer(layer)
+                    m.remove_layer(state["crime"])
                 except (ValueError, RuntimeError):
                     pass
-            state["crime"] = []
+                state["crime"] = None
+            state["show_crime_legend"] = False
+            _render_legends()
             if not enabled:
                 return
 
@@ -238,34 +252,24 @@ def render(prop: Property, container: ui.element) -> None:
                 return
 
             points = result.get("points") or []
-            layers = []
-            for pt in points[:200]:
-                try:
-                    plat = float(pt["lat"])
-                    plng = float(pt["lng"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                marker = m.generic_layer(
-                    name="circleMarker",
-                    args=[
-                        [plat, plng],
-                        {
-                            "radius": 5,
-                            "color": "#FF2BD6",
-                            "fillColor": "#FF2BD6",
-                            "fillOpacity": 0.7,
-                            "weight": 1,
-                        },
-                    ],
+            geo = build_crime_density_geojson(points, days=CRIME_DAYS)
+            fc = {"type": "FeatureCollection", "features": geo.get("features") or []}
+            layer = m.generic_layer(name="geoJSON", args=[fc, {}])
+            state["crime"] = layer
+            _apply_choropleth_style(layer)
+            state["show_crime_legend"] = True
+            _render_legends()
+            meta = geo.get("meta") or {}
+            incidents = int(meta.get("incidents") or 0)
+            cells = int(meta.get("cells") or 0)
+            if incidents == 0:
+                status.set_text(
+                    str(result.get("message") or "Crime: no incidents near pin")
                 )
-                desc = str(pt.get("desc") or "Incident")
-                when = str(pt.get("when") or "")
-                popup = json.dumps(f"{desc}<br>{when}")
-                m.run_layer_method(marker.id, ":bindPopup", popup)
-                layers.append(marker)
-            state["crime"] = layers
-            status.set_text(str(result.get("message") or f"{len(layers)} crime points"))
-
+            else:
+                status.set_text(
+                    f"Crime: {incidents} incidents in {cells} cells near pin"
+                )
         flood_cb.on_value_change(lambda e: toggle_flood(bool(e.value)))
         income_cb.on_value_change(lambda e: toggle_income(bool(e.value)))
         crime_cb.on_value_change(lambda e: toggle_crime(bool(e.value)))
@@ -276,9 +280,12 @@ def render(prop: Property, container: ui.element) -> None:
                 "Crime overlay available for Los Angeles County and Seattle"
             )
 
-        def redraw() -> None:
-            with get_session() as session:
-                fresh = PropertyService(session).get_property(prop.id)
+        def redraw(initial: Property | None = None) -> None:
+            if initial is None:
+                with get_session() as session:
+                    fresh = PropertyService(session).get_property(prop.id)
+            else:
+                fresh = initial
             lat = fresh.latitude if fresh else None
             lng = fresh.longitude if fresh else None
             state["city"] = (fresh.city if fresh else prop.city) or ""
@@ -294,9 +301,11 @@ def render(prop: Property, container: ui.element) -> None:
             state["suppress_toggle"] = False
             state["flood"] = None
             state["income"] = None
-            state["crime"] = []
+            state["crime"] = None
+            state["show_income_legend"] = False
+            state["show_crime_legend"] = False
             state["map"] = None
-            _render_legend(False)
+            _render_legends()
 
             map_box.clear()
             with map_box:
@@ -316,22 +325,17 @@ def render(prop: Property, container: ui.element) -> None:
                     )
 
             sv_box.clear()
-            with get_session() as session:
-                live = PropertyService(session).get_property(prop.id) or prop
-            render_street_view(live, sv_box)
+            render_street_view(fresh or prop, sv_box)
 
         def auto_geocode_if_needed() -> None:
-            with get_session() as session:
-                fresh = PropertyService(session).get_property(prop.id)
-            if fresh is None:
-                return
+            fresh = prop
             if fresh.latitude is not None and fresh.longitude is not None:
                 status.set_text("")
-                redraw()
+                redraw(fresh)
                 return
             if not (fresh.address or "").strip():
                 status.set_text("No address on file — add one to auto-pin the map.")
-                redraw()
+                redraw(fresh)
                 return
 
             status.set_text("Looking up coordinates from address…")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -9,6 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import UPLOADS_DIR
+from app.core.finance import summarize
+from app.core.gemini_financial import (
+    build_financial_fingerprint,
+    generate_financial_commentary,
+)
 from app.core.gemini_neighborhood import (
     generate_neighborhood_overview,
     generate_things_to_do,
@@ -19,10 +25,16 @@ from app.core.neighborhood import effective_neighborhood_name
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
 from app.core.zillow_listing import (
     ListingDetails,
+    extract_listing_details,
     fetch_listing_details,
     parse_address_parts,
 )
-from app.core.zillow_photos import download_image, extension_for, fetch_listing_photo_urls
+from app.core.zillow_photos import (
+    download_image,
+    extension_for,
+    fetch_listing_html,
+    fetch_listing_photo_urls,
+)
 
 
 def resolve_library_thumbnail(prop: Property) -> Photo | None:
@@ -139,22 +151,35 @@ class PropertyService:
         min_price: float | None = None,
         max_price: float | None = None,
         min_beds: float | None = None,
+        sort: str = "newest",
     ) -> list[Property]:
         stmt = select(Property).options(joinedload(Property.photos)).order_by(Property.created_at.desc())
         props = list(self.session.scalars(stmt).unique())
-        if not (search or min_price is not None or max_price is not None or min_beds is not None):
-            return props
-        return [
-            p
-            for p in props
-            if property_matches_filters(
-                p,
-                search=search,
-                min_price=min_price,
-                max_price=max_price,
-                min_beds=min_beds,
+        if search or min_price is not None or max_price is not None or min_beds is not None:
+            props = [
+                p
+                for p in props
+                if property_matches_filters(
+                    p,
+                    search=search,
+                    min_price=min_price,
+                    max_price=max_price,
+                    min_beds=min_beds,
+                )
+            ]
+        if sort == "price_asc":
+            props.sort(key=lambda p: (p.list_price is None, p.list_price or 0.0))
+        elif sort == "price_desc":
+            props.sort(key=lambda p: (p.list_price is None, -(p.list_price or 0.0)))
+        else:
+            props.sort(
+                key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
             )
-        ]
+        return props
+
+    def has_any_properties(self) -> bool:
+        return self.session.scalar(select(Property.id).limit(1)) is not None
 
     def get_property(self, property_id: int) -> Property | None:
         stmt = (
@@ -254,15 +279,17 @@ class PropertyService:
         self.session.commit()
         self.session.refresh(prop)
 
+        html: str | None = None
         try:
-            details = fetch_listing_details(prop.zillow_url)
+            html = fetch_listing_html(prop.zillow_url)
+            details = extract_listing_details(html)
             self._apply_listing_details(prop, details)
             self._fill_location_from_address(prop)
             self.session.commit()
             self.session.refresh(prop)
         except Exception:
             # Keep the home even if listing scrape fails; user can refresh/edit later.
-            pass
+            html = None
 
         try:
             lat, lng = geocode_address(prop.address)
@@ -277,7 +304,7 @@ class PropertyService:
         imported = 0
         if import_photos:
             try:
-                imported = self.import_zillow_photos(prop.id)
+                imported = self.import_zillow_photos(prop.id, html=html)
             except Exception:
                 # Keep the home even if Zillow photo fetch fails; user can re-import later.
                 imported = 0
@@ -531,6 +558,58 @@ class PropertyService:
         assert prop.financial is not None
         return prop.financial
 
+    def _financial_assumption_dict(self, fin: FinancialAssumptions) -> dict[str, float | int]:
+        list_price = float(getattr(fin, "list_price", None) or fin.purchase_price or 0)
+        offer_price = float(getattr(fin, "offer_price", None) or 0)
+        return {
+            "list_price": list_price,
+            "offer_price": offer_price,
+            "down_payment_pct": float(fin.down_payment_pct or 0),
+            "interest_rate_pct": float(fin.interest_rate_pct or 0),
+            "loan_term_years": int(fin.loan_term_years or 30),
+            "annual_property_tax": float(fin.annual_property_tax or 0),
+            "annual_insurance": float(fin.annual_insurance or 0),
+            "monthly_hoa": float(fin.monthly_hoa or 0),
+            "closing_cost_pct": float(fin.closing_cost_pct or 0),
+        }
+
+    def ensure_gemini_financial(
+        self, property_id: int, *, force: bool = False
+    ) -> Property:
+        """Generate and cache Gemini financial breakdown + opinion for current assumptions."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        fin = self.ensure_financial(prop)
+        data = self._financial_assumption_dict(fin)
+        if float(data["list_price"]) <= 0 and float(data["offer_price"]) <= 0:
+            raise ValueError("Set a list or offer price before asking Gemini about finances.")
+
+        cache_key = build_financial_fingerprint(**data)  # type: ignore[arg-type]
+        if (
+            not force
+            and (prop.financial_gemini or "").strip()
+            and (prop.financial_gemini_for or "").strip() == cache_key
+        ):
+            return prop
+
+        summary = summarize(**data)  # type: ignore[arg-type]
+        text = generate_financial_commentary(
+            address=prop.address or "",
+            home_type=prop.home_type or "",
+            beds=prop.beds,
+            baths=prop.baths,
+            sqft=prop.sqft,
+            listing_hoa=prop.hoa_fee,
+            summary=summary,
+            assumptions=data,
+        )
+        prop.financial_gemini = text
+        prop.financial_gemini_for = cache_key
+        self.session.commit()
+        self.session.refresh(prop)
+        return prop
+
     def update_financial(self, property_id: int, **fields: float | int) -> FinancialAssumptions:
         prop = self.get_property(property_id)
         if prop is None:
@@ -614,21 +693,34 @@ class PropertyService:
         self.session.refresh(photo)
         return photo
 
-    def import_zillow_photos(self, property_id: int, *, replace: bool = False) -> int:
+    def import_zillow_photos(
+        self,
+        property_id: int,
+        *,
+        replace: bool = False,
+        html: str | None = None,
+    ) -> int:
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
 
         if replace:
+            locked_id = prop.thumbnail_photo_id if prop.thumbnail_locked else None
             for photo in list(prop.photos):
                 self.delete_photo(photo.id)
             prop = self.get_property(property_id)
             assert prop is not None
+            if locked_id is not None and not any(p.id == locked_id for p in prop.photos):
+                prop.thumbnail_locked = False
+                prop.thumbnail_photo_id = None
+                self.session.commit()
 
         existing_urls = {p.source_url for p in prop.photos if p.source_url}
 
-        fetched = fetch_listing_photo_urls(prop.zillow_url)
+        fetched = fetch_listing_photo_urls(prop.zillow_url, html=html)
         imported = 0
+        sort_order = len(prop.photos)
+        dest_dir = UPLOADS_DIR / str(property_id)
         for index, url in enumerate(fetched.urls):
             if url in existing_urls:
                 continue
@@ -638,15 +730,29 @@ class PropertyService:
                 continue
             ext = extension_for(content_type, url)
             filename = f"zillow_{index:03d}{ext}"
-            self.add_photo_bytes(
-                property_id,
-                data,
-                filename,
-                caption=f"Zillow photo {index + 1}",
-                source_url=url,
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / filename
+            if dest.exists():
+                stem, suffix = dest.stem, dest.suffix
+                i = 1
+                while dest.exists():
+                    dest = dest_dir / f"{stem}_{i}{suffix}"
+                    i += 1
+            dest.write_bytes(data)
+            self.session.add(
+                Photo(
+                    property_id=property_id,
+                    path=str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
+                    source_url=url or "",
+                    caption=f"Zillow photo {index + 1}",
+                    sort_order=sort_order,
+                )
             )
+            sort_order += 1
             imported += 1
             existing_urls.add(url)
+        if imported:
+            self.session.commit()
         self.select_thumbnail(property_id)
         return imported
 
@@ -657,8 +763,15 @@ class PropertyService:
             raise ValueError("Property not found.")
         if not prop.photos:
             prop.thumbnail_photo_id = None
+            prop.thumbnail_locked = False
             self.session.commit()
             return None
+
+        if prop.thumbnail_locked and prop.thumbnail_photo_id is not None:
+            for photo in prop.photos:
+                if photo.id == prop.thumbnail_photo_id:
+                    return photo
+            prop.thumbnail_locked = False
 
         candidates = [
             PhotoCandidate(
@@ -672,6 +785,7 @@ class PropertyService:
         ]
         chosen_id = pick_thumbnail_photo_id(candidates, uploads_root=UPLOADS_DIR)
         prop.thumbnail_photo_id = chosen_id
+        prop.thumbnail_locked = False
         self.session.commit()
         self.session.refresh(prop)
         if chosen_id is None:
@@ -680,6 +794,29 @@ class PropertyService:
             if photo.id == chosen_id:
                 return photo
         return None
+
+    def set_library_thumbnail(self, property_id: int, photo_id: int) -> Photo:
+        """Pin a photo as the library card thumbnail (manual lock)."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        photo = next((p for p in prop.photos if p.id == photo_id), None)
+        if photo is None:
+            raise ValueError("Photo not found for this property.")
+        prop.thumbnail_photo_id = photo_id
+        prop.thumbnail_locked = True
+        self.session.commit()
+        self.session.refresh(photo)
+        return photo
+
+    def unlock_and_select_thumbnail(self, property_id: int) -> Photo | None:
+        """Clear manual thumb lock and re-run auto-pick."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        prop.thumbnail_locked = False
+        self.session.commit()
+        return self.select_thumbnail(property_id)
 
     def delete_photo(self, photo_id: int) -> None:
         photo = self.session.get(Photo, photo_id)
@@ -691,6 +828,7 @@ class PropertyService:
         if prop is not None and prop.thumbnail_photo_id == photo_id:
             was_thumbnail = True
             prop.thumbnail_photo_id = None
+            prop.thumbnail_locked = False
         full = UPLOADS_DIR / photo.path
         if full.exists():
             full.unlink(missing_ok=True)
@@ -698,6 +836,3 @@ class PropertyService:
         self.session.commit()
         if was_thumbnail:
             self.select_thumbnail(property_id)
-
-    def photo_absolute_path(self, photo: Photo) -> Path:
-        return UPLOADS_DIR / photo.path

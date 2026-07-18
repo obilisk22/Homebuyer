@@ -47,6 +47,24 @@ def test_keyword_score_exterior_beats_generic():
     assert keyword_score(exterior) > keyword_score(interior)
 
 
+def test_avoids_kitchen_caption_even_when_first():
+    # Without interior penalties, early listing order wins over a generic second shot.
+    candidates = [
+        PhotoCandidate(1, "1/a.jpg", caption="Living room", sort_order=0),
+        PhotoCandidate(2, "1/b.jpg", caption="Zillow photo 2", sort_order=1),
+    ]
+    assert pick_thumbnail_photo_id(candidates) == 2
+
+
+def test_avoids_bedroom_and_bathroom_keywords():
+    candidates = [
+        PhotoCandidate(1, "1/a.jpg", caption="Primary bedroom suite", sort_order=0),
+        PhotoCandidate(2, "1/b.jpg", caption="Full bathroom", sort_order=1),
+        PhotoCandidate(3, "1/c.jpg", caption="Zillow photo 3", sort_order=2),
+    ]
+    assert pick_thumbnail_photo_id(candidates) == 3
+
+
 def test_image_heuristic_prefers_landscape_over_floorplan_white(tmp_path: Path):
     outdoor = tmp_path / "outdoor.jpg"
     floorplan = tmp_path / "plan.jpg"

@@ -1,7 +1,7 @@
 # Crime density choropleth — Design Spec
 
 **Date:** 2026-07-18  
-**Status:** Approved in conversation; pending file review  
+**Status:** Implemented 2026-07-18  
 **Product:** Homebuy Map tab  
 
 ## Problem

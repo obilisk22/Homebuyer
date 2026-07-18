@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import plotly.graph_objects as go
 from nicegui import ui
 
 from app.core.db import get_session
 from app.core.finance import summarize
+from app.core.gemini_financial import build_financial_fingerprint
 from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.property_service import PropertyService
@@ -91,24 +91,34 @@ def _section(title: str):
 
 
 def render(prop: Property, container: ui.element) -> None:
-    with get_session() as session:
-        service = PropertyService(session)
-        fresh = service.get_property(prop.id)
-        assert fresh is not None
-        fin = service.ensure_financial(fresh)
-        list_price = float(getattr(fin, "list_price", None) or fin.purchase_price or 0)
-        offer_price = float(getattr(fin, "offer_price", None) or 0)
-        values = {
-            "list_price": list_price,
-            "offer_price": offer_price,
-            "down_payment_pct": fin.down_payment_pct,
-            "interest_rate_pct": fin.interest_rate_pct,
-            "loan_term_years": fin.loan_term_years,
-            "annual_property_tax": fin.annual_property_tax,
-            "annual_insurance": fin.annual_insurance,
-            "monthly_hoa": fin.monthly_hoa,
-            "closing_cost_pct": fin.closing_cost_pct,
-        }
+    property_id = prop.id
+    live = prop
+    if live.financial is None:
+        # Creating a missing financial record mutates storage, so do it in a
+        # fresh session; normal first paint uses the detached page property.
+        with get_session() as session:
+            fresh = PropertyService(session).get_property(property_id)
+            assert fresh is not None
+            PropertyService(session).ensure_financial(fresh)
+            live = fresh
+
+    fin = live.financial
+    assert fin is not None
+    list_price = float(getattr(fin, "list_price", None) or fin.purchase_price or 0)
+    offer_price = float(getattr(fin, "offer_price", None) or 0)
+    values = {
+        "list_price": list_price,
+        "offer_price": offer_price,
+        "down_payment_pct": fin.down_payment_pct,
+        "interest_rate_pct": fin.interest_rate_pct,
+        "loan_term_years": fin.loan_term_years,
+        "annual_property_tax": fin.annual_property_tax,
+        "annual_insurance": fin.annual_insurance,
+        "monthly_hoa": fin.monthly_hoa,
+        "closing_cost_pct": fin.closing_cost_pct,
+    }
+    cached_gemini = (live.financial_gemini or "").strip()
+    cached_for = (live.financial_gemini_for or "").strip()
 
     with container:
         ui.label("Financials").classes("text-h6")
@@ -173,7 +183,11 @@ def render(prop: Property, container: ui.element) -> None:
                 "closing_cost_pct": float(closing.value or 0),
             }
 
+        gemini_state = {"text": cached_gemini, "for": cached_for}
+
         def redraw() -> None:
+            import plotly.graph_objects as go
+
             data = collect()
             result = summarize(**data)
 
@@ -361,16 +375,92 @@ def render(prop: Property, container: ui.element) -> None:
                         f"Total interest over the loan: {_money(result.total_interest)}"
                     ).classes("text-caption text-grey-7")
 
+            refresh_gemini_panel()
+
         def save() -> None:
             data = collect()
             with get_session() as session:
-                PropertyService(session).update_financial(prop.id, **data)
+                PropertyService(session).update_financial(property_id, **data)
             ui.notify("Assumptions saved", type="positive")
             redraw()
 
         with ui.row().classes("q-mt-md gap-2"):
             ui.button("Recalculate", on_click=redraw).props("outline dense")
             ui.button("Save assumptions", on_click=save).props("color=primary dense")
+
+        ui.separator().classes("q-mt-lg").style("border-color: var(--hb-border);")
+        ui.label("Gemini financial take").classes("text-subtitle1 q-mt-md").style(
+            "color: var(--hb-neon-2);"
+        )
+        ui.label(
+            "AI opinion based on the calculator numbers above — not financial advice. "
+            "PITI charts remain the source of truth."
+        ).classes("text-caption text-grey-7")
+        gemini_status = ui.label("").classes("text-caption text-grey-6")
+        gemini_box = ui.column().classes("w-full gap-2 q-mt-sm")
+        gemini_buttons = ui.row().classes("gap-2 flex-wrap q-mt-sm")
+
+        def refresh_gemini_panel() -> None:
+            data = collect()
+            fp = build_financial_fingerprint(**data)
+            text = gemini_state["text"]
+            stale = bool(text) and gemini_state["for"] and gemini_state["for"] != fp
+            gemini_box.clear()
+            with gemini_box:
+                if text and not stale:
+                    ui.markdown(text).classes("text-body1").style(
+                        "line-height: 1.65; color: #E8ECF2; max-width: 52rem;"
+                    )
+                elif text and stale:
+                    ui.label(
+                        "Assumptions changed since this AI take was generated — "
+                        "ask again to refresh."
+                    ).classes("text-caption text-amber-7")
+                    with ui.expansion("Previous AI take (outdated)", icon="history").classes(
+                        "w-full"
+                    ):
+                        ui.markdown(text).classes("text-body2").style(
+                            "line-height: 1.6; color: #B0B8C4; max-width: 52rem;"
+                        )
+                else:
+                    ui.label(
+                        "Ask Gemini for a short breakdown of these numbers and a "
+                        "candid buy-side opinion (risks, what to verify)."
+                    ).classes("text-caption text-grey-7")
+
+            gemini_buttons.clear()
+            with gemini_buttons:
+                ui.button(
+                    "Ask Gemini about these finances",
+                    on_click=lambda: ask_gemini(force=False),
+                    icon="auto_awesome",
+                ).props("unelevated color=secondary")
+                if text:
+                    ui.button(
+                        "Regenerate",
+                        on_click=lambda: ask_gemini(force=True),
+                        icon="refresh",
+                    ).props("outline dense")
+
+        def ask_gemini(*, force: bool = False) -> None:
+            data = collect()
+            if float(data["list_price"] or 0) <= 0 and float(data["offer_price"] or 0) <= 0:
+                ui.notify("Set a list or offer price first", type="warning")
+                return
+            gemini_status.set_text("Saving assumptions and asking Gemini…")
+            try:
+                with get_session() as session:
+                    service = PropertyService(session)
+                    service.update_financial(property_id, **data)
+                    updated = service.ensure_gemini_financial(property_id, force=force)
+                    gemini_state["text"] = (updated.financial_gemini or "").strip()
+                    gemini_state["for"] = (updated.financial_gemini_for or "").strip()
+                gemini_status.set_text("")
+                ui.notify("Financial take ready", type="positive")
+            except Exception as exc:
+                gemini_status.set_text("")
+                ui.notify(str(exc), type="negative")
+            refresh_gemini_panel()
 
         redraw()
 

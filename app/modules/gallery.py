@@ -57,13 +57,19 @@ def render(prop: Property, container: ui.element) -> None:
         prev_btn.on_click(lambda: show_lightbox(current_index["value"] - 1))
         next_btn.on_click(lambda: show_lightbox(current_index["value"] + 1))
 
-        def refresh_gallery() -> None:
+        def refresh_gallery(initial: Property | None = None) -> None:
             gallery.clear()
             photo_urls.clear()
             photo_captions.clear()
-            with get_session() as session:
-                fresh = PropertyService(session).get_property(property_id)
-                photos = list(fresh.photos) if fresh else []
+            thumb_id: int | None = None
+            if initial is not None:
+                photos = list(initial.photos)
+                thumb_id = initial.thumbnail_photo_id
+            else:
+                with get_session() as session:
+                    fresh = PropertyService(session).get_property(property_id)
+                    photos = list(fresh.photos) if fresh else []
+                    thumb_id = fresh.thumbnail_photo_id if fresh else None
 
             status.set_text(f"{len(photos)} photo{'s' if len(photos) != 1 else ''}")
 
@@ -80,10 +86,12 @@ def render(prop: Property, container: ui.element) -> None:
                     caption = photo.caption or Path(photo.path).name
                     photo_urls.append(src)
                     photo_captions.append(caption)
+                    is_library_thumb = thumb_id is not None and photo.id == thumb_id
+                    card_classes = "hb-photo-card cursor-pointer overflow-hidden"
+                    if is_library_thumb:
+                        card_classes += " hb-photo-card--library-thumb"
 
-                    with ui.card().tight().classes(
-                        "hb-photo-card cursor-pointer overflow-hidden"
-                    ):
+                    with ui.card().tight().classes(card_classes):
                         if abs_path.exists():
                             img = ui.image(src).classes(
                                 "w-full h-full object-cover hb-photo-thumb"
@@ -92,7 +100,33 @@ def render(prop: Property, container: ui.element) -> None:
                         else:
                             ui.label("Missing file").classes("q-pa-md")
                         with ui.card_section().classes("q-pa-xs"):
-                            ui.label(caption).classes("text-caption ellipsis")
+                            with ui.row().classes(
+                                "w-full items-center justify-between gap-1 no-wrap"
+                            ):
+                                label_bits = caption
+                                if is_library_thumb:
+                                    label_bits = f"{caption} · Library thumb"
+                                ui.label(label_bits).classes("text-caption ellipsis")
+                                pin_btn = ui.button(icon="push_pin").props(
+                                    "flat round dense size=sm color=primary"
+                                ).tooltip("Use as library thumbnail")
+
+                                def set_thumb(pid=photo.id) -> None:
+                                    try:
+                                        with get_session() as session:
+                                            PropertyService(session).set_library_thumbnail(
+                                                property_id, pid
+                                            )
+                                        ui.notify("Library thumbnail updated", type="positive")
+                                    except ValueError as exc:
+                                        ui.notify(str(exc), type="negative")
+                                    refresh_gallery()
+
+                                pin_btn.on(
+                                    "click",
+                                    set_thumb,
+                                    js_handler="(e) => { e.stopPropagation(); emit(e); }",
+                                )
 
         def import_from_zillow(replace: bool = False) -> None:
             try:
@@ -108,6 +142,15 @@ def render(prop: Property, container: ui.element) -> None:
                 ui.notify(str(exc), type="negative")
             except Exception as exc:  # noqa: BLE001 — surface import failures in UI
                 ui.notify(f"Import failed: {exc}", type="negative")
+            refresh_gallery()
+
+        def auto_pick_again() -> None:
+            try:
+                with get_session() as session:
+                    PropertyService(session).unlock_and_select_thumbnail(property_id)
+                ui.notify("Auto-picked a new library thumbnail", type="positive")
+            except ValueError as exc:
+                ui.notify(str(exc), type="negative")
             refresh_gallery()
 
         async def handle_upload(e: events.UploadEventArguments) -> None:
@@ -133,6 +176,11 @@ def render(prop: Property, container: ui.element) -> None:
                 on_click=lambda: import_from_zillow(True),
                 icon="refresh",
             ).props("outline color=primary")
+            ui.button(
+                "Auto-pick again",
+                on_click=auto_pick_again,
+                icon="auto_awesome",
+            ).props("outline color=primary")
 
         ui.upload(
             label="Or upload photos",
@@ -141,7 +189,7 @@ def render(prop: Property, container: ui.element) -> None:
             multiple=True,
         ).props('accept="image/*"').classes("q-mt-sm")
 
-        refresh_gallery()
+        refresh_gallery(prop)
 
 
 MODULE = ModuleSpec(id="gallery", title="Photos", order=10, render=render)

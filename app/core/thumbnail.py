@@ -48,6 +48,26 @@ EXTERIOR_KEYWORDS = (
     "garage",
 )
 
+# Room / interior captions — prefer almost anything else for library thumbs.
+INTERIOR_KEYWORDS = (
+    "kitchen",
+    "bathroom",
+    "bedroom",
+    "living",
+    "closet",
+    "laundry",
+    "pantry",
+    "ceiling",
+    "island",
+    "granite",
+    "dining",
+    "hallway",
+    "fireplace",
+    "master bath",
+    "en-suite",
+    "ensuite",
+)
+
 
 @dataclass(frozen=True)
 class PhotoCandidate:
@@ -66,6 +86,9 @@ def keyword_score(candidate: PhotoCandidate) -> float:
     text = _text_blob(candidate)
     score = 0.0
     for kw in AVOID_KEYWORDS:
+        if kw in text:
+            score -= 100.0
+    for kw in INTERIOR_KEYWORDS:
         if kw in text:
             score -= 100.0
     for kw in EXTERIOR_KEYWORDS:
@@ -107,8 +130,16 @@ def image_score(absolute_path: Path) -> float:
 
             top = list(thumb.crop((0, 0, 64, 16)).get_flattened_data())
             blueish = sum(1 for r, g, b in top if b > r + 15 and b > g + 5 and b > 80)
-            if blueish / len(top) > 0.2:
+            blue_ratio = blueish / len(top)
+            if blue_ratio > 0.2:
                 score += 20.0
+
+            # Modest indoor cue: non-landscape, no sky top, warm tones.
+            warmth = [(r + g) / 2.0 for r, g, b in pixels]
+            mean_warmth = sum(warmth) / n
+            mean_b = sum(b for _r, _g, b in pixels) / n
+            if aspect < 1.15 and blue_ratio <= 0.2 and mean_warmth > 120 and mean_b < mean_warmth - 10:
+                score -= 25.0
 
             return score
     except OSError:

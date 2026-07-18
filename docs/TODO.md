@@ -8,8 +8,8 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-002 | Partial | Area signals — flood/income/crime done; AQI, fire, avg price open |
 | TODO-003 | Done | Cost/Sqft display *(list price ÷ sqft)* |
 | TODO-004 | Done | Neighborhood: Gemini cool things to do |
-| TODO-005 | Pending | Financials: Gemini breakdown + opinion |
-| TODO-006 | Pending | Clean up codebase |
+| TODO-005 | Done | Financials: Gemini breakdown + opinion |
+| TODO-006 | Done | Clean up codebase |
 | TODO-007 | Done | Remove per-photo Remove button |
 | TODO-008 | Done | Larger / denser gallery |
 | TODO-009 | Pending | Honest Gemini neighborhood prompt |
@@ -36,12 +36,12 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 **Add:** crime, median income, air quality, fire risk, average home price.
 
-**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **ACS median income**, and **LA/Seattle crime**. UX = toggles only (no Neighborhood chips). Still pending: air quality, fire risk, average home price / Redfin / ACS home-value choropleth.
+**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **ACS median income**, and **LA County (LAPD Socrata + Santa Monica CKAN) + Seattle crime**. UX = toggles only (no Neighborhood chips). Still pending: air quality, fire risk, average home price / Redfin / ACS home-value choropleth.
 
 **Notes**
-- See [`docs/RESEARCH.md`](RESEARCH.md). Core helpers: `census_acs.py`, `fema_flood.py`, `crime_socrata.py`, `overlay_cache.py`.
+- See [`docs/RESEARCH.md`](RESEARCH.md). Core helpers: `census_acs.py`, `fema_flood.py`, `crime_socrata.py`, `crime_density.py`, `overlay_cache.py`.
 - Income requires `CENSUS_API_KEY` (documented in `.env.example`).
-- Crime: Los Angeles + Seattle SODA only; other cities get a clear “no crime layer” state.
+- Crime: LA County (LAPD Socrata + Santa Monica CKAN) + Seattle; Map shows a **hex density choropleth** (not dots); other cities get a clear “no crime layer” state.
 
 **Touch:** `app/modules/map_view.py`, `app/core/*` overlay clients
 
@@ -75,27 +75,35 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ## TODO-005 — Financials: Gemini breakdown + opinion
 
+**Status:** Done (2026-07-18)
+
 **In the Financials tab:** ask Gemini for a financial breakdown and an opinion on the property’s finances (offer, PITI, taxes/insurance assumptions, HOA, etc.).
 
-**Notes**
-- Feed structured numbers from `FinancialAssumptions` + listing fields — don’t invent prices silently.
-- Label clearly as AI opinion; cache per property + assumption fingerprint.
-- Keep Plotly / PITI calculator as source of truth; Gemini is commentary.
+**Shipped**
+- Columns `financial_gemini` + `financial_gemini_for` on `Property` (fingerprint `fin_v1|list|offer|down|rate|term|tax|ins|hoa|closing`).
+- Helper `app/core/gemini_financial.py` builds a prompt from `summarize()` calculator outputs + assumptions; asks for markdown Breakdown + Opinion sections.
+- `PropertyService.ensure_gemini_financial` caches by fingerprint; UI section below charts with Ask / Regenerate; stale take when assumptions change.
 
-**Touch:** `app/modules/financial.py`, new Gemini helper, `models.py` cache fields
+**Touch:** `app/modules/financial.py`, `app/core/gemini_financial.py`, `models.py`, `db.py`, `property_service.py`, tests
 
 ---
 
-## TODO-006 — Clean up codebase
+## TODO-006 — Clean up codebase ✅ Done
+
+**Status:** Done (2026-07-18)
 
 **General cleanup pass:** dead code, unused temp/debug leftovers, inconsistent naming, thin modules vs fat core, duplicate helpers, stale comments/docs.
 
-**Notes**
-- Prefer small, reviewable PRs/commits (or one focused cleanup agent pass).
-- Don’t change product behavior unless removing clearly dead paths.
-- Good targets: leftover `_tmp*` artifacts if any, overly broad `except Exception`, unused imports, duplicated address/slug helpers.
+**Shipped (features unchanged)**
+- Removed dead helpers/imports (`reset_modules_cache`, Reddit embed URL helpers, `photo_absolute_path`, unused `Path` in `main.py`).
+- Single Zillow HTML fetch on add-home (listing details + photos share one page fetch).
+- Batched photo import commits; fewer redundant SQLite loads on library/property first paint and module initial render.
+- Overlay cache prunes expired files on miss; lazy Plotly import in Financials chart redraw.
+- Docs/backlog status sync (crime coverage wording, TODO-006 Done, BUG-002 archived).
 
-**Touch:** repo-wide; start with `app/core/` + modules + tests
+**Deferred (later pass):** unify `_format_price` / `_money` helpers; merge address parsers; overview cache key bump (TODO-009).
+
+**Touch:** repo-wide — `app/core/`, modules, tests, docs
 
 ---
 

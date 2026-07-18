@@ -1,24 +1,28 @@
 # Bugs / follow-ups
 
-## BUG-002: Zillow photo import pulled similar-homes images
+## Fixed
 
-**Status:** fixed (2026-07-17)  
+### BUG-002: Zillow photo import pulled similar-homes images
+
+**Status:** fixed (2026-07-17) — archived, no action  
 **Priority:** high
 
-### Symptom
+#### Symptom
 Adding a home could show gallery photos that looked like another listing. Disk paths were correctly per-property (`data/uploads/{id}/`); `source_url` hashes did not overlap across properties — wrong URLs were extracted from the HTML.
 
-### Cause
+#### Cause
 `extract_photo_urls` regex-scanned the **entire** listing HTML for `photos.zillowstatic.com` URLs, including similar-homes / nearby carousel thumbs.
 
-### Fix
+#### Fix
 Prefer primary listing photo arrays (`originalPhotos` / `responsivePhotos` / …) from `__NEXT_DATA__` → `gdpClientCache` for the page zpid. Fall back to full-HTML regex only when structured extraction does not find that property. Address street-number mismatch against the URL slug / `og:title` fails closed (no regex fallback).
 
-### Related
+#### Related
 - `app/core/zillow_photos.py`
 - `tests/test_zillow_photos.py`
 
 ---
+
+## Open
 
 ## BUG-001: Double-check Zillow neighborhood autofill
 

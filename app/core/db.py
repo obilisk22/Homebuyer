@@ -58,6 +58,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=_engine)
     _migrate_sqlite()
     _backfill_thumbnails()
+    _reselect_unlocked_thumbnails()
 
 
 def _backfill_thumbnails() -> None:
@@ -73,6 +74,28 @@ def _backfill_thumbnails() -> None:
         stmt = (
             select(Property)
             .where(Property.thumbnail_photo_id.is_(None))
+            .options(joinedload(Property.photos))
+        )
+        props = list(session.scalars(stmt).unique())
+        service = PropertyService(session)
+        for prop in props:
+            if prop.photos:
+                service.select_thumbnail(prop.id)
+
+
+def _reselect_unlocked_thumbnails() -> None:
+    """Re-run auto thumb pick once for unlocked homes (picks up scoring improvements)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
+
+    from app.core.models import Property
+    from app.core.property_service import PropertyService
+
+    assert _SessionLocal is not None
+    with _SessionLocal() as session:
+        stmt = (
+            select(Property)
+            .where(Property.thumbnail_locked.is_(False))
             .options(joinedload(Property.photos))
         )
         props = list(session.scalars(stmt).unique())
@@ -114,6 +137,10 @@ def _migrate_sqlite() -> None:
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),
             (
+                "thumbnail_locked",
+                "ALTER TABLE properties ADD COLUMN thumbnail_locked BOOLEAN NOT NULL DEFAULT 0",
+            ),
+            (
                 "neighborhood_name",
                 "ALTER TABLE properties ADD COLUMN neighborhood_name VARCHAR(256) NOT NULL DEFAULT ''",
             ),
@@ -151,6 +178,14 @@ def _migrate_sqlite() -> None:
             (
                 "home_type",
                 "ALTER TABLE properties ADD COLUMN home_type VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "financial_gemini",
+                "ALTER TABLE properties ADD COLUMN financial_gemini TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "financial_gemini_for",
+                "ALTER TABLE properties ADD COLUMN financial_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
             ),
         ):
             if name not in prop_cols:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -33,6 +33,7 @@ class Property(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Soft reference to photos.id (avoid circular FK with SQLite).
     thumbnail_photo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thumbnail_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Cached neighborhood label + optional manual override / notes for Reviews tab.
     neighborhood_name: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     neighborhood_source: Mapped[str] = mapped_column(String(64), default="", nullable=False)
@@ -44,6 +45,9 @@ class Property(Base):
     neighborhood_things_to_do_for: Mapped[str] = mapped_column(
         String(256), default="", nullable=False
     )
+    # Cached Gemini financial breakdown + opinion; _for is assumption fingerprint.
+    financial_gemini: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    financial_gemini_for: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

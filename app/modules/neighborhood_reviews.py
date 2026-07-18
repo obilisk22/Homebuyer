@@ -58,9 +58,12 @@ def render(prop: Property, container: ui.element) -> None:
                 status.set_text(str(exc))
                 return load()
 
-        def ensure_name() -> Property | None:
-            with get_session() as session:
-                fresh = PropertyService(session).get_property(property_id)
+        def ensure_name(initial: Property | None = None) -> Property | None:
+            if initial is None:
+                with get_session() as session:
+                    fresh = PropertyService(session).get_property(property_id)
+            else:
+                fresh = initial
             if fresh is None:
                 return None
             # Upgrade empty or non-Zillow labels (e.g. bad Nominatim) via listing HTML.
@@ -77,8 +80,8 @@ def render(prop: Property, container: ui.element) -> None:
                 status.set_text(str(exc))
                 return load()
 
-        def redraw() -> None:
-            live = ensure_name() or load()
+        def redraw(initial: Property | None = None) -> None:
+            live = ensure_name(initial) or load()
             body.clear()
             if live is None:
                 with body:
@@ -318,7 +321,7 @@ def render(prop: Property, container: ui.element) -> None:
                     "Neighborhood name is taken from the Zillow listing when available."
                 ).classes("text-caption text-grey-7 q-mt-md")
 
-        redraw()
+        redraw(prop)
 
 
 MODULE = ModuleSpec(

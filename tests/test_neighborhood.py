@@ -13,10 +13,7 @@ from app.core.neighborhood import (
     city_subreddit_url,
     effective_neighborhood_name,
     google_site_reddit_url,
-    is_valid_reddit_post_url,
     niche_place_url,
-    parse_reddit_post_url,
-    reddit_embed_url,
     reddit_search_url,
     slugify_city_for_subreddit,
 )
@@ -97,25 +94,6 @@ def test_build_review_deep_links():
 def test_build_review_deep_links_ocean_park_niche():
     links = build_review_deep_links("Ocean Park", city="Santa Monica", state="CA")
     assert links.niche == "https://www.niche.com/places-to-live/n/ocean-park-santa-monica-ca/"
-
-
-def test_reddit_embed_url_valid():
-    raw = "https://www.reddit.com/r/Seattle/comments/abc123/some_title/"
-    assert is_valid_reddit_post_url(raw)
-    parsed = parse_reddit_post_url(raw)
-    assert parsed is not None
-    assert parsed["subreddit"] == "Seattle"
-    assert parsed["post_id"] == "abc123"
-    embed = reddit_embed_url(raw)
-    assert embed is not None
-    assert embed.startswith("https://www.redditmedia.com/r/Seattle/comments/abc123/")
-    assert "embed=true" in embed
-
-
-def test_reddit_embed_rejects_non_post():
-    assert reddit_embed_url("https://www.reddit.com/r/Seattle/") is None
-    assert reddit_embed_url("https://example.com/x") is None
-    assert not is_valid_reddit_post_url("not a url")
 
 
 def test_extract_neighborhood_from_zillow_html():

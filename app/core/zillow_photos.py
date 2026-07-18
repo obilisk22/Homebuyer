@@ -406,15 +406,19 @@ def fetch_listing_html(zillow_url: str) -> str:
     return response.text
 
 
-def fetch_listing_photo_urls(zillow_url: str) -> FetchedListingPhotos:
-    html = fetch_listing_html(zillow_url)
-    urls = extract_photo_urls(html, zillow_url=zillow_url)
+def fetch_listing_photo_urls(
+    zillow_url: str,
+    *,
+    html: str | None = None,
+) -> FetchedListingPhotos:
+    page = html if html is not None else fetch_listing_html(zillow_url)
+    urls = extract_photo_urls(page, zillow_url=zillow_url)
     if not urls:
         raise ValueError(
             "No listing photos found on that Zillow page. "
             "The link may be invalid, blocked, or not a home details page."
         )
-    return FetchedListingPhotos(urls=urls, raw_html_bytes=len(html))
+    return FetchedListingPhotos(urls=urls, raw_html_bytes=len(page))
 
 
 def download_image(url: str) -> tuple[bytes, str]:

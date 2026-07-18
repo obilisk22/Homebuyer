@@ -1,7 +1,7 @@
 # Library iteration 2 — Design Spec
 
 **Date:** 2026-07-18  
-**Status:** Approved for planning  
+**Status:** Implemented 2026-07-18  
 **Product:** Homebuy library home page (`/`) + Photos gallery thumbnail control  
 
 ## Problem

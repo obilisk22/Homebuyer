@@ -42,8 +42,3 @@ def discover_modules() -> list[ModuleSpec]:
 
 def get_modules() -> list[ModuleSpec]:
     return discover_modules()
-
-
-def reset_modules_cache() -> None:
-    global _MODULES
-    _MODULES = None

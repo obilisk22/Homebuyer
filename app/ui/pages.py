@@ -112,24 +112,37 @@ def _library_primary_chips(
     return bits
 
 
+HOA_HIGH_MONTHLY = 400.0
+
+
 def _library_secondary_chips(
     *,
     home_type: str,
     year_built: int | None,
     hoa_fee: float | None,
-) -> list[str]:
-    """Home type · year built · HOA — quieter tertiary chip row."""
-    bits = []
+) -> list[tuple[str, str]]:
+    """Home type · year built · HOA — (label, css classes) for tertiary row."""
+    bits: list[tuple[str, str]] = []
     home_type = (home_type or "").strip()
     if home_type:
-        bits.append(home_type)
+        bits.append((home_type, "hb-meta-chip hb-meta-chip--quiet"))
     year_str = _format_year_built(year_built)
     if year_str:
-        bits.append(year_str)
+        bits.append((year_str, "hb-meta-chip hb-meta-chip--quiet"))
     hoa_str = _format_hoa(hoa_fee)
     if hoa_str:
-        bits.append(hoa_str)
+        if hoa_fee is not None and hoa_fee >= HOA_HIGH_MONTHLY:
+            bits.append((hoa_str, "hb-meta-chip hb-meta-chip--hoa-high"))
+        else:
+            bits.append((hoa_str, "hb-meta-chip hb-meta-chip--quiet"))
     return bits
+
+
+def _truncate_notes(notes: str, limit: int = 100) -> str:
+    text = (notes or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 def _parse_filter_float(raw: str | float | None) -> float | None:
@@ -148,13 +161,19 @@ def _parse_filter_float(raw: str | float | None) -> float | None:
 def library_page() -> None:
     page_header("Library")
 
+    sort_options = {
+        "Newest": "newest",
+        "Price ↑": "price_asc",
+        "Price ↓": "price_desc",
+    }
+
     with ui.column().classes("w-full max-w-5xl mx-auto q-pa-md gap-4"):
         with ui.row().classes("items-baseline gap-3"):
             ui.label("Your homes").classes("text-h5")
             count_label = ui.label("").classes("text-body2 text-grey-6")
-        ui.label("Paste a Zillow listing link — address, photos, and details import automatically.").classes(
-            "text-body2 text-grey-6"
-        )
+        hint_label = ui.label(
+            "Paste a Zillow listing link — address, photos, and details import automatically."
+        ).classes("text-body2 text-grey-6")
 
         with ui.card().classes("w-full"):
             with ui.row().classes("w-full gap-4 items-end flex-wrap"):
@@ -184,28 +203,39 @@ def library_page() -> None:
 
                 ui.button("Add home", on_click=add_home).props("color=primary")
 
-        with ui.expansion("Filter", icon="filter_list").classes("w-full"):
-            with ui.row().classes("w-full gap-3 items-end flex-wrap q-pt-sm"):
-                search_input = ui.input(
-                    "Search",
-                    placeholder="Address or city",
-                ).classes("flex-grow min-w-48")
-                min_price_input = ui.input("Min price", placeholder="e.g. 500000").classes("w-36")
-                max_price_input = ui.input("Max price", placeholder="e.g. 1200000").classes("w-36")
-                min_beds_input = ui.input("Min beds", placeholder="e.g. 3").classes("w-28")
-                ui.button("Filter", on_click=lambda: refresh()).props("outline color=primary")
-                ui.button(
-                    "Clear",
-                    on_click=lambda: (
-                        search_input.set_value(""),
-                        min_price_input.set_value(""),
-                        max_price_input.set_value(""),
-                        min_beds_input.set_value(""),
-                        refresh(),
-                    ),
-                ).props("flat")
+        with ui.row().classes("w-full items-center gap-3 flex-wrap"):
+            sort_select = ui.select(
+                options=list(sort_options.keys()),
+                value="Newest",
+                label="Sort",
+            ).classes("w-40")
+            filter_expansion = ui.expansion("Filter", icon="filter_list").classes("flex-grow")
+            with filter_expansion:
+                with ui.row().classes("w-full gap-3 items-end flex-wrap q-pt-sm"):
+                    search_input = ui.input(
+                        "Search",
+                        placeholder="Address or city",
+                    ).classes("flex-grow min-w-48")
+                    min_price_input = ui.input("Min price", placeholder="e.g. 500000").classes(
+                        "w-36"
+                    )
+                    max_price_input = ui.input("Max price", placeholder="e.g. 1200000").classes(
+                        "w-36"
+                    )
+                    min_beds_input = ui.input("Min beds", placeholder="e.g. 3").classes("w-28")
+                    ui.button("Filter", on_click=lambda: refresh()).props("outline color=primary")
+                    ui.button(
+                        "Clear",
+                        on_click=lambda: (
+                            search_input.set_value(""),
+                            min_price_input.set_value(""),
+                            max_price_input.set_value(""),
+                            min_beds_input.set_value(""),
+                            refresh(),
+                        ),
+                    ).props("flat")
 
-            search_input.on("keydown.enter", lambda: refresh())
+                search_input.on("keydown.enter", lambda: refresh())
 
         list_box = ui.column().classes("w-full gap-3")
 
@@ -227,21 +257,47 @@ def library_page() -> None:
                     ).props("color=negative")
             dialog.open()
 
+        def _active_filter_count() -> int:
+            n = 0
+            if (search_input.value or "").strip():
+                n += 1
+            if _parse_filter_float(min_price_input.value) is not None:
+                n += 1
+            if _parse_filter_float(max_price_input.value) is not None:
+                n += 1
+            if _parse_filter_float(min_beds_input.value) is not None:
+                n += 1
+            return n
+
         def refresh() -> None:
             list_box.clear()
+            sort_key = sort_options.get(str(sort_select.value or "Newest"), "newest")
+            active = _active_filter_count()
+            filter_expansion._props["label"] = (
+                f"Filter · {active} active" if active else "Filter"
+            )
+            filter_expansion.update()
+
             with get_session() as session:
-                has_any = PropertyService(session).list_properties()
-                props = PropertyService(session).list_properties(
+                service = PropertyService(session)
+                props = service.list_properties(
                     search=search_input.value or "",
                     min_price=_parse_filter_float(min_price_input.value),
                     max_price=_parse_filter_float(max_price_input.value),
                     min_beds=_parse_filter_float(min_beds_input.value),
+                    sort=sort_key,
                 )
-            count_label.set_text(f"{len(props)} home" + ("" if len(props) == 1 else "s") if props else "")
+                has_any = True if props else service.has_any_properties()
+            hint_label.set_visibility(not has_any)
+            count_label.set_text(
+                f"{len(props)} home" + ("" if len(props) == 1 else "s") if props else ""
+            )
             with list_box:
                 if not props:
                     if not has_any:
-                        ui.label("No homes yet — paste a Zillow link above.").classes("text-grey-6")
+                        ui.label("No homes yet — paste a Zillow link above.").classes(
+                            "text-grey-6"
+                        )
                     else:
                         ui.label("No homes match these filters.").classes("text-grey-6")
                     return
@@ -257,29 +313,38 @@ def library_page() -> None:
                         year_built=prop.year_built,
                         hoa_fee=prop.hoa_fee,
                     )
+                    notes_teaser = _truncate_notes(prop.notes or "")
                     thumb = None
                     thumb_photo = resolve_library_thumbnail(prop)
                     if thumb_photo is not None:
                         thumb = f"/uploads/{thumb_photo.path}"
+                    zillow_url = prop.zillow_url
+                    prop_id = prop.id
+                    address = prop.address
+                    list_price = prop.list_price
 
                     with ui.card().classes("w-full hb-library-card") as card:
                         card.on(
                             "click",
-                            lambda p=prop.id: ui.navigate.to(f"/property/{p}"),
+                            lambda p=prop_id: ui.navigate.to(f"/property/{p}"),
                         )
-                        with ui.row().classes("w-full items-start justify-between gap-4 flex-wrap"):
-                            with ui.row().classes("items-start gap-4 flex-grow"):
+                        with ui.row().classes(
+                            "w-full items-start justify-between gap-4 flex-nowrap"
+                        ):
+                            with ui.row().classes(
+                                "items-start gap-4 flex-grow hb-library-card-body"
+                            ):
                                 if thumb:
                                     ui.image(thumb).classes("hb-library-thumb")
                                 else:
                                     with ui.element("div").classes("hb-library-thumb--empty"):
                                         ui.icon("home", size="2rem")
                                 with ui.column().classes("gap-1"):
-                                    ui.label(prop.address).classes(
+                                    ui.label(address).classes(
                                         "text-subtitle1 text-weight-medium"
                                     )
-                                    if prop.list_price is not None:
-                                        ui.label(_format_price(prop.list_price)).classes(
+                                    if list_price is not None:
+                                        ui.label(_format_price(list_price)).classes(
                                             "text-h6 hb-library-price"
                                         )
                                     if primary_chips:
@@ -288,33 +353,45 @@ def library_page() -> None:
                                                 ui.label(chip).classes("hb-meta-chip")
                                     if secondary_chips:
                                         with ui.row().classes("gap-2 flex-wrap"):
-                                            for chip in secondary_chips:
-                                                ui.label(chip).classes(
-                                                    "hb-meta-chip hb-meta-chip--quiet"
-                                                )
+                                            for label, classes in secondary_chips:
+                                                ui.label(label).classes(classes)
                                     if not primary_chips and not secondary_chips:
                                         ui.label(
                                             "Details pending — open and refresh listing"
                                         ).classes("text-caption text-grey-6")
-                                    zillow_link = ui.link(
-                                        "Open on Zillow", prop.zillow_url, new_tab=True
-                                    ).classes("text-caption")
-                                    zillow_link.on(
-                                        "click",
-                                        lambda: None,
-                                        js_handler="(e) => e.stopPropagation()",
-                                    )
-                            delete_btn = ui.button(icon="delete").props(
-                                "flat round color=negative"
-                            )
-                            delete_btn.on(
-                                "click",
-                                lambda p=prop.id, a=prop.address: confirm_delete(p, a),
-                                js_handler="(e) => { e.stopPropagation(); emit(e); }",
-                            )
+                                    if notes_teaser:
+                                        ui.label(notes_teaser).classes(
+                                            "text-caption text-grey-6"
+                                        )
+                            with ui.element("div").classes("flex-shrink-0"):
+                                menu_btn = ui.button(icon="more_vert").props(
+                                    "flat round dense"
+                                )
+                                menu_btn.on(
+                                    "click",
+                                    lambda: None,
+                                    js_handler="(e) => { e.stopPropagation(); emit(e); }",
+                                )
+                                with menu_btn:
+                                    with ui.menu().props('anchor="top end" self="top end"'):
+                                        def open_zillow(u=zillow_url) -> None:
+                                            ui.run_javascript(
+                                                f"window.open({u!r}, '_blank')"
+                                            )
 
+                                        ui.menu_item(
+                                            "Open on Zillow",
+                                            on_click=open_zillow,
+                                        )
+                                        ui.menu_item(
+                                            "Delete…",
+                                            on_click=lambda p=prop_id, a=address: confirm_delete(
+                                                p, a
+                                            ),
+                                        )
+
+        sort_select.on_value_change(lambda: refresh())
         refresh()
-
 
 @ui.page("/property/{property_id}")
 def property_page(property_id: int) -> None:
@@ -341,6 +418,9 @@ def property_page(property_id: int) -> None:
         state = prop.state
         zip_code = prop.zip_code
         prop_id = prop.id
+        # `get_property` eager-loads module relationships; detach the fully loaded
+        # object so all module first paints can share it after this session closes.
+        session.expunge(prop)
 
     page_header("Property")
 
@@ -454,9 +534,4 @@ def property_page(property_id: int) -> None:
             for mod in modules:
                 with ui.tab_panel(tab_refs[mod.id]):
                     panel = ui.column().classes("w-full")
-                    with get_session() as session:
-                        live = PropertyService(session).get_property(prop_id)
-                        if live is None:
-                            ui.label("Property missing.")
-                            continue
-                        mod.render(live, panel)
+                    mod.render(prop, panel)

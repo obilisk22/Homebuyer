@@ -248,9 +248,9 @@ a:hover {{
 }}
 
 .hb-library-thumb {{
-  width: 160px;
-  height: 120px;
-  min-width: 160px;
+  width: 180px;
+  height: 135px;
+  min-width: 180px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--hb-border);
@@ -258,9 +258,9 @@ a:hover {{
 }}
 
 .hb-library-thumb--empty {{
-  width: 160px;
-  height: 120px;
-  min-width: 160px;
+  width: 180px;
+  height: 135px;
+  min-width: 180px;
   border-radius: 8px;
   border: 1px dashed var(--hb-border);
   background: var(--hb-surface-2);
@@ -269,6 +269,11 @@ a:hover {{
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}}
+
+.hb-library-card-body {{
+  flex-grow: 1;
+  min-width: 0;
 }}
 
 .hb-library-price {{
@@ -292,6 +297,17 @@ a:hover {{
   border-color: transparent;
   background: transparent;
   padding: 0.15rem 0.2rem;
+}}
+
+.hb-meta-chip--hoa-high {{
+  color: var(--hb-amber) !important;
+  border-color: rgba(255, 193, 7, 0.55);
+  background: rgba(255, 193, 7, 0.12);
+}}
+
+.hb-photo-card--library-thumb {{
+  border-color: rgba(0, 229, 255, 0.65) !important;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.25);
 }}
 
 /* Photo gallery — 4-across, full-bleed within the tab panel */

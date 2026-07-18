@@ -29,6 +29,7 @@ def read_json(namespace: str, key: str, *, max_age_s: float | None = None) -> An
     if max_age_s is not None:
         age = time.time() - path.stat().st_mtime
         if age > max_age_s:
+            path.unlink(missing_ok=True)
             return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))

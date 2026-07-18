@@ -43,7 +43,7 @@ CrimeGrade scraping, GreatSchools paid API, FBI CDE for neighborhood maps, Zillo
 
 ### Implemented (2026-07-18 slice)
 
-Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood, ACS `B19013` income choropleth (`CENSUS_API_KEY`), LA + Seattle Socrata crime near pin. Deferred: Redfin sales, ACS home value, air quality, fire risk. Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
+Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood, ACS `B19013` income choropleth (`CENSUS_API_KEY`), LA County (LAPD Socrata + Santa Monica CKAN) + Seattle crime near pin as a **hex density choropleth** (`crime_density.py`). Deferred: Redfin sales, ACS home value, air quality, fire risk. Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
 
 ---
 

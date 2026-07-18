@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 
-from app.core.zillow_photos import extract_photo_urls
+import app.core.db as db
+from app.core.models import FinancialAssumptions, Property
+from app.core.property_service import PropertyService
+from app.core.zillow_photos import FetchedListingPhotos, extract_photo_urls
 
 
 SAMPLE_HTML = """
@@ -219,3 +222,59 @@ def test_address_mismatch_returns_empty_not_wrong_photos():
 """
     # Structured path rejects mismatch; must not fall back to similar-home regex.
     assert extract_photo_urls(html, zillow_url=LISTING_URL) == []
+
+
+def test_import_zillow_photos_batches_db_commit(tmp_path, monkeypatch):
+    """Import adds all photos then commits once (plus select_thumbnail commit)."""
+    monkeypatch.setenv("HOMEBUY_DB_PATH", str(tmp_path / "batch.db"))
+    db._engine = None
+    db._SessionLocal = None
+    db.init_db()
+
+    urls = [
+        "https://photos.zillowstatic.com/fp/aaa-o_a.jpg",
+        "https://photos.zillowstatic.com/fp/bbb-o_a.jpg",
+    ]
+
+    def fake_fetch(zillow_url, *, html=None):
+        return FetchedListingPhotos(urls=urls, raw_html_bytes=100)
+
+    def fake_download(url):
+        return (b"fake-image", "image/jpeg")
+
+    monkeypatch.setattr(
+        "app.core.property_service.fetch_listing_photo_urls", fake_fetch
+    )
+    monkeypatch.setattr("app.core.property_service.download_image", fake_download)
+
+    with db.get_session() as session:
+        prop = Property(
+            address="1 Batch St",
+            zillow_url="https://www.zillow.com/homedetails/1-Batch-St/1_zpid/",
+            financial=FinancialAssumptions(),
+        )
+        session.add(prop)
+        session.commit()
+        session.refresh(prop)
+
+        svc = PropertyService(session)
+        commit_calls = 0
+        original_commit = session.commit
+
+        def counting_commit():
+            nonlocal commit_calls
+            commit_calls += 1
+            return original_commit()
+
+        session.commit = counting_commit  # type: ignore[method-assign]
+
+        count = svc.import_zillow_photos(prop.id, html="<html></html>")
+
+        assert count == 2
+        assert commit_calls == 2  # one batch import + select_thumbnail
+
+        prop = svc.get_property(prop.id)
+        assert prop is not None
+        assert len(prop.photos) == 2
+        assert [p.sort_order for p in prop.photos] == [0, 1]
+        assert {p.source_url for p in prop.photos} == set(urls)

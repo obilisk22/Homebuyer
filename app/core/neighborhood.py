@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import quote, quote_plus, urlparse
+from urllib.parse import quote, quote_plus
 
 # Small map of common US cities → Reddit community slug (fail soft if missing).
 CITY_SUBREDDITS: dict[str, str] = {
@@ -97,14 +97,6 @@ _US_STATE_NAMES: dict[str, str] = {
     "WY": "Wyoming",
     "DC": "District of Columbia",
 }
-
-_REDDIT_POST_RE = re.compile(
-    r"^https?://(?:www\.|old\.|new\.)?reddit\.com"
-    r"/r/(?P<sub>[A-Za-z0-9_]+)/comments/(?P<id>[A-Za-z0-9]+)"
-    r"(?:/(?P<slug>[^/?#]*))?",
-    re.IGNORECASE,
-)
-
 
 @dataclass(frozen=True)
 class ReviewDeepLinks:
@@ -254,47 +246,3 @@ def build_review_deep_links(
         niche=niche_place_url(neighborhood, city, state),
         google_site_reddit=google_site_reddit_url(neighborhood, city),
     )
-
-
-def parse_reddit_post_url(url: str) -> dict[str, str] | None:
-    """Return subreddit / post id / slug if ``url`` looks like a Reddit post."""
-    text = (url or "").strip()
-    if not text:
-        return None
-    m = _REDDIT_POST_RE.match(text)
-    if not m:
-        return None
-    return {
-        "subreddit": m.group("sub"),
-        "post_id": m.group("id"),
-        "slug": (m.group("slug") or "").strip("/"),
-    }
-
-
-def reddit_embed_url(post_url: str) -> str | None:
-    """Official Reddit embed iframe src for a post URL, or None if invalid."""
-    parsed = parse_reddit_post_url(post_url)
-    if parsed is None:
-        return None
-    sub = parsed["subreddit"]
-    post_id = parsed["post_id"]
-    slug = parsed["slug"] or "post"
-    # redditmedia.com is the documented embed host.
-    return (
-        f"https://www.redditmedia.com/r/{sub}/comments/{post_id}/{quote(slug)}/"
-        f"?ref_source=embed&ref=share&embed=true"
-    )
-
-
-def is_valid_reddit_post_url(url: str) -> bool:
-    return parse_reddit_post_url(url) is not None
-
-
-def normalize_http_url(url: str) -> str:
-    text = (url or "").strip()
-    if not text:
-        return ""
-    parsed = urlparse(text if "://" in text else f"https://{text}")
-    if parsed.scheme not in ("http", "https"):
-        return ""
-    return text if "://" in text else f"https://{text}"

@@ -8,9 +8,9 @@ Modular Python app for researching homes linked from Zillow. Stores the **Zillow
 
 - Python 3.12+
 - Optional: `GOOGLE_MAPS_API_KEY` only if you want Google geocoding for Map pins (otherwise free Nominatim is used). Street View uses a **free** iframe embed — no Cloud billing.
-- Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do (Google AI Studio / Gemini API).
+- Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API).
 - **Map income choropleth:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the income toggle shows a setup message and stays off.
-- Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA/Seattle crime overlays.
+- Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA County (LAPD Socrata + Santa Monica CKAN) and Seattle crime overlays.
 
 ## Setup (Windows)
 
@@ -43,11 +43,12 @@ Address, photos, and listing details (beds, baths, price, sqft, HOA, year built,
 
 ## Library list view
 
-The `/` library page is a **list**, not a grid: each row is a wide clickable card with a larger 160×120 thumbnail (or a muted placeholder if no photo), the address, list price called out in neon cyan, and compact chips for beds/baths/sqft/`$`-per-sqft plus quieter chips for home type/year built/HOA. Homes with no listing data yet show "Details pending — open and refresh listing".
+The `/` library page is a **list**, not a grid: each wide clickable card shows a ~180×135 thumbnail (or placeholder), address, neon list price, chips for beds/baths/sqft/`$`-per-sqft, quieter type/year chips, and amber HOA when monthly HOA is $400+. Optional notes appear as a short teaser line.
 
-- Click anywhere on a card to open the property page. The **Open on Zillow** link and the delete icon stop the click from bubbling up, so they act independently.
-- Delete asks for confirmation in a small dialog before removing the home.
-- Search/price/beds filters live in a collapsed **Filter** expansion above the list; a muted count ("3 homes" / "1 home") shows next to the page title once results load.
+- **Sort** (Newest / Price ↑ / Price ↓) sits beside a collapsed **Filter** expansion (search, min/max price, min beds). The Filter label shows how many filters are active.
+- Card click opens the property. Use the **⋮** menu for **Open on Zillow** or **Delete…** (delete still confirms).
+- When you already have homes, the long “paste a Zillow link…” hint is hidden so Add stays compact.
+- On the **Photos** tab, pin any shot as the library thumbnail (locked through re-import when that photo survives). **Auto-pick again** clears the lock and re-runs the exterior-biased picker.
 
 ## Saving your work (Git)
 
@@ -76,7 +77,7 @@ Layer toggles (no Neighborhood summary chips):
 |--------|--------|--------|
 | Flood (FEMA) | NFHL WMS | No key |
 | Median income (ACS) | Census ACS `B19013` tracts | Needs `CENSUS_API_KEY` |
-| Crime near pin | LA / Seattle Socrata | Other cities: toggle disabled / message |
+| Crime near pin | LA County (LAPD Socrata + Santa Monica CKAN) + Seattle | Hex density choropleth (count per cell); other cities: toggle disabled / message |
 
 Responses are cached under `data/cache/` (gitignored with other `data/*`).
 
@@ -87,6 +88,10 @@ The **Neighborhood** tab prefers the neighborhood name from the **Zillow listing
 Click **Ask Gemini about this neighborhood** for a short AI overview (vibe + character). Separately, **Ask Gemini: things to do** generates a practical bullet list of nearby parks, food, walks, and activities. Requires `GEMINI_API_KEY` in `.env` (see `.env.example`). Optional `GEMINI_MODEL` (default `gemini-2.5-flash-lite`). Overview and things-to-do are cached independently per neighborhood/city.
 
 Outbound deep links (Reddit, City-Data, Niche place pages, etc.) and your own notes live under **More links & notes**.
+
+## Financials
+
+The **Financials** tab is the PITI calculator (offer vs list, loan inputs, ownership costs) with neon Plotly charts. Below the charts, **Ask Gemini about these finances** produces a cached markdown Breakdown + Opinion from the *same calculator numbers* (not invented prices). Clearly labeled as AI opinion, not advice. Cache refreshes when you change assumptions (fingerprint) or click Regenerate. Same `GEMINI_API_KEY` / optional `GEMINI_MODEL` as Neighborhood.
 
 ## Extending with a new module
 
@@ -105,6 +110,8 @@ MODULE = ModuleSpec(id="my_module", title="My Module", order=50, render=render)
 ```
 
 3. Restart the app — the tab appears automatically.
+
+Module first paints receive a fully eager-loaded, detached property from the property page. Treat it as read-only; open a new session and reload only when a module needs to persist or re-read changed data.
 
 ## Tests
 

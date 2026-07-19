@@ -162,16 +162,35 @@ def _classify_overpass_nearest(
         if key is None:
             continue
 
-        location = element.get("center") if element.get("type") != "node" else element
-        if not isinstance(location, dict):
-            continue
-        try:
-            lat = float(location["lat"])
-            lng = float(location["lon"])
-        except (KeyError, TypeError, ValueError):
-            continue
+        locations: list[dict[str, Any]] = []
+        if key == "highway" and element.get("type") == "way":
+            geometry = element.get("geometry")
+            if isinstance(geometry, list):
+                locations = [point for point in geometry if isinstance(point, dict)]
+        if not locations:
+            location = element if element.get("type") == "node" else element.get("center")
+            if isinstance(location, dict):
+                locations = [location]
 
-        distance_mi = haversine_miles(pin_lat, pin_lng, lat, lng)
+        nearest_location: tuple[float, float, float] | None = None
+        for location in locations:
+            try:
+                candidate_lat = float(location["lat"])
+                candidate_lng = float(location["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            candidate_distance = haversine_miles(
+                pin_lat, pin_lng, candidate_lat, candidate_lng
+            )
+            if nearest_location is None or candidate_distance < nearest_location[2]:
+                nearest_location = (
+                    candidate_lat,
+                    candidate_lng,
+                    candidate_distance,
+                )
+        if nearest_location is None:
+            continue
+        lat, lng, distance_mi = nearest_location
         radius_mi = _signal_radius_mi(key)
         if outer_radius_mi is not None:
             radius_mi = min(radius_mi, outer_radius_mi)
@@ -258,11 +277,26 @@ def build_overpass_query(lat: float, lng: float) -> str:
             f'["shelter_type"="homeless"]{nearby_around};'
         )
     body = "\n  ".join(clauses)
-    return f"[out:json][timeout:45];\n(\n  {body}\n);\nout center tags;"
+    return f"[out:json][timeout:45];\n(\n  {body}\n);\nout geom tags;"
 
 
 def _raw_cache_key(lat: float, lng: float) -> str:
     return f"overpass_{float(lat):.5f}_{float(lng):.5f}"
+
+
+def _places_raw_cache_key(
+    lat: float,
+    lng: float,
+    *,
+    radius_m: int,
+    place_type: str,
+    keyword: str | None,
+) -> str:
+    readable = (
+        f"{float(lat):.5f}_{float(lng):.5f}_{int(radius_m)}_{place_type or 'any'}"
+    )
+    digest = overlay_cache.cache_key(readable, keyword or "")
+    return f"places_{readable}_{digest}"
 
 
 def fetch_overpass(
@@ -300,23 +334,40 @@ def fetch_places_nearby(
     place_type: str,
     keyword: str | None,
     radius_m: int,
+    session: Any | None = None,
 ) -> list[dict]:
-    params: dict[str, Any] = {
-        "location": f"{lat},{lng}",
-        "radius": int(radius_m),
-        "key": api_key,
-    }
-    if place_type:
-        params["type"] = place_type
-    if keyword:
-        params["keyword"] = keyword
-    response = requests.get(
-        PLACES_NEARBY_URL,
-        params=params,
-        timeout=REQUEST_TIMEOUT_S,
+    cache_key = _places_raw_cache_key(
+        lat,
+        lng,
+        radius_m=radius_m,
+        place_type=place_type,
+        keyword=keyword,
     )
-    response.raise_for_status()
-    payload = response.json()
+    cached = overlay_cache.read_json(
+        CACHE_NAMESPACE, cache_key, max_age_s=RAW_CACHE_MAX_AGE_S
+    )
+    if isinstance(cached, dict):
+        payload = cached
+    else:
+        params: dict[str, Any] = {
+            "location": f"{lat},{lng}",
+            "radius": int(radius_m),
+            "key": api_key,
+        }
+        if place_type:
+            params["type"] = place_type
+        if keyword:
+            params["keyword"] = keyword
+        client = session or requests
+        response = client.get(
+            PLACES_NEARBY_URL,
+            params=params,
+            timeout=REQUEST_TIMEOUT_S,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            overlay_cache.write_json(CACHE_NAMESPACE, cache_key, payload)
     if not isinstance(payload, dict):
         raise ValueError("Places returned an invalid response")
     status = str(payload.get("status") or "")

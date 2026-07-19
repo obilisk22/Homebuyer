@@ -306,10 +306,6 @@ def library_page() -> None:
 
             with get_session() as session:
                 service = PropertyService(session)
-                try:
-                    service.refresh_stale_nearby_signals(limit=3)
-                except Exception:  # noqa: BLE001 - signals must never block the library
-                    pass
                 props = service.list_properties(
                     search=search_input.value or "",
                     min_price=_parse_filter_float(min_price_input.value),
@@ -475,6 +471,17 @@ def library_page() -> None:
                                             ),
                                         )
 
+        def _refresh_stale_nearby_after_paint() -> None:
+            try:
+                with get_session() as session:
+                    refreshed = PropertyService(
+                        session
+                    ).refresh_stale_nearby_signals(limit=3)
+                if refreshed:
+                    refresh()
+            except Exception:  # noqa: BLE001 - background signals never break library
+                pass
+
         def _schedule_filter_refresh() -> None:
             nonlocal filter_debounce
             if filter_debounce is not None:
@@ -492,6 +499,7 @@ def library_page() -> None:
 
         sort_select.on_value_change(lambda: refresh())
         refresh()
+        ui.timer(0.1, _refresh_stale_nearby_after_paint, once=True)
 
 @ui.page("/property/{property_id}")
 def property_page(property_id: int) -> None:

@@ -233,26 +233,31 @@ def test_signal_entry_miss():
     assert entry == {"hit": False}
 
 
-def test_parse_overpass_uses_way_center_and_filters_radius():
+def test_parse_overpass_highway_uses_nearest_way_vertex_not_far_center():
     from app.core.nearby_signals import parse_overpass_elements
 
+    pin_lat = 34.05
+    pin_lng = -118.25
+    near_vertex_lat = pin_lat + ((400.0 / 5280.0) / 69.0)
     elements = [
         {
             "type": "way",
-            "center": {"lat": 34.0501, "lon": -118.25},
+            "center": {"lat": 35.0, "lon": pin_lng},
+            "geometry": [
+                {"lat": near_vertex_lat, "lon": pin_lng},
+                {"lat": 35.0, "lon": pin_lng},
+            ],
             "tags": {"highway": "motorway", "ref": "I-10"},
         },
-        {
-            "type": "way",
-            "center": {"lat": 35.0, "lon": -118.25},
-            "tags": {"highway": "motorway"},
-        },
     ]
+
     hits = parse_overpass_elements(
-        elements, pin_lat=34.05, pin_lng=-118.25, radius_mi=0.5
+        elements, pin_lat=pin_lat, pin_lng=pin_lng, radius_mi=0.5
     )
+
     assert len(hits) == 1
     assert hits[0]["name"] == "I-10"
+    assert abs(miles_to_ft(hits[0]["distance_mi"]) - 400.0) < 5.0
 
 
 def test_classify_overpass_nearest_enforces_per_signal_boundaries():
@@ -308,7 +313,7 @@ def test_build_overpass_query_contains_exact_signal_tags():
     assert '["shop"="convenience"]' not in query
     assert '["social_facility:for"="homeless"]' in query
     assert '["amenity"="shelter"]["shelter_type"="homeless"]' in query
-    assert query.rstrip().endswith("out center tags;")
+    assert "out geom" in query
 
 
 def test_fetch_overpass_posts_query_and_caches(monkeypatch):
@@ -355,6 +360,75 @@ def test_fetch_overpass_uses_cache(monkeypatch):
             raise AssertionError("network should not be called for a cache hit")
 
     assert ns.fetch_overpass(34.05, -118.25, session=Session()) is cached
+
+
+def test_fetch_places_nearby_uses_parameterized_raw_cache(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    cached = {"status": "OK", "results": [{"name": "Cached Market"}]}
+    reads = []
+    monkeypatch.setattr(
+        ns.overlay_cache,
+        "read_json",
+        lambda namespace, key, **kwargs: reads.append((namespace, key, kwargs)) or cached,
+    )
+
+    class Session:
+        def get(self, *args, **kwargs):
+            raise AssertionError("network should not be called for a cache hit")
+
+    results = ns.fetch_places_nearby(
+        34.05,
+        -118.25,
+        api_key="secret",
+        place_type="supermarket",
+        keyword=None,
+        radius_m=805,
+        session=Session(),
+    )
+
+    assert results == [{"name": "Cached Market"}]
+    assert reads[0][0] == ns.CACHE_NAMESPACE
+    assert "34.05000_-118.25000_805_supermarket" in reads[0][1]
+    assert reads[0][2]["max_age_s"] == ns.RAW_CACHE_MAX_AGE_S
+
+
+def test_fetch_places_nearby_writes_raw_response_cache(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    payload = {"status": "OK", "results": [{"name": "Fresh Market"}]}
+    writes = []
+    monkeypatch.setattr(ns.overlay_cache, "read_json", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        ns.overlay_cache,
+        "write_json",
+        lambda namespace, key, value: writes.append((namespace, key, value)),
+    )
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return payload
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    results = ns.fetch_places_nearby(
+        34.05,
+        -118.25,
+        api_key="secret",
+        place_type="establishment",
+        keyword="homeless shelter",
+        radius_m=403,
+        session=Session(),
+    )
+
+    assert results == payload["results"]
+    assert writes[0][0] == ns.CACHE_NAMESPACE
+    assert writes[0][2] == payload
 
 
 def test_parse_places_results_filters_convenience_and_radius():

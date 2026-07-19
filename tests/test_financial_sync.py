@@ -634,3 +634,164 @@ def test_ensure_financial_preserves_manual_maintenance(tmp_path, monkeypatch):
     out = svc.ensure_financial(prop)
     assert out.monthly_maintenance == 42.0
     assert out.maintenance_source == "Manual"
+
+
+def test_sync_autofills_utilities(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="100 Test St, Los Angeles, CA 90026",
+        zillow_url="https://www.zillow.com/homedetails/x_utils_zpid/",
+        city="Los Angeles",
+        state="CA",
+        zip_code="90026",
+        sqft=2000,
+        year_built=1985,
+        list_price=900_000,
+    )
+    fin = FinancialAssumptions(list_price=900_000, monthly_utilities=0)
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    svc = PropertyService(session)
+    svc._sync_financial_from_listing(
+        prop,
+        ListingDetails(
+            list_price=900_000,
+            city="Los Angeles",
+            state="CA",
+            zip_code="90026",
+            sqft=2000,
+            year_built=1985,
+        ),
+    )
+    session.commit()
+    session.refresh(fin)
+
+    assert fin.monthly_utilities > 0
+    assert "LADWP" in (fin.utilities_source or "")
+    assert "SoCalGas" in (fin.utilities_source or "")
+
+
+def test_sync_preserves_manual_utilities(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="100 Test St, Los Angeles, CA 90026",
+        zillow_url="https://www.zillow.com/homedetails/x_utils_manual_zpid/",
+        city="Los Angeles",
+        state="CA",
+        zip_code="90026",
+        sqft=2000,
+        year_built=1985,
+    )
+    fin = FinancialAssumptions(
+        list_price=900_000,
+        monthly_utilities=50.0,
+        utilities_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    svc = PropertyService(session)
+    svc._sync_financial_from_listing(
+        prop,
+        ListingDetails(
+            list_price=900_000,
+            city="Los Angeles",
+            state="CA",
+            zip_code="90026",
+            sqft=2000,
+            year_built=1985,
+        ),
+    )
+    session.commit()
+    session.refresh(fin)
+
+    assert fin.monthly_utilities == 50.0
+    assert fin.utilities_source == "Manual"
+
+
+def test_update_financial_marks_utilities_manual(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St",
+        zillow_url="https://www.zillow.com/homedetails/x_utils_upd_zpid/",
+    )
+    fin = FinancialAssumptions(
+        list_price=400_000,
+        monthly_utilities=100.0,
+        utilities_source="Estimated: LADWP+SoCalGas",
+        interest_rate_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    svc = PropertyService(session)
+    updated = svc.update_financial(prop.id, monthly_utilities=250.0)
+    assert updated.monthly_utilities == 250.0
+    assert updated.utilities_source == "Manual"
+
+
+def test_revert_financial_field_invest_and_utilities(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="100 Test St, Los Angeles, CA 90026",
+        zillow_url="https://www.zillow.com/homedetails/x_revert_zpid/",
+        city="Los Angeles",
+        state="CA",
+        zip_code="90026",
+        sqft=2000,
+        year_built=1985,
+        list_price=900_000,
+    )
+    fin = FinancialAssumptions(
+        list_price=900_000,
+        invest_return_pct=3.0,
+        monthly_utilities=10.0,
+        utilities_source="Manual",
+        interest_rate_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    svc = PropertyService(session)
+    out = svc.revert_financial_field(prop.id, "invest_return_pct")
+    assert out.invest_return_pct == 10.0
+
+    out2 = svc.revert_financial_field(prop.id, "monthly_utilities")
+    assert out2.utilities_source != "Manual"
+    assert out2.monthly_utilities > 10.0

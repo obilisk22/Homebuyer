@@ -30,6 +30,8 @@ class Property(Base):
     hoa_fee: Mapped[float | None] = mapped_column(Float, nullable=True)
     year_built: Mapped[int | None] = mapped_column(Integer, nullable=True)
     home_type: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    cooling: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    has_central_ac: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     city: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     state: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     zip_code: Mapped[str] = mapped_column(String(16), default="", nullable=False)
@@ -37,6 +39,12 @@ class Property(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     nearby_signals: Mapped[str] = mapped_column(Text, default="", nullable=False)
     nearby_signals_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Compact SODA permit-activity JSON + ISO timestamp (TODO-043).
+    permits_activity: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    permits_activity_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # FCC broadband status JSON + ISO timestamp (TODO-042).
+    broadband_status: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    broadband_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     # Soft reference to photos.id (avoid circular FK with SQLite).
     thumbnail_photo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -119,6 +127,9 @@ class FinancialAssumptions(Base):
     selling_cost_pct: Mapped[float] = mapped_column(Float, default=6.0)
     monthly_maintenance: Mapped[float] = mapped_column(Float, default=0.0)
     maintenance_source: Mapped[str] = mapped_column(String(96), default="")
+    # Utilities estimate (provider × sqft × age); Manual when edited.
+    monthly_utilities: Mapped[float] = mapped_column(Float, default=0.0)
+    utilities_source: Mapped[str] = mapped_column(String(96), default="")
     # Buy-vs-rent tax + shared budget (CA MFJ defaults).
     monthly_budget: Mapped[float] = mapped_column(Float, default=13_000.0)
     marginal_tax_pct: Mapped[float] = mapped_column(Float, default=41.0)

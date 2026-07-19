@@ -25,12 +25,77 @@ _CHART = {
     "hoa": "#FFC107",
     "pmi": "#FF6B9D",
     "maint": "#7CFFB2",
+    "utils": "#5B8CFF",
     "interest": "#FF2BD6",
     "paper": "#12151A",
     "plot": "#0B0D10",
     "grid": "rgba(0, 229, 255, 0.12)",
     "text": "#E8EDF4",
     "muted": "#8B96A8",
+}
+
+# How defaults / autofills are calculated (TODO-033).
+_FIELD_HELP: dict[str, str] = {
+    "offer_price": (
+        "Optional. When set, mortgage math uses offer instead of list. "
+        "Revert clears offer so list price drives the loan."
+    ),
+    "down_payment_dollars": (
+        "Stored as a percent of effective price (offer if set, else list). "
+        "Product default is 20%. Under 20% may trigger PMI."
+    ),
+    "list_price": (
+        "Filled from the Zillow listing on add/refresh. "
+        "Revert restores the listing price stored on the property."
+    ),
+    "interest_rate_pct": (
+        "Autofilled from Freddie Mac PMMS weekly averages — the closer of "
+        "15-yr vs 30-yr FRM for your loan term. Edit → Manual; revert reloads PMMS."
+    ),
+    "loan_term_years": "Product default 30 years. Changing term refreshes PMMS when not Manual.",
+    "closing_cost_pct": "Product default 3% of effective price (cash to close).",
+    "annual_property_tax": (
+        "Chain: Zillow annual tax → assessed × rate → ACS county effective rate "
+        "× assessed-or-list basis (needs CENSUS_API_KEY). Revert re-resolves from location."
+    ),
+    "annual_insurance": (
+        "Prefers Zillow modeled homeowners insurance; else state average premium "
+        "scaled to list price. Revert re-resolves from state table when listing is absent."
+    ),
+    "monthly_hoa": "From the Zillow listing HOA fee when present. Revert uses listing HOA.",
+    "monthly_maintenance": (
+        "Age-blend reserve (% of price + $/sqft × state index) averaged with Angi "
+        "national maint+emergency, then ÷12. Edit → Manual; revert recomputes."
+    ),
+    "monthly_utilities": (
+        "Provider from city/ZIP (LADWP vs SCE + SoCalGas in LA-area; else Default) "
+        "× sqft × age efficiency factor + water/trash. Edit → Manual; revert recomputes."
+    ),
+    "monthly_rent": (
+        "Prefers Zillow rentZestimate; else $5,300 / Default. "
+        "Revert restores the $5,300 Default baseline."
+    ),
+    "rent_control": (
+        "When checked, rent growth is fixed at 2%/yr. Unchecked → ACS county "
+        "median-rent ~5y CAGR (or 3% Default)."
+    ),
+    "appreciation_pct": (
+        "Blend of FHFA ZIP5 ~10y CAGR and Zillow decade %, or 3% Default when both missing. "
+        "Revert re-blends stored FHFA/Zillow components."
+    ),
+    "invest_return_pct": "Assumed return on surplus / rent+invest portfolio. Product default 10%/yr.",
+    "selling_cost_pct": "Assumed closing/selling costs when comparing buy equity. Product default 6%.",
+    "monthly_budget": (
+        "Shared housing budget: both buy and rent paths invest max(0, budget − housing cost). "
+        "Default $13,000/mo."
+    ),
+    "marginal_tax_pct": (
+        "CA MFJ-style combined rate for the interest + SALT-capped property-tax shield. "
+        "Default 41%."
+    ),
+    "cg_tax_pct": "~15% federal LTCG + ~9% CA (editable). Default 24%.",
+    "cg_exclusion": "Primary-residence capital-gains exclusion. MFJ default $500,000.",
+    "salt_cap": "Federal SALT cap on the property-tax deduction in the tax shield. Default $10,000.",
 }
 
 
@@ -92,20 +157,36 @@ def _summary_card(label: str, value: str, *, accent: bool = False) -> None:
         )
 
 
-def _section(title: str, *, quiet: bool = False):
-    """Section column; quiet=True uses muted meta title (Loan / Ownership / Buy vs rent)."""
-    col = ui.column().classes("gap-2 w-full")
-    with col:
-        # Deal stays hb-section-title; quiet sections use hb-page-meta (no Quasar typography).
-        title_cls = "hb-page-meta" if quiet else "hb-section-title"
-        ui.label(title).classes(title_cls)
-    return col
+def _field_chrome(help_key: str, on_revert) -> None:
+    """Low-opacity ? help + restart revert control beside a field."""
+    with ui.row().classes("items-center gap-1 no-wrap hb-field-chrome"):
+        tip = _FIELD_HELP.get(help_key, "")
+        if tip:
+            (
+                ui.icon("help_outline")
+                .props("size=xs")
+                .classes("hb-field-help")
+                .tooltip(tip)
+            )
+        (
+            ui.button(icon="restart_alt", on_click=on_revert)
+            .props("flat dense round size=sm")
+            .classes("hb-field-revert")
+            .tooltip("Revert to default")
+        )
+
+
+def _source_caption(text: str):
+    """Short live source line (optional; quiet)."""
+    label = ui.label((text or "").strip()).classes("hb-page-meta hb-field-source")
+    if not (text or "").strip():
+        label.set_visibility(False)
+    return label
 
 
 def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
-    # Always ensure_financial so maintenance (and PMMS rate) backfill on tab open
-    # for homes that predate those autofills.
+    # Always ensure_financial so maintenance/utilities/PMMS backfill on tab open.
     with get_session() as session:
         fresh = PropertyService(session).get_property(property_id)
         assert fresh is not None
@@ -133,6 +214,7 @@ def render(prop: Property, container: ui.element) -> None:
         "invest_return_pct": float(getattr(fin, "invest_return_pct", None) or 10.0),
         "selling_cost_pct": float(getattr(fin, "selling_cost_pct", None) or 6.0),
         "monthly_maintenance": float(getattr(fin, "monthly_maintenance", None) or 0.0),
+        "monthly_utilities": float(getattr(fin, "monthly_utilities", None) or 0.0),
         "monthly_budget": float(getattr(fin, "monthly_budget", None) or 13_000.0),
         "marginal_tax_pct": float(getattr(fin, "marginal_tax_pct", None) or 41.0),
         "cg_tax_pct": float(getattr(fin, "cg_tax_pct", None) or 24.0),
@@ -153,6 +235,11 @@ def render(prop: Property, container: ui.element) -> None:
         "source": (fin.rent_growth_source or "").strip() or "Default",
         "control": bool(fin.rent_control),
     }
+    appr_source_state = {
+        "source": (fin.appreciation_source or "").strip(),
+        "fhfa": fin.appreciation_fhfa_pct,
+        "zillow": fin.appreciation_zillow_pct,
+    }
 
     with container:
         ui.label("Financials").classes("hb-page-title")
@@ -164,20 +251,30 @@ def render(prop: Property, container: ui.element) -> None:
         breakdown = ui.row().classes("w-full gap-3 q-mt-sm flex-wrap")
 
         with ui.element("div").classes("hb-financial-form w-full q-mt-lg"):
-            # Four equal grid children (deal + three quiet); deal tagged for optional CSS.
-            with _section("Your deal").classes("hb-financial-form__deal"):
+            # —— Primary: Your deal ——
+            with ui.column().classes("gap-2 w-full hb-financial-form__deal"):
+                ui.label("Your deal").classes("hb-section-title")
+                with ui.row().classes("w-full items-center justify-between no-wrap"):
+                    ui.label("Offer price").classes("hb-field-label")
+                    _field_chrome("offer_price", lambda: _revert("offer_price"))
                 offer_in = ui.number(
-                    "Offer price", value=values["offer_price"], format="%.0f"
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                ui.label("Leave blank to use list price for the mortgage.").classes(
-                    "hb-page-meta"
-                )
+                    label=None, value=values["offer_price"], format="%.0f"
+                ).props("prefix=$ dense outlined").classes("w-full")
                 with ui.row().classes("w-full items-end gap-2 no-wrap"):
-                    down = ui.number(
-                        "Down payment",
-                        value=values["down_payment_dollars"],
-                        format="%.0f",
-                    ).props("prefix=$ dense outlined stack-label").classes("col")
+                    with ui.column().classes("col gap-1"):
+                        with ui.row().classes(
+                            "w-full items-center justify-between no-wrap"
+                        ):
+                            ui.label("Down payment").classes("hb-field-label")
+                            _field_chrome(
+                                "down_payment_dollars",
+                                lambda: _revert("down_payment_pct"),
+                            )
+                        down = ui.number(
+                            label=None,
+                            value=values["down_payment_dollars"],
+                            format="%.0f",
+                        ).props("prefix=$ dense outlined").classes("w-full")
                     down_warn = (
                         ui.icon("warning", color="amber")
                         .props("size=sm")
@@ -187,25 +284,77 @@ def render(prop: Property, container: ui.element) -> None:
                     down_warn.set_visibility(False)
                 down_pct_label = ui.label("").classes("hb-page-meta")
 
-            with _section("Loan", quiet=True):
-                ui.label("Defaults — edit if needed.").classes("hb-page-meta")
-                list_in = ui.number(
-                    "List price", value=values["list_price"], format="%.0f"
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                rate = ui.number(
-                    "Interest rate", value=values["interest_rate_pct"], format="%.3f"
-                ).props("suffix=% dense outlined stack-label").classes("w-full")
-                rate_src_label = ui.label(
-                    (fin.interest_rate_source or "").strip()
-                ).classes("hb-page-meta")
-                if not (fin.interest_rate_source or "").strip():
-                    rate_src_label.set_visibility(False)
-                term = ui.number(
-                    "Term", value=values["loan_term_years"], format="%.0f"
-                ).props("suffix=years dense outlined stack-label").classes("w-full")
-                closing = ui.number(
-                    "Closing costs", value=values["closing_cost_pct"], format="%.1f"
-                ).props("suffix=% dense outlined stack-label").classes("w-full")
+            # —— Primary: Rent compare ——
+            with ui.column().classes("gap-2 w-full hb-financial-form__rent"):
+                ui.label("Buy vs rent").classes("hb-section-title")
+                with ui.row().classes("w-full items-end gap-2 no-wrap"):
+                    with ui.column().classes("col gap-1"):
+                        with ui.row().classes(
+                            "w-full items-center justify-between no-wrap"
+                        ):
+                            ui.label("Comparable rent / month").classes("hb-field-label")
+                            _field_chrome("monthly_rent", lambda: _revert("monthly_rent"))
+                        rent_in = ui.number(
+                            label=None,
+                            value=values["monthly_rent"],
+                            format="%.0f",
+                        ).props("prefix=$ dense outlined").classes("w-full")
+                    with ui.row().classes("items-center gap-1 no-wrap q-mb-xs"):
+                        rent_control = ui.checkbox(
+                            "Rent control", value=growth_state["control"]
+                        ).props("dense")
+                        _field_chrome("rent_control", lambda: _revert("rent_control"))
+                rent_src_label = _source_caption(fin.rent_source or "")
+                growth_caption = ui.label("").classes("hb-page-meta")
+
+        # —— Collapsed: Loan / Ownership / Advanced ——
+        with ui.column().classes("w-full gap-2 q-mt-md"):
+            with ui.expansion("Loan", icon="account_balance").classes(
+                "w-full hb-financial-expansion"
+            ):
+                with ui.column().classes("gap-2 w-full q-pt-sm"):
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("List price").classes("hb-field-label")
+                        _field_chrome("list_price", lambda: _revert("list_price"))
+                    list_in = ui.number(
+                        label=None, value=values["list_price"], format="%.0f"
+                    ).props("prefix=$ dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Interest rate").classes("hb-field-label")
+                        _field_chrome(
+                            "interest_rate_pct", lambda: _revert("interest_rate_pct")
+                        )
+                    rate = ui.number(
+                        label=None, value=values["interest_rate_pct"], format="%.3f"
+                    ).props("suffix=% dense outlined").classes("w-full")
+                    rate_src_label = _source_caption(fin.interest_rate_source or "")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Term").classes("hb-field-label")
+                        _field_chrome(
+                            "loan_term_years", lambda: _revert("loan_term_years")
+                        )
+                    term = ui.number(
+                        label=None, value=values["loan_term_years"], format="%.0f"
+                    ).props("suffix=years dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Closing costs").classes("hb-field-label")
+                        _field_chrome(
+                            "closing_cost_pct", lambda: _revert("closing_cost_pct")
+                        )
+                    closing = ui.number(
+                        label=None, value=values["closing_cost_pct"], format="%.1f"
+                    ).props("suffix=% dense outlined").classes("w-full")
 
             rate_source_state = {"value": (fin.interest_rate_source or "").strip()}
             suppress_rate_manual = {"on": False}
@@ -236,124 +385,183 @@ def render(prop: Property, container: ui.element) -> None:
             term.on_value_change(lambda _: _apply_pmms_rate_for_term())
             rate.on_value_change(_mark_rate_manual)
 
-            with _section("Ownership costs", quiet=True):
-                ui.label("Usually filled from the listing.").classes("hb-page-meta")
-                tax = ui.number(
-                    "Property tax / year",
-                    value=values["annual_property_tax"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                if (fin.property_tax_source or "").strip():
-                    ui.label(fin.property_tax_source).classes("hb-page-meta")
-                insurance = ui.number(
-                    "Insurance / year",
-                    value=values["annual_insurance"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                if (fin.insurance_source or "").strip():
-                    ui.label(fin.insurance_source).classes("hb-page-meta")
-                hoa = ui.number(
-                    "HOA / month", value=values["monthly_hoa"], format="%.0f"
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                maint_in = ui.number(
-                    "Maintenance / month",
-                    value=values["monthly_maintenance"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                maint_src = (fin.maintenance_source or "").strip()
-                if maint_src:
-                    ui.label(maint_src).classes("hb-page-meta")
-                else:
-                    ui.label(
-                        "Repairs & upkeep reserve (age blend × state cost index)."
-                    ).classes("hb-page-meta")
-
-            with _section("Buy vs rent", quiet=True):
-                ui.label(
-                    "Compare selling equity with investing the monthly difference."
-                ).classes("hb-page-meta")
-                with ui.row().classes("w-full items-end gap-2 no-wrap"):
-                    rent_in = ui.number(
-                        "Comparable rent / month",
-                        value=values["monthly_rent"],
+            with ui.expansion("Ownership costs", icon="home").classes(
+                "w-full hb-financial-expansion"
+            ):
+                with ui.column().classes("gap-2 w-full q-pt-sm"):
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Property tax / year").classes("hb-field-label")
+                        _field_chrome(
+                            "annual_property_tax",
+                            lambda: _revert("annual_property_tax"),
+                        )
+                    tax = ui.number(
+                        label=None,
+                        value=values["annual_property_tax"],
                         format="%.0f",
-                    ).props("prefix=$ dense outlined stack-label").classes("col")
-                    rent_control = ui.checkbox(
-                        "Rent control", value=growth_state["control"]
-                    ).props("dense")
-                if (fin.rent_source or "").strip():
-                    ui.label(fin.rent_source).classes("hb-page-meta")
-                growth_caption = ui.label("").classes("hb-page-meta")
-                appr_in = ui.number(
-                    "Appreciation",
-                    value=values["appreciation_pct"],
-                    format="%.2f",
-                ).props("suffix=%/yr dense outlined stack-label").classes("w-full")
-                appreciation_bits = [(fin.appreciation_source or "").strip()]
-                if fin.appreciation_fhfa_pct is not None:
-                    appreciation_bits.append(f"FHFA {fin.appreciation_fhfa_pct:.2f}%")
-                if fin.appreciation_zillow_pct is not None:
-                    appreciation_bits.append(
-                        f"Zillow {fin.appreciation_zillow_pct:.2f}%"
+                    ).props("prefix=$ dense outlined").classes("w-full")
+                    tax_src_label = _source_caption(fin.property_tax_source or "")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Insurance / year").classes("hb-field-label")
+                        _field_chrome(
+                            "annual_insurance", lambda: _revert("annual_insurance")
+                        )
+                    insurance = ui.number(
+                        label=None,
+                        value=values["annual_insurance"],
+                        format="%.0f",
+                    ).props("prefix=$ dense outlined").classes("w-full")
+                    ins_src_label = _source_caption(fin.insurance_source or "")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("HOA / month").classes("hb-field-label")
+                        _field_chrome("monthly_hoa", lambda: _revert("monthly_hoa"))
+                    hoa = ui.number(
+                        label=None, value=values["monthly_hoa"], format="%.0f"
+                    ).props("prefix=$ dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Maintenance / month").classes("hb-field-label")
+                        _field_chrome(
+                            "monthly_maintenance",
+                            lambda: _revert("monthly_maintenance"),
+                        )
+                    maint_in = ui.number(
+                        label=None,
+                        value=values["monthly_maintenance"],
+                        format="%.0f",
+                    ).props("prefix=$ dense outlined").classes("w-full")
+                    maint_src_label = _source_caption(fin.maintenance_source or "")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Utilities / month").classes("hb-field-label")
+                        _field_chrome(
+                            "monthly_utilities",
+                            lambda: _revert("monthly_utilities"),
+                        )
+                    utils_in = ui.number(
+                        label=None,
+                        value=values["monthly_utilities"],
+                        format="%.0f",
+                    ).props("prefix=$ dense outlined").classes("w-full")
+                    utils_src_label = _source_caption(fin.utilities_source or "")
+
+            with ui.expansion("Advanced buy vs rent", icon="tune").classes(
+                "w-full hb-financial-expansion"
+            ):
+                with ui.column().classes("gap-2 w-full q-pt-sm"):
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Appreciation").classes("hb-field-label")
+                        _field_chrome(
+                            "appreciation_pct", lambda: _revert("appreciation_pct")
+                        )
+                    appr_in = ui.number(
+                        label=None,
+                        value=values["appreciation_pct"],
+                        format="%.2f",
+                    ).props("suffix=%/yr dense outlined").classes("w-full")
+                    appr_bits = [appr_source_state["source"]]
+                    if appr_source_state["fhfa"] is not None:
+                        appr_bits.append(f"FHFA {appr_source_state['fhfa']:.2f}%")
+                    if appr_source_state["zillow"] is not None:
+                        appr_bits.append(
+                            f"Zillow {appr_source_state['zillow']:.2f}%"
+                        )
+                    appr_src_label = _source_caption(
+                        " · ".join(bit for bit in appr_bits if bit)
                     )
-                if any(appreciation_bits):
-                    ui.label(" · ".join(bit for bit in appreciation_bits if bit)).classes(
-                        "hb-page-meta"
-                    )
-                invest_in = ui.number(
-                    "Invest return",
-                    value=values["invest_return_pct"],
-                    format="%.2f",
-                ).props("suffix=%/yr dense outlined stack-label").classes("w-full")
-                ui.label("Return on the rent+invest portfolio (default 10%).").classes(
-                    "hb-page-meta"
-                )
-                sell_in = ui.number(
-                    "Sell cost",
-                    value=values["selling_cost_pct"],
-                    format="%.2f",
-                ).props("suffix=% dense outlined stack-label").classes("w-full")
-                ui.label("Closing/selling costs when comparing buy equity (default 6%).").classes(
-                    "hb-page-meta"
-                )
-                budget_in = ui.number(
-                    "Housing budget / month",
-                    value=values["monthly_budget"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                ui.label(
-                    "Both paths invest max(0, budget − housing cost). Default $13,000."
-                ).classes("hb-page-meta")
-                tax_rate_in = ui.number(
-                    "Marginal tax rate",
-                    value=values["marginal_tax_pct"],
-                    format="%.1f",
-                ).props("suffix=% dense outlined stack-label").classes("w-full")
-                ui.label(
-                    "CA MFJ-style combined rate for interest + SALT-capped property tax shield."
-                ).classes("hb-page-meta")
-                cg_rate_in = ui.number(
-                    "Capital gains rate",
-                    value=values["cg_tax_pct"],
-                    format="%.1f",
-                ).props("suffix=% dense outlined stack-label").classes("w-full")
-                ui.label("~15% federal LTCG + ~9% CA (editable).").classes("hb-page-meta")
-                cg_excl_in = ui.number(
-                    "CG exclusion",
-                    value=values["cg_exclusion"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                ui.label("Primary residence exclusion (MFJ default $500k).").classes(
-                    "hb-page-meta"
-                )
-                salt_in = ui.number(
-                    "SALT cap",
-                    value=values["salt_cap"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
-                ui.label("Federal SALT cap on property-tax deduction (default $10k).").classes(
-                    "hb-page-meta"
-                )
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Invest return").classes("hb-field-label")
+                        _field_chrome(
+                            "invest_return_pct", lambda: _revert("invest_return_pct")
+                        )
+                    invest_in = ui.number(
+                        label=None,
+                        value=values["invest_return_pct"],
+                        format="%.2f",
+                    ).props("suffix=%/yr dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Sell cost").classes("hb-field-label")
+                        _field_chrome(
+                            "selling_cost_pct", lambda: _revert("selling_cost_pct")
+                        )
+                    sell_in = ui.number(
+                        label=None,
+                        value=values["selling_cost_pct"],
+                        format="%.2f",
+                    ).props("suffix=% dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Housing budget / month").classes("hb-field-label")
+                        _field_chrome(
+                            "monthly_budget", lambda: _revert("monthly_budget")
+                        )
+                    budget_in = ui.number(
+                        label=None,
+                        value=values["monthly_budget"],
+                        format="%.0f",
+                    ).props("prefix=$ dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Marginal tax rate").classes("hb-field-label")
+                        _field_chrome(
+                            "marginal_tax_pct", lambda: _revert("marginal_tax_pct")
+                        )
+                    tax_rate_in = ui.number(
+                        label=None,
+                        value=values["marginal_tax_pct"],
+                        format="%.1f",
+                    ).props("suffix=% dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("Capital gains rate").classes("hb-field-label")
+                        _field_chrome("cg_tax_pct", lambda: _revert("cg_tax_pct"))
+                    cg_rate_in = ui.number(
+                        label=None, value=values["cg_tax_pct"], format="%.1f"
+                    ).props("suffix=% dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("CG exclusion").classes("hb-field-label")
+                        _field_chrome("cg_exclusion", lambda: _revert("cg_exclusion"))
+                    cg_excl_in = ui.number(
+                        label=None, value=values["cg_exclusion"], format="%.0f"
+                    ).props("prefix=$ dense outlined").classes("w-full")
+
+                    with ui.row().classes(
+                        "w-full items-center justify-between no-wrap"
+                    ):
+                        ui.label("SALT cap").classes("hb-field-label")
+                        _field_chrome("salt_cap", lambda: _revert("salt_cap"))
+                    salt_in = ui.number(
+                        label=None, value=values["salt_cap"], format="%.0f"
+                    ).props("prefix=$ dense outlined").classes("w-full")
 
         charts = ui.column().classes("w-full q-mt-lg gap-2")
 
@@ -396,6 +604,7 @@ def render(prop: Property, container: ui.element) -> None:
                 "invest_return_pct": float(invest_in.value or 0),
                 "selling_cost_pct": float(sell_in.value or 0),
                 "monthly_maintenance": float(maint_in.value or 0),
+                "monthly_utilities": float(utils_in.value or 0),
                 "monthly_budget": float(budget_in.value or 0),
                 "marginal_tax_pct": float(tax_rate_in.value or 0),
                 "cg_tax_pct": float(cg_rate_in.value or 0),
@@ -422,6 +631,77 @@ def render(prop: Property, container: ui.element) -> None:
                     "salt_cap",
                 }
             }
+
+        def _apply_reverted(saved) -> None:
+            """Push reverted DB values into live inputs + captions."""
+            nonlocal price0
+            list_val = float(getattr(saved, "list_price", None) or 0)
+            offer_val = float(getattr(saved, "offer_price", None) or 0)
+            price0 = effective_price(list_val, offer_val)
+            list_in.value = list_val
+            offer_in.value = offer_val
+            down.value = down_payment_dollars(
+                price0, float(saved.down_payment_pct or 0)
+            )
+            rate.value = float(saved.interest_rate_pct or 0)
+            _show_rate_source((saved.interest_rate_source or "").strip())
+            term.value = int(saved.loan_term_years or 30)
+            closing.value = float(saved.closing_cost_pct or 0)
+            tax.value = float(saved.annual_property_tax or 0)
+            tax_src = (saved.property_tax_source or "").strip()
+            tax_src_label.set_text(tax_src)
+            tax_src_label.set_visibility(bool(tax_src))
+            insurance.value = float(saved.annual_insurance or 0)
+            ins_src = (saved.insurance_source or "").strip()
+            ins_src_label.set_text(ins_src)
+            ins_src_label.set_visibility(bool(ins_src))
+            hoa.value = float(saved.monthly_hoa or 0)
+            maint_in.value = float(saved.monthly_maintenance or 0)
+            ms = (saved.maintenance_source or "").strip()
+            maint_src_label.set_text(ms)
+            maint_src_label.set_visibility(bool(ms))
+            utils_in.value = float(getattr(saved, "monthly_utilities", None) or 0)
+            us = (getattr(saved, "utilities_source", None) or "").strip()
+            utils_src_label.set_text(us)
+            utils_src_label.set_visibility(bool(us))
+            rent_in.value = float(saved.monthly_rent or 0)
+            rs = (saved.rent_source or "").strip()
+            rent_src_label.set_text(rs)
+            rent_src_label.set_visibility(bool(rs))
+            growth_state["control"] = bool(saved.rent_control)
+            growth_state["pct"] = float(saved.rent_growth_pct or 0)
+            growth_state["source"] = (
+                saved.rent_growth_source or ""
+            ).strip() or "Default"
+            rent_control.value = growth_state["control"]
+            appr_in.value = float(saved.appreciation_pct or 0)
+            appr_source_state["source"] = (saved.appreciation_source or "").strip()
+            appr_source_state["fhfa"] = saved.appreciation_fhfa_pct
+            appr_source_state["zillow"] = saved.appreciation_zillow_pct
+            bits = [appr_source_state["source"]]
+            if appr_source_state["fhfa"] is not None:
+                bits.append(f"FHFA {appr_source_state['fhfa']:.2f}%")
+            if appr_source_state["zillow"] is not None:
+                bits.append(f"Zillow {appr_source_state['zillow']:.2f}%")
+            appr_txt = " · ".join(b for b in bits if b)
+            appr_src_label.set_text(appr_txt)
+            appr_src_label.set_visibility(bool(appr_txt))
+            invest_in.value = float(saved.invest_return_pct or 10)
+            sell_in.value = float(saved.selling_cost_pct or 6)
+            budget_in.value = float(saved.monthly_budget or 13_000)
+            tax_rate_in.value = float(saved.marginal_tax_pct or 41)
+            cg_rate_in.value = float(saved.cg_tax_pct or 24)
+            cg_excl_in.value = float(saved.cg_exclusion or 500_000)
+            salt_in.value = float(saved.salt_cap or 10_000)
+
+        def _revert(field: str) -> None:
+            with get_session() as session:
+                saved = PropertyService(session).revert_financial_field(
+                    property_id, field
+                )
+            _apply_reverted(saved)
+            ui.notify(f"Reverted {field.replace('_', ' ')}", type="info")
+            redraw()
 
         offer_in.on_value_change(lambda _: refresh_down_meta())
         list_in.on_value_change(lambda _: refresh_down_meta())
@@ -471,10 +751,16 @@ def render(prop: Property, container: ui.element) -> None:
                     parts.append(("PMI", result.monthly_pmi))
                 if result.monthly_maintenance > 0:
                     parts.append(("Maint", result.monthly_maintenance))
+                if result.monthly_utilities > 0:
+                    parts.append(("Utils", result.monthly_utilities))
                 for label, val in parts:
-                    with ui.column().classes("hb-metric px-3 py-2").style("min-width: 6.5rem"):
+                    with ui.column().classes("hb-metric px-3 py-2").style(
+                        "min-width: 6.5rem"
+                    ):
                         ui.label(label).classes("hb-page-meta")
-                        ui.label(_money_exact(val)).classes("text-body1 text-weight-medium")
+                        ui.label(_money_exact(val)).classes(
+                            "text-body1 text-weight-medium"
+                        )
 
             charts.clear()
             with charts:
@@ -494,8 +780,11 @@ def render(prop: Property, container: ui.element) -> None:
                     pie_labels.append("Maintenance")
                     pie_values.append(result.monthly_maintenance)
                     pie_colors.append(_CHART["maint"])
+                if result.monthly_utilities > 0:
+                    pie_labels.append("Utilities")
+                    pie_values.append(result.monthly_utilities)
+                    pie_colors.append(_CHART["utils"])
 
-                # Drop zero slices so the mix stays readable
                 filtered = [
                     (lab, val, col)
                     for lab, val, col in zip(pie_labels, pie_values, pie_colors)
@@ -547,6 +836,7 @@ def render(prop: Property, container: ui.element) -> None:
                     invest_pct = float(invest_in.value or 0)
                     sell_pct = float(sell_in.value or 0)
                     maint = float(maint_in.value or 0)
+                    utils = float(utils_in.value or 0)
                     budget = float(budget_in.value or 0)
                     marg = float(tax_rate_in.value or 0)
                     cg_pct = float(cg_rate_in.value or 0)
@@ -560,6 +850,7 @@ def render(prop: Property, container: ui.element) -> None:
                         invest_return_pct=invest_pct,
                         selling_cost_pct=sell_pct,
                         monthly_maintenance=maint,
+                        monthly_utilities=utils,
                         monthly_budget=budget,
                         marginal_tax_pct=marg,
                         cg_tax_pct=cg_pct,
@@ -607,19 +898,19 @@ def render(prop: Property, container: ui.element) -> None:
 
                     projection_bits = [
                         f"Appreciation {float(appr_in.value or 0):.2f}%/yr",
-                        f"source {fin.appreciation_source or '—'}",
+                        f"source {appr_source_state['source'] or '—'}",
                         (
                             f"Rent growth {float(growth_state['pct'] or 0):.2f}%/yr"
                             f" · {growth_state['source'] or 'Default'}"
                         ),
                     ]
-                    if fin.appreciation_fhfa_pct is not None:
+                    if appr_source_state["fhfa"] is not None:
                         projection_bits.append(
-                            f"FHFA {fin.appreciation_fhfa_pct:.2f}%"
+                            f"FHFA {appr_source_state['fhfa']:.2f}%"
                         )
-                    if fin.appreciation_zillow_pct is not None:
+                    if appr_source_state["zillow"] is not None:
                         projection_bits.append(
-                            f"Zillow {fin.appreciation_zillow_pct:.2f}%"
+                            f"Zillow {appr_source_state['zillow']:.2f}%"
                         )
                     projection_bits.extend(
                         [
@@ -632,6 +923,8 @@ def render(prop: Property, container: ui.element) -> None:
                     )
                     if maint > 0:
                         projection_bits.append(f"maintenance {_money(maint)}/mo")
+                    if utils > 0:
+                        projection_bits.append(f"utilities {_money(utils)}/mo")
                     if float(rent_in.value or 0) <= 0:
                         projection_bits.append("set rent for a fair compare")
                     ui.label(" · ".join(projection_bits)).classes("hb-page-meta")
@@ -676,6 +969,16 @@ def render(prop: Property, container: ui.element) -> None:
                 growth_state["source"] = (
                     saved.rent_growth_source or ""
                 ).strip() or "Default"
+                ms = (saved.maintenance_source or "").strip()
+                maint_src_label.set_text(ms)
+                maint_src_label.set_visibility(bool(ms))
+                us = (saved.utilities_source or "").strip()
+                utils_src_label.set_text(us)
+                utils_src_label.set_visibility(bool(us))
+                rs = (saved.rent_source or "").strip()
+                rent_src_label.set_text(rs)
+                rent_src_label.set_visibility(bool(rs))
+                _show_rate_source((saved.interest_rate_source or "").strip())
             ui.notify("Assumptions saved", type="positive")
             redraw()
 
@@ -694,6 +997,7 @@ def render(prop: Property, container: ui.element) -> None:
             invest_in,
             sell_in,
             maint_in,
+            utils_in,
             budget_in,
             tax_rate_in,
             cg_rate_in,
@@ -703,7 +1007,9 @@ def render(prop: Property, container: ui.element) -> None:
             field.on("keydown.enter", lambda: redraw())
 
         with ui.row().classes("q-mt-md gap-2"):
-            ui.button("Recalculate", on_click=redraw).props("unelevated dense color=dark")
+            ui.button("Recalculate", on_click=redraw).props(
+                "unelevated dense color=dark"
+            )
             ui.button("Save assumptions", on_click=save).props(
                 "unelevated dense color=dark"
             ).classes("hb-btn-cta")
@@ -726,7 +1032,6 @@ def render(prop: Property, container: ui.element) -> None:
                     type="ongoing",
                     timeout=0,
                 )
-                # Collect on UI thread; Gemini job opens its own DB session.
                 fields = collect()
                 result = await run.io_bound(
                     ensure_gemini_financial_job, property_id, fields, force=force

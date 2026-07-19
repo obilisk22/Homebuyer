@@ -94,12 +94,28 @@ def test_library_cards_render_nearby_signal_chips():
     assert "RISK_KEYS" in src
     assert "hb-nearby-icons" in src
     assert "hb-nearby-chip--{kind}" in src
+    assert "_render_nearby_signal_chips" in src
+    assert "listing_risk_chips" in src
     assert "refresh_stale_nearby_signals_job, limit=3" in src
     assert "ui.timer(0.1, _refresh_stale_nearby_after_paint, once=True)" in src
     refresh_body = src.split("        def refresh() -> None:", 1)[1].split(
         "        async def _refresh_stale_nearby_after_paint() -> None:", 1
     )[0]
     assert "refresh_stale_nearby_signals" not in refresh_body
+
+
+def test_property_header_nearby_and_edit_listing():
+    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    assert "hb-edit-listing-expansion" in src
+    assert "_render_nearby_signal_chips(" in src
+    assert "listing_risk_chips" in src
+    assert "nearby_signals = prop.nearby_signals or \"\"" in src
+    assert "_library_appreciation_caption" in src
+    assert "hb-appr-low" in src
+    css = theme._CSS
+    assert ".hb-edit-listing-expansion" in css
+    assert ".hb-appr-low" in css
+    assert ".hb-property-hero:has(.hb-nearby-icons)" in css
 
 
 def test_theme_styles_nearby_signal_chips():

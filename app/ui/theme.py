@@ -374,13 +374,56 @@ body.body--dark,
   align-items: stretch;
 }}
 
+.hb-property-hero:has(.hb-nearby-icons) .hb-property-hero__content {{
+  padding-bottom: 2.35rem;
+}}
+
+.hb-property-hero--bleed:not(.hb-property-hero--has-photo):has(.hb-nearby-icons)
+  .hb-property-hero__content {{
+  padding-bottom: 2.35rem;
+}}
+
+.hb-property-hero .hb-nearby-icons {{
+  right: 1.1rem;
+  bottom: 0.65rem;
+}}
+
+/* Secondary edit control — muted so it doesn't compete with module tabs */
+.hb-edit-listing-expansion {{
+  margin-top: 0.35rem;
+  opacity: 0.72;
+  transition: opacity 0.15s ease;
+}}
+
+.hb-edit-listing-expansion:hover,
+.hb-edit-listing-expansion:focus-within {{
+  opacity: 1;
+}}
+
+.hb-edit-listing-expansion .q-item {{
+  min-height: 2rem !important;
+  padding: 0.2rem 0.35rem !important;
+  color: var(--hb-text-muted) !important;
+}}
+
+.hb-edit-listing-expansion .q-item__label,
+.hb-edit-listing-expansion .q-icon {{
+  color: var(--hb-text-muted) !important;
+  font-size: 0.85rem !important;
+  font-weight: 400 !important;
+}}
+
+.hb-edit-listing-expansion .q-expansion-item__content {{
+  opacity: 1;
+}}
+
 @media (max-width: 800px) {{
   .hb-property-hero--beside .hb-property-hero__listing {{
     flex-wrap: wrap;
   }}
 }}
 
-/* Financials form: 2×2 for four sections (Your deal / Loan / Ownership / Buy vs rent) */
+/* Financials form: primary deal + rent side-by-side; expansions below */
 .hb-financial-form {{
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -388,8 +431,60 @@ body.body--dark,
   align-items: start;
 }}
 
-.hb-financial-form__deal {{
+.hb-financial-form__deal,
+.hb-financial-form__rent {{
   min-width: 0;
+}}
+
+.hb-financial-expansion {{
+  border: 1px solid var(--hb-border);
+  border-radius: 10px;
+  background: rgba(28, 34, 44, 0.35);
+}}
+
+.hb-financial-expansion .q-expansion-item__container {{
+  padding: 0.15rem 0.35rem;
+}}
+
+.hb-field-label {{
+  font-family: var(--hb-font-body);
+  font-size: 0.78rem;
+  color: var(--hb-text-muted);
+  letter-spacing: 0.02em;
+}}
+
+.hb-field-chrome {{
+  opacity: 0.55;
+}}
+
+.hb-field-chrome:hover {{
+  opacity: 0.9;
+}}
+
+.hb-field-help {{
+  color: var(--hb-text-muted) !important;
+  cursor: help;
+  opacity: 0.4;
+}}
+
+.hb-field-help:hover {{
+  color: var(--hb-cyan, #00E5FF) !important;
+  opacity: 1;
+}}
+
+.hb-field-revert {{
+  color: var(--hb-text-muted) !important;
+  min-height: 1.5rem !important;
+  min-width: 1.5rem !important;
+  padding: 0 !important;
+}}
+
+.hb-field-revert:hover {{
+  color: var(--hb-cyan, #00E5FF) !important;
+}}
+
+.hb-field-source {{
+  opacity: 0.75;
 }}
 
 @media (max-width: 900px) {{
@@ -940,6 +1035,10 @@ a:hover {{
   color: var(--hb-magenta, #FF2BD6);
 }}
 
+.hb-nearby-chip--amber {{
+  color: var(--hb-amber, #FFC107);
+}}
+
 .hb-library-thumb-wrap--empty {{
   display: flex;
   align-items: center;
@@ -1047,6 +1146,12 @@ a:hover {{
   border-color: rgba(255, 193, 7, 0.55);
   background: rgba(255, 193, 7, 0.12);
   opacity: 1;
+  font-weight: 600;
+}}
+
+.hb-appr-low {{
+  color: var(--hb-amber) !important;
+  opacity: 1 !important;
   font-weight: 600;
 }}
 
@@ -1367,9 +1472,35 @@ a:hover {{
   filter: invert(1) brightness(1.15);
 }}
 
+/* Street View panel — 16:9 desktop-scale iframe; no min-height empty shell */
+.hb-sv-panel {{
+  margin-top: 0.35rem;
+}}
+.hb-sv-panel .q-expansion-item__content > .q-card__section {{
+  padding: 0.35rem 0.5rem 0.45rem !important;
+}}
+.hb-sv-actions {{
+  margin-top: 0.25rem;
+  gap: 0.35rem 0.5rem;
+}}
 .homebuy-sv {{
+  container-type: inline-size;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(42vh, 480px);
+  height: auto;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #111;
+  position: relative;
   border: 1px solid var(--hb-border) !important;
-  box-shadow: 0 0 24px rgba(0, 229, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.08), 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+}}
+/* When max-height binds, keep the frame 16:9 instead of letterboxing */
+@supports (width: min(100%, 1px)) {{
+  .homebuy-sv {{
+    width: min(100%, calc(min(42vh, 480px) * 16 / 9));
+  }}
 }}
 
 /* Gallery lightbox — dark neo (classes applied by gallery.py) */

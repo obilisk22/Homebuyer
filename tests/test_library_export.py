@@ -46,6 +46,7 @@ def test_snapshot_without_financials_has_no_piti():
     assert snap.has_financials is False
     assert snap.monthly_piti is None
     assert snap.cash_to_close is None
+    assert snap.appreciation_pct is None
     assert snap.price_per_sqft == 400.0  # 500k / 1250
 
 
@@ -60,6 +61,8 @@ def test_snapshot_uses_finance_summarize_from_assumptions():
         annual_insurance=1_200,
         monthly_hoa=50,
         closing_cost_pct=3.0,
+        appreciation_pct=2.4,
+        appreciation_source="FHFA",
     )
     expected = summarize(
         list_price=500_000,
@@ -78,6 +81,8 @@ def test_snapshot_uses_finance_summarize_from_assumptions():
     assert snap.effective_price == 480_000
     assert snap.monthly_piti == expected.monthly_total
     assert snap.cash_to_close == expected.cash_to_close
+    assert snap.appreciation_pct == 2.4
+    assert snap.appreciation_source == "FHFA"
     assert snap.price_per_sqft == 500_000 / 1_250
 
 
@@ -104,9 +109,11 @@ def test_export_csv_and_json_include_financial_fields():
     assert "monthly_piti" in row
     assert float(row["monthly_piti"]) > 0
     assert float(row["cash_to_close"]) == 400_000 * 0.20 + 400_000 * 0.03
+    assert "appreciation_pct" in row
 
     payload = json.loads(export_library_json(snaps))
     assert isinstance(payload, list)
     assert payload[0]["id"] == 7
     assert payload[0]["monthly_piti"] == snaps[0].monthly_piti
     assert payload[0]["cash_to_close"] == snaps[0].cash_to_close
+    assert "appreciation_pct" in payload[0]

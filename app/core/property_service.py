@@ -18,6 +18,8 @@ from app.core.gemini_financial import (
     generate_financial_commentary,
 )
 from app.core.gemini_neighborhood import (
+    build_overview_cache_key,
+    build_things_to_do_cache_key,
     generate_neighborhood_overview,
     generate_things_to_do,
 )
@@ -26,10 +28,19 @@ from app.core.home_insurance import resolve_annual_insurance
 from app.core.home_maintenance import resolve_monthly_maintenance
 from app.core.models import DEFAULT_MONTHLY_RENT, FinancialAssumptions, Photo, Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
+from app.core.fcc_broadband import (
+    needs_refresh as broadband_needs_refresh,
+    refresh_property_broadband,
+)
 from app.core.nearby_signals import needs_refresh, refresh_property_signals
+from app.core.permits_nearby import (
+    needs_refresh as permits_needs_refresh,
+    refresh_property_permits,
+)
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
+from app.core.utilities import resolve_monthly_utilities
 from app.core.zillow_listing import (
     ListingDetails,
     extract_listing_details,
@@ -212,6 +223,32 @@ class PropertyService:
             self.session.rollback()
         return prop
 
+    def refresh_permits_activity(self, property_id: int) -> Property:
+        """Refresh and persist nearby permit activity without surfacing SODA failures."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        try:
+            refresh_property_permits(prop)
+            self.session.commit()
+            self.session.refresh(prop)
+        except Exception:  # noqa: BLE001 - permit providers never block property flows
+            self.session.rollback()
+        return prop
+
+    def refresh_broadband_status(self, property_id: int) -> Property:
+        """Refresh and persist FCC BDC broadband status without surfacing failures."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        try:
+            refresh_property_broadband(prop)
+            self.session.commit()
+            self.session.refresh(prop)
+        except Exception:  # noqa: BLE001 - broadband lookup never blocks property flows
+            self.session.rollback()
+        return prop
+
     def refresh_stale_nearby_signals(self, *, limit: int = 3) -> int:
         """Refresh up to ``limit`` stale properties that have map coordinates."""
         import time
@@ -238,6 +275,50 @@ class PropertyService:
             time.sleep(1.25)
         return refreshed
 
+    def refresh_stale_permits_activity(self, *, limit: int = 3) -> int:
+        """Refresh up to ``limit`` stale permit lookups for pinned properties."""
+        if limit <= 0:
+            return 0
+        stmt = (
+            select(Property)
+            .where(
+                Property.latitude.is_not(None),
+                Property.longitude.is_not(None),
+            )
+            .order_by(Property.updated_at.desc())
+        )
+        refreshed = 0
+        for prop in self.session.scalars(stmt):
+            if not permits_needs_refresh(prop.permits_activity_at, prop.permits_activity):
+                continue
+            self.refresh_permits_activity(prop.id)
+            refreshed += 1
+            if refreshed >= limit:
+                break
+        return refreshed
+
+    def refresh_stale_broadband_status(self, *, limit: int = 3) -> int:
+        """Refresh up to ``limit`` stale FCC BDC lookups for pinned properties."""
+        if limit <= 0:
+            return 0
+        stmt = (
+            select(Property)
+            .where(
+                Property.latitude.is_not(None),
+                Property.longitude.is_not(None),
+            )
+            .order_by(Property.updated_at.desc())
+        )
+        refreshed = 0
+        for prop in self.session.scalars(stmt):
+            if not broadband_needs_refresh(prop.broadband_at, prop.broadband_status):
+                continue
+            self.refresh_broadband_status(prop.id)
+            refreshed += 1
+            if refreshed >= limit:
+                break
+        return refreshed
+
     def _apply_listing_details(
         self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
     ) -> None:
@@ -255,6 +336,11 @@ class PropertyService:
             prop.year_built = details.year_built
         if details.home_type:
             prop.home_type = details.home_type
+        if details.cooling:
+            prop.cooling = details.cooling
+            prop.has_central_ac = details.has_central_ac
+        elif details.has_central_ac is not None:
+            prop.has_central_ac = details.has_central_ac
         if details.city:
             prop.city = details.city
         if details.state:
@@ -355,6 +441,7 @@ class PropertyService:
 
         self._apply_mortgage_rate_autofill(fin)
         self._apply_maintenance_autofill(fin, prop, details)
+        self._apply_utilities_autofill(fin, prop, details)
 
     def _apply_maintenance_autofill(
         self, fin: FinancialAssumptions, prop: Property, details: ListingDetails
@@ -404,6 +491,50 @@ class PropertyService:
         else:
             fin.monthly_maintenance = 0.0
             fin.maintenance_source = ""
+
+    def _apply_utilities_autofill(
+        self, fin: FinancialAssumptions, prop: Property, details: ListingDetails
+    ) -> None:
+        """Fill monthly utilities unless the buyer set Manual. Never raises."""
+        if (fin.utilities_source or "").strip() == "Manual":
+            return
+        try:
+            sqft = None
+            if prop.sqft and prop.sqft > 0:
+                sqft = float(prop.sqft)
+            elif details.sqft and details.sqft > 0:
+                sqft = float(details.sqft)
+
+            year_built = None
+            if prop.year_built:
+                try:
+                    year_built = int(prop.year_built)
+                except (TypeError, ValueError):
+                    year_built = None
+            if year_built is None and details.year_built:
+                try:
+                    year_built = int(details.year_built)
+                except (TypeError, ValueError):
+                    year_built = None
+
+            city = (details.city or prop.city or "").strip()
+            state = (details.state or prop.state or "").strip()
+            zip_code = (details.zip_code or prop.zip_code or "").strip()
+            amt, src = resolve_monthly_utilities(
+                sqft=sqft,
+                year_built=year_built,
+                city=city or None,
+                state=state or None,
+                zip_code=zip_code or None,
+            )
+            if amt is not None and amt > 0:
+                fin.monthly_utilities = float(amt)
+                fin.utilities_source = src
+            else:
+                fin.monthly_utilities = 0.0
+                fin.utilities_source = ""
+        except Exception:  # noqa: BLE001 - never break add/sync on utilities
+            return
 
     def _apply_mortgage_rate_autofill(self, fin: FinancialAssumptions) -> None:
         """Fill interest rate from Freddie Mac PMMS for the current loan term."""
@@ -565,6 +696,16 @@ class PropertyService:
         except Exception:
             # Nearby providers must never prevent saving a home.
             pass
+        try:
+            prop = self.refresh_permits_activity(prop.id)
+        except Exception:
+            # Permit SODA lookups must never prevent saving a home.
+            pass
+        try:
+            prop = self.refresh_broadband_status(prop.id)
+        except Exception:
+            # FCC BDC lookups must never prevent saving a home.
+            pass
         return prop, imported
 
     def ensure_coordinates(self, property_id: int, *, force: bool = False) -> Property:
@@ -585,6 +726,16 @@ class PropertyService:
             prop = self.refresh_nearby_signals(prop.id)
         except Exception:
             # Nearby providers must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_permits_activity(prop.id)
+        except Exception:
+            # Permit SODA lookups must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_broadband_status(prop.id)
+        except Exception:
+            # FCC BDC lookups must never prevent saving coordinates.
             pass
         return prop
 
@@ -658,7 +809,13 @@ class PropertyService:
                 "No neighborhood name yet — refresh from Zillow or set an override."
             )
 
-        cache_key = f"{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        address = (prop.address or "").strip()
+        cache_key = build_overview_cache_key(
+            address=address,
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
+        )
         if (
             not force
             and (prop.neighborhood_gemini or "").strip()
@@ -667,6 +824,7 @@ class PropertyService:
             return prop
 
         text = generate_neighborhood_overview(
+            address=address,
             neighborhood=name,
             city=prop.city or "",
             state=prop.state or "",
@@ -688,9 +846,13 @@ class PropertyService:
                 "No neighborhood name yet — refresh from Zillow or set an override."
             )
 
-        # Separate cache from overview; suffix keeps keys distinct if compared side-by-side.
-        cache_key = (
-            f"things_v2|{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        address = (prop.address or "").strip()
+        # Separate cache from overview; prefix keeps keys distinct if compared side-by-side.
+        cache_key = build_things_to_do_cache_key(
+            address=address,
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
         )
         if (
             not force
@@ -700,6 +862,7 @@ class PropertyService:
             return prop
 
         text = generate_things_to_do(
+            address=address,
             neighborhood=name,
             city=prop.city or "",
             state=prop.state or "",
@@ -837,6 +1000,16 @@ class PropertyService:
             after_m = float(prop.financial.monthly_maintenance or 0)
             after_ms = (prop.financial.maintenance_source or "").strip()
             if after_m != before_m or after_ms != before_ms:
+                dirty = True
+
+        # Backfill utilities estimate (provider × sqft × age) unless Manual.
+        if (prop.financial.utilities_source or "").strip() != "Manual":
+            before_u = float(prop.financial.monthly_utilities or 0)
+            before_us = (prop.financial.utilities_source or "").strip()
+            self._apply_utilities_autofill(prop.financial, prop, ListingDetails())
+            after_u = float(prop.financial.monthly_utilities or 0)
+            after_us = (prop.financial.utilities_source or "").strip()
+            if after_u != before_u or after_us != before_us:
                 dirty = True
 
         if dirty:
@@ -994,6 +1167,7 @@ class PropertyService:
         prev_term = int(fin.loan_term_years or 30)
         prev_rate_src = (fin.interest_rate_source or "").strip()
         prev_maint = float(fin.monthly_maintenance or 0)
+        prev_utils = float(fin.monthly_utilities or 0)
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
@@ -1008,6 +1182,11 @@ class PropertyService:
             and float(fields["monthly_maintenance"]) != prev_maint
         ):
             fin.maintenance_source = "Manual"
+        if (
+            "monthly_utilities" in fields
+            and float(fields["monthly_utilities"]) != prev_utils
+        ):
+            fin.utilities_source = "Manual"
         if "rent_control" in fields and bool(fields["rent_control"]):
             fin.rent_control = True
             fin.rent_growth_pct = 2.0
@@ -1046,6 +1225,102 @@ class PropertyService:
             self._apply_mortgage_rate_autofill(fin)
         elif rate_changed:
             fin.interest_rate_source = "Manual"
+        self.session.commit()
+        self.session.refresh(fin)
+        return fin
+
+    def revert_financial_field(self, property_id: int, field: str) -> FinancialAssumptions:
+        """Restore one Financials field to product / autofill baseline; clear Manual."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        fin = self.ensure_financial(prop)
+        details = ListingDetails()
+        key = (field or "").strip()
+
+        if key == "offer_price":
+            fin.offer_price = 0.0
+        elif key == "down_payment_pct":
+            fin.down_payment_pct = 20.0
+        elif key == "list_price":
+            fin.list_price = float(prop.list_price or 0)
+            if fin.list_price > 0:
+                fin.purchase_price = float(fin.list_price)
+        elif key == "interest_rate_pct":
+            fin.interest_rate_source = ""
+            self._apply_mortgage_rate_autofill(fin)
+        elif key == "loan_term_years":
+            fin.loan_term_years = 30
+            if should_autofill_interest_rate(fin.interest_rate_source):
+                self._apply_mortgage_rate_autofill(fin)
+        elif key == "closing_cost_pct":
+            fin.closing_cost_pct = 3.0
+        elif key == "annual_property_tax":
+            price = float(fin.list_price or prop.list_price or 0) or None
+            tax_amt, tax_src = resolve_annual_property_tax(
+                annual_tax=None,
+                tax_assessed_value=None,
+                property_tax_rate=None,
+                list_price=price,
+                lat=prop.latitude,
+                lng=prop.longitude,
+            )
+            if tax_amt is not None and tax_amt > 0:
+                fin.annual_property_tax = float(tax_amt)
+                fin.property_tax_source = tax_src
+            else:
+                fin.annual_property_tax = 0.0
+                fin.property_tax_source = ""
+        elif key == "annual_insurance":
+            price = float(fin.list_price or prop.list_price or 0) or None
+            ins_amt, ins_src = resolve_annual_insurance(
+                annual_insurance=None,
+                list_price=price,
+                state=(prop.state or "").strip(),
+            )
+            if ins_amt is not None and ins_amt > 0:
+                fin.annual_insurance = float(ins_amt)
+                fin.insurance_source = ins_src
+            else:
+                fin.annual_insurance = 0.0
+                fin.insurance_source = ""
+        elif key == "monthly_hoa":
+            fin.monthly_hoa = float(prop.hoa_fee or 0)
+        elif key == "monthly_maintenance":
+            fin.maintenance_source = ""
+            self._apply_maintenance_autofill(fin, prop, details)
+        elif key == "monthly_utilities":
+            fin.utilities_source = ""
+            self._apply_utilities_autofill(fin, prop, details)
+        elif key == "monthly_rent":
+            fin.monthly_rent = float(DEFAULT_MONTHLY_RENT)
+            fin.rent_source = "Default"
+        elif key == "rent_control":
+            fin.rent_control = False
+            self.resolve_rent_growth(fin, prop)
+        elif key == "appreciation_pct":
+            blended, source = blend_appreciation_rates(
+                fin.appreciation_fhfa_pct, fin.appreciation_zillow_pct
+            )
+            fin.appreciation_pct = float(blended)
+            fin.appreciation_source = source
+        elif key == "invest_return_pct":
+            fin.invest_return_pct = 10.0
+        elif key == "selling_cost_pct":
+            fin.selling_cost_pct = 6.0
+        elif key == "monthly_budget":
+            fin.monthly_budget = 13_000.0
+        elif key == "marginal_tax_pct":
+            fin.marginal_tax_pct = 41.0
+        elif key == "cg_tax_pct":
+            fin.cg_tax_pct = 24.0
+        elif key == "cg_exclusion":
+            fin.cg_exclusion = 500_000.0
+        elif key == "salt_cap":
+            fin.salt_cap = 10_000.0
+        else:
+            raise ValueError(f"Unknown financial field: {field}")
+
         self.session.commit()
         self.session.refresh(fin)
         return fin

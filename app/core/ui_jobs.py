@@ -54,6 +54,18 @@ def refresh_stale_nearby_signals_job(*, limit: int = 3) -> int:
         return int(PropertyService(session).refresh_stale_nearby_signals(limit=limit))
 
 
+def refresh_stale_permits_activity_job(*, limit: int = 3) -> int:
+    """Best-effort stale permit refresh for library paint."""
+    with get_session() as session:
+        return int(PropertyService(session).refresh_stale_permits_activity(limit=limit))
+
+
+def refresh_stale_broadband_status_job(*, limit: int = 3) -> int:
+    """Best-effort stale FCC BDC refresh for library paint."""
+    with get_session() as session:
+        return int(PropertyService(session).refresh_stale_broadband_status(limit=limit))
+
+
 def ensure_neighborhood_job(property_id: int, *, force: bool = False) -> dict[str, str]:
     with get_session() as session:
         prop = PropertyService(session).ensure_neighborhood(property_id, force=force)

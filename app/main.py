@@ -9,7 +9,7 @@ from nicegui import app, core, ui
 from app.core.db import DATA_DIR, init_db
 from app.core.module_registry import discover_modules
 from app.seed import seed_demo_if_empty
-from app.ui.pages import compare_page, library_page, property_page  # noqa: F401 — registers routes
+from app.ui.pages import library_page, property_page  # noqa: F401 — registers routes
 from app.ui.theme import COLORS, NEON
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"

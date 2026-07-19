@@ -28,23 +28,23 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-024 | Done | Zoning overlay: coverage (1102/bbox/pagination) + WS-safe slim/merge (~16 MB → &lt;1 MB) |
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
 | TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
-| TODO-027 | Open | Remove Home Compare feature (library checkboxes + `/compare`) |
-| TODO-028 | Open | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
-| TODO-029 | Open | Property header: show library nearby-signal icons (bottom-right, above tabs) |
-| TODO-030 | Open | Gemini neighborhood prompts: pass exact home address (not only hood name) |
-| TODO-031 | Open | Property page: lower visual weight of Edit listing details |
-| TODO-032 | Open | Library card: show calculated appreciation %; amber if under 3% |
-| TODO-033 | Open | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
-| TODO-034 | Open | Map Street View: negative-space polish and layout tweaks |
-| TODO-035 | Open | Map / Street View: “Open in Google Earth” button |
-| TODO-036 | Open | Library nearby icons: verify all five work; fix playground + shelter |
-| TODO-037 | Open | Library card: remove unclear “Cash” from financial caption |
+| TODO-027 | Done | Remove Home Compare feature (library checkboxes + `/compare`) |
+| TODO-028 | Done | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
+| TODO-029 | Done | Property header: show library nearby-signal icons (bottom-right, above tabs) |
+| TODO-030 | Done | Gemini neighborhood prompts: pass exact home address (not only hood name) |
+| TODO-031 | Done | Property page: lower visual weight of Edit listing details |
+| TODO-032 | Done | Library card: show calculated appreciation %; amber if under 3% |
+| TODO-033 | Done | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
+| TODO-034 | Done | Map Street View: negative-space polish and layout tweaks |
+| TODO-035 | Done | Map / Street View: “Open in Google Earth” button |
+| TODO-036 | Done | Library nearby icons: verify all five work; fix playground + shelter |
+| TODO-037 | Done | Library card: remove unclear “Cash” from financial caption |
 | TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
-| TODO-039 | Open | Library icon when home has no Central AC |
-| TODO-040 | Open | Estimate utilities from provider + sqft + age |
-| TODO-041 | Open | Map overlay: National Transportation Noise Map (BTS) |
-| TODO-042 | Open | Library icon when location lacks broadband (FCC BDC) |
-| TODO-043 | Open | Library icon: high building-permit activity within ~0.25 mi |
+| TODO-039 | Done | Library icon when home has no Central AC |
+| TODO-040 | Done | Estimate utilities from provider + sqft + age |
+| TODO-041 | Done | Map overlay: National Transportation Noise Map (BTS) |
+| TODO-042 | Done | Library icon when location lacks broadband (FCC BDC; chip when env set) |
+| TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
 
 ---
 
@@ -240,7 +240,7 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Show quick money columns on the library** (e.g. estimated PITI, cash-to-close, $/sqft) derived from saved `FinancialAssumptions`, plus **CSV/JSON export** of library + financials for backup / spreadsheet compare.
 
 **Shipped**
-- Quiet `PITI $…/mo · Cash $…` caption on library cards when financials exist (`finance.summarize` via `app/core/library_export.py`).
+- Quiet `PITI $…/mo` caption on library cards when financials exist (`finance.summarize` via `app/core/library_export.py`); cash-to-close remains in export only.
 - Toolbar **Export** → Download CSV / JSON (properties + key financial fields).
 - `$/sqft` already on library chips (TODO-003).
 
@@ -376,17 +376,17 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-027 — Remove Home Compare feature
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Remove** the side-by-side Compare flow shipped as TODO-018. Keep library financial captions + CSV/JSON export (TODO-016).
 
-**Delete / unwind**
+**Deleted / unwound**
 - Library card checkboxes + **Compare** toolbar button + selection state.
 - `/compare` page route and helpers (`compare_page`, `_compare_street`).
 - `app/core/compare.py` + `tests/test_compare.py`.
 - Docs / AGENTS / README mentions of Compare (product decision §8 + verify checklist).
 
-**Keep:** Export menu, PITI/cash card captions, rest of library chrome.
+**Kept:** Export menu, PITI card captions, rest of library chrome.
 
 **Touch:** `app/ui/pages.py`, `app/main.py` (route import), `app/core/compare.py`, tests, `AGENTS.md`, `README.md`, this file.
 
@@ -394,33 +394,29 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-028 — Financials page cleanup (hierarchy + defaults)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** The Financials tab lays out nearly every assumption at once (Your deal / Loan / Ownership / Buy vs rent tax knobs). Fields that rarely change compete with offer/down and the charts.
 
-**Goals**
-1. **Primary surface** — keep always-visible only what you tweak often: **Your deal** (offer + down $), hero monthly / charts, and the buy-vs-rent inputs you actually dial (comparable rent + rent control at minimum). Tighten visual hierarchy (deal + results dominate; secondary chrome quieter).
-2. **Collapse the rest** — put infrequently edited variables behind one (or a few) **dropdown / expansion(s)**, e.g. Loan defaults (list, rate, term, closing), Ownership (tax, insurance, HOA, maintenance), Advanced buy-vs-rent (appreciation, invest return, sell cost, monthly budget, marginal tax, CG tax/exclusion, SALT). Exact grouping decided at implement time; preserve source captions when shown.
-3. **Revert to default on every field** — each editable input gets a control that restores that field’s product default / autofill baseline (e.g. PMMS rate, listing tax/insurance, age-blend maintenance, rent $5300/`Default`, invest 10%, sell 6%, budget $13k, tax 41%, CG 24% / $500k, SALT $10k, etc.). Clearing Manual override where source tracking exists. Prefer per-field, not only “reset all.”
+**Shipped**
+1. **Primary surface** — always-visible **Your deal** (offer + down $) and **Buy vs rent** (comparable rent + rent control); hero monthly / charts stay above the fold.
+2. **Collapsed** — **Loan**, **Ownership costs**, and **Advanced buy vs rent** live in quiet expansions (list/rate/term/closing; tax/insurance/HOA/maintenance/utilities; appreciation/invest/sell/budget/tax knobs).
+3. **Per-field revert** — restart icon restores product/autofill baselines via `PropertyService.revert_financial_field` (clears Manual where applicable).
 
-**Non-goals:** Change mortgage math; remove Gemini panel; redesign charts.
-
-**Touch:** `app/modules/financial.py`, `app/ui/theme.py` (form hierarchy CSS as needed), possibly small helpers for default resolution, docs / visual rule if hierarchy changes.
+**Touch:** `app/modules/financial.py`, `app/ui/theme.py`, `property_service.revert_financial_field`, docs.
 
 ---
 
 ## TODO-029 — Nearby icons on property header
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Show the same library-card nearby proximity icons** (TODO-025: highway / transit / playground / grocery / shelter) on the **property page header**, bottom-right of the hero — **above the module tabs**.
 
-**Goals**
-- Reuse cached `Property.nearby_signals` + existing chip helpers (`hits_in_order`, tooltips, magenta risk / lime amenity).
-- Position bottom-right of `.hb-property-hero` (or shell edge above tabs); readable on bleed photo + scrim and beside mode.
+**Shipped**
+- Reuse cached `Property.nearby_signals` + shared `_render_nearby_signal_chips` (`hits_in_order`, tooltips, magenta risk / lime amenity).
+- Position bottom-right of `.hb-property-hero` via theme padding; readable on bleed photo + scrim and beside mode.
 - Same fixed order / thresholds as library; no new Map markers or filters.
-
-**Non-goals:** Recompute signals on every property open (use cache; optional best-effort refresh is fine if already cheap). Don’t change library card placement.
 
 **Touch:** `app/ui/pages.py` (property header), `app/ui/theme.py` (header icon placement), docs.
 
@@ -428,16 +424,13 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-030 — Gemini: exact home address (not only neighborhood)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Problem:** Neighborhood Gemini (overview + things-to-do) prompts only get `{neighborhood}` + city/state (`app/core/gemini_neighborhood.py`). Answers are hood-generic and miss block-level context for the listing.
+**Problem:** Neighborhood Gemini (overview + things-to-do) prompts only got `{neighborhood}` + city/state. Answers were hood-generic and missed block-level context for the listing.
 
-**Goals**
-- Pass the property’s **exact street address** (and keep neighborhood name when known) into overview + things-to-do prompts so Gemini can reason about the specific location (walkshed, adjacent arterials, micro-area).
-- Wire address from `Property.address` (and city/state as today) through `generate_neighborhood_overview` / `generate_things_to_do` + `PropertyService.ensure_gemini_*`.
-- **Bump cache keys** (`neighborhood_gemini_for` / `things_v*` prefix) so old hood-only caches invalidate; Regenerate still works as today.
-
-**Out of scope:** Financials Gemini already uses Zillow URLs (URL context) — leave unless a small address label helps; do not dump calculator fields into neighborhood prompts.
+**Shipped**
+- Overview + things-to-do prompts include `Property.address` plus neighborhood/city/state; walkshed / block-level framing anchors on the exact home.
+- Cache keys bumped to `overview_v3|address|name|city|state` and `things_v3|address|name|city|state` so hood-only caches invalidate; Regenerate unchanged.
 
 **Touch:** `app/core/gemini_neighborhood.py`, `property_service.py`, tests, `AGENTS.md` §6.
 
@@ -445,117 +438,91 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-031 — Quieter “Edit listing details”
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** On the property page, **Edit listing details** sits as a full-width expansion under the header actions and competes with Photos / Map / Neighborhood / Financials.
 
-**Goals**
-- Lower its visual weight: quieter/greyed expansion chrome, and/or relocate (e.g. under a ⋮ overflow, footer of header, or collapsed “Advanced” near Refresh listing details).
-- Keep all existing edit fields + Save behavior; no new listing fields.
-- Match dark neo / Creato hierarchy — secondary control, not a peer of the tab strip.
+**Shipped**
+- Moved inside the property hero content, below Refresh / Gemini actions, as a dense collapsed secondary control.
+- Muted chrome via `.hb-edit-listing-expansion` (greyed label/icon; full opacity on hover/focus).
+- Kept all existing edit fields + Save behavior.
 
-**Touch:** `app/ui/pages.py`, `app/ui/theme.py` as needed, docs.
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, docs.
 
 ---
 
 ## TODO-032 — Library card appreciation rate
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Show the home’s calculated appreciation %** on each library card (from `FinancialAssumptions.appreciation_pct` — FHFA/Zillow blend or Manual), so low-growth ZIPs are obvious in the list.
 
-**Goals**
-- Quiet caption or chip near the existing PITI/cash financial line (or meta chips) — e.g. `Appr. 2.4%/yr`.
-- **Highlight under 3%** in amber (theme `#FFC107` / existing HOA-high pattern), not magenta risk unless design says otherwise.
-- Hide or show `—` when financials/appreciation missing; don’t invent a fake rate on the card.
-- Optional short source tooltip (`appreciation_source`) — nice-to-have, not required for v1.
+**Shipped**
+- `LibraryFinancialSnapshot.appreciation_pct` / `appreciation_source` via `snapshot_from_property`; quiet `Appr. N%/yr` beside PITI on library cards.
+- Under 3% uses amber `.hb-appr-low`; hidden when no financials / missing appreciation.
+- Optional source tooltip from `appreciation_source`.
 
-**Non-goals:** Change blend math; add appreciation filters/sort (unless trivial later).
-
-**Touch:** `app/ui/pages.py` (library cards), `app/ui/theme.py`, maybe `library_export.snapshot_from_property` if snapshot is the clean path, docs.
+**Touch:** `app/core/library_export.py`, `app/ui/pages.py`, `app/ui/theme.py`, docs.
 
 ---
 
 ## TODO-033 — Financials: ? help instead of inline descriptions
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** Financials fields carry a lot of always-visible helper copy (source captions, “default 10%”, tax/CG/SALT explainers). That adds noise next to the numbers.
 
-**Goals**
-- Replace (or heavily demote) those blurbs with **low-opacity question-mark** controls beside each relevant field/label.
-- Click/`ui.tooltip` / small popover shows **how the default or autofill was calculated** (e.g. Freddie Mac PMMS by term, Zillow→ACS tax chain, age-blend maintenance, rent $5300/`Default`, FHFA/Zillow appreciation blend, rent-control 2% vs ACS CAGR, budget surplus + tax shield assumptions).
-- Keep short **live source captions** only when they change with the value (optional: move those into the ? body too and show a one-word source chip). Prefer quiet neo styling — not competing with deal inputs.
-- Coordinates with **TODO-028** (collapse rare fields / hierarchy); implement either together or so help survives the cleanup.
-
-**Non-goals:** Change calculation math; remove Gemini panel.
+**Shipped**
+- Low-opacity `?` (`help_outline`) beside each field label; tooltip explains how the default/autofill is calculated (`_FIELD_HELP` in `financial.py`).
+- Short live **source captions** kept under autofilled values (PMMS, tax/insurance/maint/utilities/rent/appreciation).
+- Coordinates with TODO-028 hierarchy (help + revert survive collapse).
 
 **Touch:** `app/modules/financial.py`, `app/ui/theme.py`, docs.
 
 ---
 
-## TODO-034 — Street View negative-space polish
+## TODO-034 — Street View negative-space polish ✅ Done
 
-**Status:** Open
+**Status:** Done
 
-**Polish the Map-tab Street View panel** so the free `svembed` block and surrounding chrome use space better — less empty gutter, tighter expansion, cleaner alignment with the map above.
+**Done:** Removed the forced `min-height` shell that left black gutter under the scaled `svembed`; `.homebuy-sv` is 16:9 with `max-height: min(42vh, 480px)` and width capped when the height binds. Dense expansion (`.hb-sv-panel`), tighter action-row gap, quieter unpinned hint. Still free `svembed` only.
 
-**Goals (implement-time judgment)**
-- Tighten padding/margins around the 16:9 panorama (`homebuy-sv`), expansion header, and Open Maps / Open Street View row.
-- Revisit `min-height` / `max-height` / aspect so short viewports don’t leave a tall empty shell or a tiny letterboxed iframe.
-- Quieter empty state when unpinned; keep free `svembed` only (no Embed API).
-- Match Map tab neo hierarchy (collapsed expansion optional if open-by-default feels heavy).
-
-**Non-goals:** Paid Street View / Maps Embed API; move SV off the Map tab.
-
-**Touch:** `app/modules/street_view.py`, `map_view.py` / `theme.py` if spacing shared, docs.
+**Touch:** `app/modules/street_view.py`, `app/ui/theme.py`, docs.
 
 ---
 
-## TODO-035 — Open in Google Earth
+## TODO-035 — Open in Google Earth ✅ Done
 
-**Status:** Open
+**Status:** Done
 
-**Add an “Open in Google Earth” action** next to the existing Map-tab links (Open in Google Maps / Open Street View) so you can jump to the pin in Earth (web or app deep link).
+**Done:** “Open in Google Earth” dense neo button beside Maps / Street View when the pin exists. Deep link `https://earth.google.com/web/@{lat},{lng},100a,1000d,35y,0h,0t,0r` (new tab). No API key / embed.
 
-**Goals**
-- Button on the Street View / Map chrome when lat/lng exist (same row as Maps/SV opens is fine).
-- Deep link to Google Earth for the property coordinates (and/or address fallback if useful). Prefer a stable public URL scheme; open in new tab.
-- Neo dense button styling consistent with siblings; no API key / Embed billing.
-
-**Non-goals:** Embed Earth inside Homebuy; replace free Street View.
-
-**Touch:** `app/modules/street_view.py` (and/or `map_view.py`), docs.
+**Touch:** `app/modules/street_view.py`, docs.
 
 ---
 
 ## TODO-036 — Library nearby icons: verify + fix playground / shelter
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** Library proximity chips (TODO-025) — highway / transit / playground / grocery / shelter — need an end-to-end check. **Playground** and **homeless shelter** distance icons often don’t appear even when amenities exist nearby.
 
-**Goals**
-1. **Test all five** against known pins (OSM + Places when `GOOGLE_MAPS_API_KEY` set): confirm chips show, tooltips show distance/name, order/styling correct.
-2. **Debug playground + shelter** — Overpass tag filters (`leisure=playground`; social_facility / `amenity=shelter`+`shelter_type=homeless`), Places keywords for shelter, radius gates (`PLAYGROUND_RADIUS_MI=0.5`, `SHELTER_RADIUS_MI=0.25`), cache/stale refresh, or false negatives from too-strict tags.
-3. **Retune thresholds** to “reasonable” buyer-useful distances if current ones are wrong (document new values in AGENTS §8a).
-4. Add/adjust tests with fixtures so regressions are caught; never fail add-home on lookup errors.
-
-**Non-goals:** Map markers; library filters by signal; redesign chip UI.
-
-**Touch:** `app/core/nearby_signals.py`, tests, property refresh path, `AGENTS.md` / `README` thresholds if changed.
-
+**Shipped**
+- Root causes: Overpass `out geom` ways lacked `center`, so polygon playgrounds/shelters/grocery buildings were dropped; Places empty results overwrote good OSM hits; shelter Places used a broken `|` keyword OR and a too-tight 0.25 mi gate.
+- Fixes: `out center geom tags` + geometry fallback for all ways; playground also matches `leisure=park`+`playground=yes` and relations; shelter accepts semicolon `social_facility:for` lists + `homeless=yes`; Places uses three separate keyword searches and keeps the nearer of OSM vs Places; thresholds retuned (playground ≤0.75 mi, shelter ≤0.5 mi).
+- Tests cover way-without-center, shelter tag variants, Places/OSM merge, and bus-stop weather shelter exclusion.
+- Documented final thresholds in AGENTS §8a.
 ---
 
 ## TODO-037 — Library card: drop “Cash” caption
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Remove “Cash $…” from the library card financial line.** Label is unclear (cash-to-close vs cash left / reserves). Keep **PITI $…/mo** (and other card chrome).
 
-**Keep:** `cash_to_close` in Financials tab, CSV/JSON export, and Compare (until TODO-027 removes Compare).
+**Kept:** `cash_to_close` in Financials tab and CSV/JSON export.
 
-**Touch:** `app/ui/pages.py` (`_library_financial_caption` or equivalent), `AGENTS.md` / `README` library checklist wording.
+**Touch:** `app/ui/pages.py` (`_library_financial_caption`), `AGENTS.md` / `README` library checklist wording.
 
 ---
 
@@ -581,98 +548,83 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-039 — Library icon: no Central AC
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Show a library-card proximity-style risk icon** when the listing does **not** have Central AC (common LA buyer flag — window/wall units only, evaporative, none, etc.).
 
-**Goals**
-- Scrape cooling from Zillow listing HTML into a new `Property` field (e.g. `cooling` / `has_central_ac`) on add + Refresh listing details (`zillow_listing.py` + models/migrate).
-- Treat as **risk chip** (magenta, like highway/shelter) when central AC is clearly absent; hide when present or unknown (don’t false-alarm on missing scrape data).
-- Soft neo chip on library card bottom-right with the nearby icons row (or adjacent); tooltip e.g. `No central AC · Window units`.
-- Optional: same chip on property header when TODO-029 ships.
+**Shipped**
+- Scrape cooling from Zillow (`resoFacts.cooling` / `cooling` / regex fallback) into `ListingDetails.cooling` + `has_central_ac` (`app/core/zillow_listing.py`).
+- Persist `Property.cooling` + nullable `Property.has_central_ac`; apply on add / Refresh listing details.
+- Classification (`app/core/listing_signals.py`): chip only when clearly **no** central AC (window/wall/evaporative/swamp/ductless/mini-split/none); unknown/ambiguous → no chip; has central → no chip.
+- Helpers: `classify_has_central_ac`, `central_ac_risk_entry`, `listing_risk_chips` — library + property header render magenta `ac_unit` chip in the nearby-icons row (`pages.py`).
 
-**Non-goals:** Full HVAC editor UI; invent AC when Zillow omits the field.
-
-**Touch:** `zillow_listing.py`, `models.py`, `db.py`, `property_service.py`, library card UI/`theme.py`, tests, docs.
+**Touch:** `zillow_listing.py`, `listing_signals.py`, `models.py`, `db.py`, `property_service.py`, `pages.py`, `tests/test_listing_signals.py`, docs.
 
 ---
 
 ## TODO-040 — Estimate utilities (provider + sqft + age)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Estimate monthly utilities** for a home from **utility provider**, **sqft**, and **year built / age** (and show/source-caption like other Ownership autofills).
+**Estimate monthly utilities** for a home from **utility provider**, **sqft**, and **year built / age**.
 
-**Goals**
-- Resolve electric/gas (and optionally water/trash) **provider from location** (city/ZIP/lat-lng service territory — e.g. LADWP vs SCE vs SoCalGas for LA-area pins) with a clear fallback when unknown.
-- Estimate $/mo from provider rate/usage heuristics × **sqft** × **age band** (older stock / no central AC may bump cooling/heating — coordinate with TODO-039 if useful).
-- Persist on `FinancialAssumptions` (e.g. `monthly_utilities` + `utilities_source`); autofill on add/refresh unless Manual; show under Ownership (and fold into TODO-028 hierarchy / TODO-033 ? help).
-- Decide whether utilities enter **PITI+maint hero** / buy-vs-rent buyer cost (document decision at implement time).
+**Shipped**
+- `app/core/utilities.py` + `app/data/utility_providers.json`: LADWP vs SCE electric + SoCalGas gas heuristics from city/ZIP (LA-area); Default fallback elsewhere.
+- Formula: `(electric_psf×sqft + gas_base + gas_psf×sqft) × age_factor + water/trash`; assumes ~1800 sqft when size missing.
+- Persist `monthly_utilities` + `utilities_source` on `FinancialAssumptions`; autofill on add/sync/`ensure_financial` unless Manual; never breaks add-home.
+- Shown under collapsed **Ownership costs**; included in **hero monthly / pie / buy-vs-rent buyer housing cost** (same path as maintenance — ownership cash cost, not PITI).
 
-**Non-goals:** Live utility-account login; bill PDF upload; perfect tariff modeling.
+**Decision:** Utilities count toward ownership display cash cost (`monthly_owner_total` and buy-vs-rent budget surplus) alongside maintenance; mortgage PITI math unchanged.
 
-**Touch:** new `app/core/utilities.py` (+ data tables), `models.py` / `db.py`, `property_service.py`, `financial.py`, tests, docs.
+**Touch:** `utilities.py`, data table, `models.py` / `db.py`, `property_service.py`, `finance.py`, `financial.py`, tests, docs.
 
 ---
 
 ## TODO-041 — National Transportation Noise Map (BTS) overlay
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Add a Map overlay** for the USDOT / **Bureau of Transportation Statistics National Transportation Noise Map** (aviation + highway + rail LAeq potential exposure) so buyers can see transportation noise context around the pin.
+**Shipped**
+- Exclusive Map **Noise** toggle: ArcGIS XYZ tiles from `Hosted/NTAD_Noise_2020_CONUS_Aviation_Road_Rail` (`app/core/bts_noise.py`) — TilesOnly (no WMS).
+- Status disclaimer: screening/trend, not parcel-precise.
+- Legend swatches + neo layer button.
 
-**Goals**
-- Exclusive Map toggle (e.g. **Noise**) alongside Flood / Zoning / Wildfire / … — neo layer button + status + legend.
-- Prefer live **DOT/BTS web services** (`geo.dot.gov` Hosted services named `Noise*`, or documented WMS) near the pin; fall back to cached tiles/GeoJSON if needed. Cache under `data/cache/`.
-- Long fetch via `run.io_bound` (TODO-026 pattern). No API key if public services allow.
-- Caption: BTS notes this is for **national trend / screening**, not precise parcel-level impact assessment — show a short honest status/legend note.
-- Optional: start with combined multimodal CONUS layer; mode-split (road / aviation / rail) only if UX stays simple.
-
-**Research first:** skim BTS docs + `docs/RESEARCH.md`; record chosen endpoint before coding (do not re-research from scratch later).
-
-**Non-goals:** Replace highway nearby-signal chip; custom noise modeling; Embed Earth.
-
-**Touch:** new `app/core/bts_noise.py` (or similar), `map_view.py`, `overlay_cache.py` if shared, tests, `docs/RESEARCH.md`, `AGENTS.md` §7.
+**Touch:** `bts_noise.py`, `map_view.py`, docs.
 
 ---
 
 ## TODO-042 — Library icon: missing broadband (FCC BDC)
 
-**Status:** Open
+**Status:** Done (2026-07-19) — chip appears when `FCC_BDC_USERNAME` + `FCC_BDC_HASH` (or `FCC_BDC_HASH_VALUE`) are set; without credentials status stays unknown (no chip).
 
-**Show a library-card risk icon** when the home’s precise location appears to **lack adequate broadband**, using the **FCC Broadband Data Collection (BDC)** location / availability APIs (challenge fabric — providers and tech at that address).
+**Risk rule:** flag only when **no fixed terrestrial** providers (DSL, cable, fiber, fixed wireless). DSL/cable alone does **not** flag. Satellite-only → risk. Unknown / no credentials / fetch error → no chip.
 
-**Goals**
-- Query FCC BDC by **address or lat/lng** for availability at that location; distinguish **fiber (symmetric)** vs asymmetric coax/DSL vs none / unknown.
-- Persist a compact signal on `Property` (or extend `nearby_signals`-style JSON) + timestamp; compute on add / post-geocode; stale refresh best-effort like other library icons.
-- Soft neo **risk chip** (magenta) when missing or clearly inadequate (thresholds decided at implement — e.g. no fixed broadband, or no fiber if we only flag “no fiber”; document chosen rule). Tooltip: tech + max advertised down/up or “No fixed broadband reported”.
-- Cache raw responses under `data/cache/`; never fail add-home on FCC errors. Note any API key / registration requirements in `.env.example`.
-- Optional: same chip on property header with TODO-029.
+**Shipped**
+- `app/core/fcc_broadband.py` — credentials gate; soft BDC `listAsOfDates` ping; point path = FCC Geo block FIPS + Form 477 Open Data `jdr4-3q4p`; cache `data/cache/broadband/`; never fails add-home.
+- `Property.broadband_status` + `broadband_at`; migrate in `db.py`; compute on add / post-geocode; stale refresh via `refresh_stale_broadband_status_job`.
+- Helpers: `chip_spec_for` / `tooltip_for`; included in `listing_risk_chips` → library + property header.
+- Tests: `tests/test_fcc_broadband.py` (mocked HTTP).
+- `.env.example`: `FCC_BDC_USERNAME` + `FCC_BDC_HASH`.
 
-**Research first:** confirm current BDC public endpoints, auth, and ToS; jot notes in `docs/RESEARCH.md`.
+**Research:** `docs/RESEARCH.md` § Missing broadband / FCC BDC.
 
-**Non-goals:** Full ISP comparison UI; Map choropleth of broadband; speed-test measurement.
+**Non-goals:** Full ISP comparison UI; Map choropleth; speed-test measurement; Fabric-licensed BSL-exact lookup.
 
-**Touch:** new `app/core/fcc_broadband.py` (or similar), models/db if needed, library card UI / `nearby_signals` pattern, tests, docs.
+**Touch:** `fcc_broadband.py`, models/db, property_service, listing_signals, ui_jobs, pages, tests, docs.
 
 ---
 
 ## TODO-043 — Library icon: high permit activity (~0.25 mi)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Show a library-card risk (or amber attention) icon** when **building-permit activity is high** in the surrounding **~quarter mile**, using metro **Socrata / SODA** open-data permit feeds (and/or BuildingEye-style portals) with geospatial queries (`within_circle` or equivalent).
+**Shipped**
+- Research table in `docs/RESEARCH.md` (LA `pi9x-tg5x` / Seattle `76t5-zqzr` / Austin `3syk-w9eu`).
+- `app/core/permits_nearby.py`: `within_circle` ~0.25 mi, 24-month window; **high activity ≥ 8**; cache `data/cache/permits/`.
+- Persist `permits_activity` + `permits_activity_at`; refresh on add/geocode; library stale refresh via `refresh_stale_permits_activity_job`.
+- Amber `.hb-nearby-chip--amber` via `chip_spec_for` → `_extra_signal_chips` on library cards + property header.
+- Tests: `tests/test_permits_nearby.py`.
 
-**Goals**
-- Query active structural / electrical / demolition (and similar) permits near the pin for supported cities first (**Los Angeles, Seattle, Austin** — expand later).
-- Define a clear “high activity” threshold (count and/or recent window, e.g. last 12–24 months) at implement time; document it.
-- Persist compact signal + timestamp on `Property` (nearby-signals pattern or sibling JSON); compute on add / post-geocode; stale refresh best-effort; never fail add-home.
-- Soft neo chip on library card with tooltip (count, nearest types, distance); optional header chip with TODO-029.
-- Cache under `data/cache/`; optional `SOCRATA_APP_TOKEN` for rate limits (already used for crime).
-- Note BuildingEye only if it adds value beyond free SODA; prefer official city open data.
+**Non-goals:** Full permit browser UI; Map overlay of every permit; national coverage day one.
 
-**Research first:** list LA / Seattle / Austin permit dataset IDs + geo fields in `docs/RESEARCH.md`.
-
-**Non-goals:** Full permit browser UI; Map overlay of every permit (icon-only v1); national coverage day one.
-
-**Touch:** new `app/core/permits_nearby.py` (or similar), library card UI, tests, docs.
+**Touch:** `permits_nearby.py`, models/db, property_service, ui_jobs, pages, theme, tests, docs.

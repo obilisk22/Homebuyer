@@ -18,14 +18,60 @@ Source: [Map overlays research v2](323317c3-1601-4d1f-8acb-0a1211070c19)
 
 **Day-2 bonuses:** NCES school points; EPA National Walkability Index.
 
-**Library nearby badges (2026-07-18, not Map overlays):** OSM Overpass around the pin for highway/transit/playground/grocery/shelter; optional Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` is set. Cached per property + raw responses ~7d — see `app/core/nearby_signals.py` and TODO-025.
+**Library nearby badges (2026-07-18, not Map overlays; fixed TODO-036 2026-07-19):** OSM Overpass around the pin for highway/transit/playground/grocery/shelter; optional Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` is set (merged with OSM). Thresholds: highway ≤800 ft, transit/grocery ≤0.5 mi, playground ≤0.75 mi, shelter ≤0.5 mi. Cached per property + raw responses ~7d — see `app/core/nearby_signals.py` and TODO-025 / TODO-036.
+
+**BTS National Transportation Noise Map (TODO-041, 2026-07-19):** No public WMS — use ArcGIS XYZ tiles from `Hosted/NTAD_Noise_2020_CONUS_Aviation_Road_Rail` MapServer (`…/tile/{z}/{y}/{x}`). Screening/trend only, not parcel-precise. See `app/core/bts_noise.py`.
+
+### Building permits near pin (TODO-043, 2026-07-19)
+
+Library risk chip when **high permit activity** is within **~0.25 mi** (402 m). Prefer official city Socrata SODA feeds + `within_circle` — not BuildingEye scrapes. Optional `SOCRATA_APP_TOKEN` (same as crime). Core: `app/core/permits_nearby.py`; cache `data/cache/permits/`.
+
+| Metro | Portal | Dataset ID | Title | Geo for `within_circle` | Lat/Lng fallback | Issue date | Type field | Status field |
+|-------|--------|------------|-------|-------------------------|------------------|------------|------------|--------------|
+| **Los Angeles** (City of LA / LADBS) | `data.lacity.org` | `pi9x-tg5x` | Building and Safety — Building Permits Issued from 2020 to Present | `geolocation` (Point) | `lat`, `lon` | `issue_date` | `permit_type` | `status_desc` |
+| **Seattle** | `data.seattle.gov` | `76t5-zqzr` | Building Permits | `location1` (Location) | `latitude`, `longitude` | `issueddate` | `permittypemapped` (+ `permittypedesc`) | `statuscurrent` |
+| **Austin** | `data.austintexas.gov` | `3syk-w9eu` | Issued Construction Permits | `location` (Location) | `latitude`, `longitude` | `issue_date` | `permit_type_desc` | `status_current` |
+
+**Query pattern:** `$where=within_circle(<geo>, <lat>, <lng>, 402) AND <date> >= '<ISO since>'` plus type filters; `$limit` capped; optional `X-App-Token`.
+
+**Type filters (structural / electrical / demolition-ish):**
+- **LA:** `permit_type` starts with `Bldg-` or `Nonbldg-`, or equals `Grading` / contains `Demolition`. Dataset is Building-group only (no separate electrical feed in this ID).
+- **Seattle:** `permittypemapped` in `Building`, `Demolition`, `Grading` (skip ECA/shoreline exemptions, roof-only noise).
+- **Austin:** `permit_type_desc` in `Building Permit`, `Electrical Permit` (skip plumbing / mechanical / driveway volume).
+
+**Status:** exclude withdrawn / canceled / denied / refund; keep Issued / Active / Finaled / Completed — activity is driven by **issue date**, not “still open.”
+
+**High-activity rule (v1):** **≥ 8** matching permits in the **0.25 mi** circle with issue date in the last **24 months**. Tuned for dense urban blocks (a handful of remodel permits should not light the chip; a cluster of new/demo/electrical work should). Documented in module constants; outside supported cities → no chip.
+
+**Persistence:** `Property.permits_activity` (JSON) + `permits_activity_at`; compute on add / post-geocode best-effort; never fail add-home. UI: amber `.hb-nearby-chip--amber` via `chip_spec_for` → `_extra_signal_chips` on library cards + property header; library paint runs `refresh_stale_permits_activity_job`.
+
+**Avoid:** BuildingEye / Accela portal scrapes when SODA works; national permit aggregators; Map overlay of every permit in v1.
+
+### Missing broadband / FCC BDC (TODO-042, 2026-07-19)
+
+Library magenta risk chip when the pin’s census block reports **no fixed terrestrial broadband**. **DSL or cable alone does not flag** — only total absence of fixed terrestrial service. Satellite-only still flags.
+
+**Official BDC Public Data API** (`https://broadbandmap.fcc.gov/api/public/map`):
+- Auth: free NBM account → Manage API Access → `username` + `hash_value` request headers (`FCC_BDC_USERNAME` + `FCC_BDC_HASH` / `FCC_BDC_HASH_VALUE`). ~10 req/min.
+- Endpoints are **bulk file manifests/downloads** (`listAsOfDates`, `listAvailabilityData/{as_of_date}`, `downloadFile/...`) — not a per-address lookup. Homebuy pings `listAsOfDates` only as a soft credential check.
+
+**Per-home approach when credentials are set** (`app/core/fcc_broadband.py`):
+1. `GET https://geo.fcc.gov/api/census/block/find?latitude=&longitude=&format=json` → 15-digit block FIPS.
+2. Form 477 Open Data Socrata `https://opendata.fcc.gov/resource/jdr4-3q4p.json` with `$where=blockcode='…' AND consumer='1'` (June 2021 final Form 477 vintage — best free block-level query without state CSV downloads).
+
+**Without credentials:** status `unknown`, **no chip** (never false-alarm).
+
+**Risk rule:** chip only when zero consumer providers with tech in DSL (10–12), cable (40–43), fiber (50), fixed wireless (70). Satellite (60/61) alone does not clear the chip.
+
+**Persistence:** `Property.broadband_status` + `broadband_at`; cache under `data/cache/broadband/` (~7d); compute on add / post-geocode; stale refresh via `refresh_stale_broadband_status_job`. Helpers folded into `listing_risk_chips`.
 
 ### Keys
 
 | Key | Needed? |
 |-----|---------|
 | `CENSUS_API_KEY` | Yes for live ACS |
-| `SOCRATA_APP_TOKEN` | Optional (rate limits) |
+| `SOCRATA_APP_TOKEN` | Optional (rate limits; also Form 477 broadband) |
+| `FCC_BDC_USERNAME` + `FCC_BDC_HASH` | Optional — enables missing-broadband library chip |
 | FEMA / Redfin download / NCES / EPA | No key |
 
 ### Avoid

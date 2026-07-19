@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass, replace
 
+from app.core.listing_signals import classify_has_central_ac
 from app.core.zillow_photos import (
     NEXT_DATA_RE,
     _load_gdp_client_cache,
@@ -92,6 +93,22 @@ JSON_HOME_TYPE_RE = re.compile(
     + _Q
     + r'([^"\\]+)'
     + _Q
+)
+# Cooling may be a JSON string or a short string-array (resoFacts.cooling).
+JSON_COOLING_STR_RE = re.compile(
+    _Q
+    + r"(?:cooling|coolingSystem|coolingSystems)"
+    + _Q
+    + r"\s*:\s*"
+    + _Q
+    + r'([^"\\]+)'
+    + _Q
+)
+JSON_COOLING_ARR_RE = re.compile(
+    _Q
+    + r"(?:cooling|coolingSystem|coolingSystems)"
+    + _Q
+    + r"\s*:\s*\[([^\]]{0,400})\]"
 )
 JSON_CITY_RE = re.compile(
     _Q + r"(?:city|addressLocality)" + _Q + r"\s*:\s*" + _Q + r'([^"\\]+)' + _Q
@@ -214,6 +231,9 @@ _PROPERTY_FACT_KEYS = (
     "taxHistory",
     "rentZestimate",
     "rent_zestimate",
+    "cooling",
+    "coolingSystem",
+    "coolingSystems",
 )
 
 _INSURANCE_ANNUAL_KEYS = (
@@ -253,6 +273,8 @@ class ListingDetails:
     property_tax_rate: float | None = None
     rent_zestimate: float | None = None
     appreciation_decade_pct: float | None = None
+    cooling: str = ""
+    has_central_ac: bool | None = None
 
     def any_present(self) -> bool:
         return bool(
@@ -274,6 +296,8 @@ class ListingDetails:
             or self.property_tax_rate is not None
             or self.rent_zestimate is not None
             or self.appreciation_decade_pct is not None
+            or self.cooling
+            or self.has_central_ac is not None
         )
 
 
@@ -477,6 +501,71 @@ def _find_appreciation_decade_pct(source: object) -> float | None:
     return None
 
 
+def normalize_cooling(raw: object) -> str:
+    """Flatten Zillow cooling string / list into a short display label."""
+    if raw is None or raw is False:
+        return ""
+    if isinstance(raw, (list, tuple)):
+        parts: list[str] = []
+        for item in raw:
+            label = normalize_cooling(item)
+            if label and label not in parts:
+                parts.append(label)
+        return ", ".join(parts)
+    text = str(raw).strip()
+    if not text or text.casefold() in {"null", "undefined"}:
+        return ""
+    return text
+
+
+def _cooling_from_mapping(d: dict) -> str:
+    for key in ("cooling", "coolingSystem", "coolingSystems"):
+        label = normalize_cooling(d.get(key))
+        if label:
+            return label
+    return ""
+
+
+def _cooling_from_property_dict(d: dict) -> str:
+    found = _cooling_from_mapping(d)
+    if found:
+        return found
+    reso = d.get("resoFacts")
+    if isinstance(reso, dict):
+        return _cooling_from_mapping(reso)
+    return ""
+
+
+def _find_cooling(source: object) -> str:
+    """Deep-walk nested Zillow JSON for a cooling label."""
+    if isinstance(source, dict):
+        found = _cooling_from_property_dict(source)
+        if found:
+            return found
+        for value in source.values():
+            found = _find_cooling(value)
+            if found:
+                return found
+    elif isinstance(source, list):
+        for value in source:
+            found = _find_cooling(value)
+            if found:
+                return found
+    return ""
+
+
+def _first_json_cooling(chunk: str) -> str:
+    """Regex fallback for escaped cooling string or short string-array."""
+    arr = JSON_COOLING_ARR_RE.search(chunk)
+    if arr:
+        inner = arr.group(1)
+        items = re.findall(r'\\*"([^"\\]+)\\*"', inner)
+        label = normalize_cooling(items)
+        if label:
+            return label
+    return normalize_cooling(_first_json_str(JSON_COOLING_STR_RE, chunk))
+
+
 def normalize_home_type(raw: object) -> str:
     """Map Zillow / schema.org home-type tokens to a short readable label."""
     if raw is None:
@@ -581,6 +670,7 @@ def _details_from_property_dict(obj: dict) -> ListingDetails:
         normalize_home_type(obj.get("propertyTypeDimension")),
         normalize_home_type(obj.get("home_type")),
     )
+    cooling = _cooling_from_property_dict(obj)
     city = _coalesce_str(obj.get("city"), obj.get("addressLocality"))
     state = _coalesce_str(obj.get("state"), obj.get("addressRegion"))
     zip_code = _coalesce_str(obj.get("zipcode"), obj.get("zipCode"), obj.get("postalCode"))
@@ -622,6 +712,8 @@ def _details_from_property_dict(obj: dict) -> ListingDetails:
             _parse_float(obj.get("rentZestimate")),
             _parse_float(obj.get("rent_zestimate")),
         ),
+        cooling=cooling,
+        has_central_ac=classify_has_central_ac(cooling) if cooling else None,
     )
 
 
@@ -678,9 +770,12 @@ def _from_gdp_cache(html: str) -> ListingDetails:
         or _find_annual_insurance(cache)
         or _find_annual_insurance(next_data)
     )
+    cooling = best.cooling or _find_cooling(cache) or _find_cooling(next_data)
     return replace(
         best,
         annual_insurance=insurance,
+        cooling=cooling,
+        has_central_ac=classify_has_central_ac(cooling) if cooling else None,
         appreciation_decade_pct=(
             _find_appreciation_decade_pct(cache)
             or _find_appreciation_decade_pct(next_data)
@@ -914,7 +1009,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
 
     price = beds = baths = sqft = hoa = rent_zestimate = annual_insurance = None
     year: int | None = None
-    city = state = zip_code = neighborhood = home_type = ""
+    city = state = zip_code = neighborhood = home_type = cooling = ""
     for chunk in chunks:
         price = _coalesce(price, _first_json_float(JSON_PRICE_RE, chunk))
         beds = _coalesce(beds, _first_json_float(JSON_BEDS_RE, chunk))
@@ -935,6 +1030,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
         home_type = _coalesce_str(
             home_type, normalize_home_type(_first_json_str(JSON_HOME_TYPE_RE, chunk))
         )
+        cooling = _coalesce_str(cooling, _first_json_cooling(chunk))
         city = _coalesce_str(city, _first_json_str(JSON_CITY_RE, chunk))
         state = _coalesce_str(state, _first_json_str(JSON_STATE_RE, chunk))
         zip_code = _coalesce_str(zip_code, _first_json_str(JSON_ZIP_RE, chunk))
@@ -983,6 +1079,8 @@ def _from_embedded_json(html: str) -> ListingDetails:
         state=state,
         zip_code=zip_code,
         neighborhood=neighborhood,
+        cooling=cooling,
+        has_central_ac=classify_has_central_ac(cooling) if cooling else None,
     )
 
 
@@ -992,7 +1090,8 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
     year: int | None = None
     annual_tax = annual_insurance = tax_assessed_value = property_tax_rate = None
     rent_zestimate = appreciation_decade_pct = None
-    city = state = zip_code = address = neighborhood = home_type = ""
+    city = state = zip_code = address = neighborhood = home_type = cooling = ""
+    has_central_ac: bool | None = None
     for part in parts:
         price = _coalesce(price, part.list_price)
         beds = _coalesce(beds, part.beds)
@@ -1014,6 +1113,11 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         zip_code = _coalesce_str(zip_code, part.zip_code)
         address = _coalesce_str(address, part.address)
         neighborhood = _coalesce_str(neighborhood, part.neighborhood)
+        if not cooling and part.cooling:
+            cooling = part.cooling
+            has_central_ac = part.has_central_ac
+    if cooling and has_central_ac is None:
+        has_central_ac = classify_has_central_ac(cooling)
     return ListingDetails(
         list_price=price,
         beds=beds,
@@ -1033,6 +1137,8 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         property_tax_rate=property_tax_rate,
         rent_zestimate=rent_zestimate,
         appreciation_decade_pct=appreciation_decade_pct,
+        cooling=cooling,
+        has_central_ac=has_central_ac,
     )
 
 
@@ -1070,6 +1176,8 @@ def extract_listing_details(html: str) -> ListingDetails:
             property_tax_rate=merged.property_tax_rate,
             rent_zestimate=merged.rent_zestimate,
             appreciation_decade_pct=merged.appreciation_decade_pct,
+            cooling=merged.cooling,
+            has_central_ac=merged.has_central_ac,
         )
     return merged
 

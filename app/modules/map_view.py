@@ -28,6 +28,11 @@ from app.core.schools_nces import (
     fetch_schools_near_pin,
 )
 from app.core.ui_jobs import ensure_coordinates_job
+from app.core.bts_noise import (
+    NOISE_LEGEND,
+    NOISE_STATUS_DISCLAIMER,
+    noise_tile_layer_args,
+)
 from app.core.wildfire_whp import WHP_LEGEND, wildfire_wms_layer_args
 from app.core.zoning_gis import ZONING_LEGEND, build_zoning_geojson, zoning_supported
 from app.modules.street_view import render_street_view
@@ -98,6 +103,7 @@ def render(prop: Property, container: ui.element) -> None:
             make_layer_btn("flood", "Flood")
             make_layer_btn("zoning", "Zoning")
             make_layer_btn("wildfire", "Wildfire")
+            make_layer_btn("noise", "Noise")
             make_layer_btn("aqi", "AQI")
             make_layer_btn("schools", "Schools")
             make_layer_btn("sales", "Sale price")
@@ -163,6 +169,7 @@ def render(prop: Property, container: ui.element) -> None:
             "flood": None,
             "zoning": None,
             "wildfire": None,
+            "noise": None,
             "aqi": None,
             "schools": [],
             "sales": None,
@@ -174,6 +181,7 @@ def render(prop: Property, container: ui.element) -> None:
             "show_schools_legend": False,
             "show_sales_legend": False,
             "show_wildfire_legend": False,
+            "show_noise_legend": False,
             "crime": None,
             "city": prop.city or "",
             "suppress_toggle": False,
@@ -199,6 +207,7 @@ def render(prop: Property, container: ui.element) -> None:
             show_schools = bool(state.get("show_schools_legend"))
             show_sales = bool(state.get("show_sales_legend"))
             show_wildfire = bool(state.get("show_wildfire_legend"))
+            show_noise = bool(state.get("show_noise_legend"))
             if not (
                 any_acs
                 or show_zoning
@@ -207,6 +216,7 @@ def render(prop: Property, container: ui.element) -> None:
                 or show_schools
                 or show_sales
                 or show_wildfire
+                or show_noise
             ):
                 return
             with legend_box:
@@ -214,6 +224,8 @@ def render(prop: Property, container: ui.element) -> None:
                     _legend_swatches("Zoning (near pin)", ZONING_LEGEND)
                 if show_wildfire:
                     _legend_swatches("Wildfire hazard potential (USFS)", WHP_LEGEND)
+                if show_noise:
+                    _legend_swatches("Transportation noise (BTS screening)", NOISE_LEGEND)
                 if show_aqi:
                     _legend_swatches("US AQI (Open-Meteo)", AQI_LEGEND)
                 if show_schools:
@@ -308,6 +320,35 @@ def render(prop: Property, container: ui.element) -> None:
                 state["suppress_toggle"] = False
                 status.set_text(f"Wildfire layer failed: {exc}")
                 ui.notify(f"Wildfire layer failed: {exc}", type="negative")
+
+        def toggle_noise(enabled: bool) -> None:
+            if state["suppress_toggle"]:
+                return
+            m = state.get("map")
+            if m is None:
+                return
+            if state["noise"] is not None:
+                try:
+                    m.remove_layer(state["noise"])
+                except (ValueError, RuntimeError):
+                    pass
+                state["noise"] = None
+            state["show_noise_legend"] = False
+            _render_legends()
+            if not enabled:
+                return
+            try:
+                url, options = noise_tile_layer_args()
+                state["noise"] = m.tile_layer(url_template=url, options=options)
+                state["show_noise_legend"] = True
+                _render_legends()
+                status.set_text(NOISE_STATUS_DISCLAIMER)
+            except Exception as exc:  # noqa: BLE001
+                state["suppress_toggle"] = True
+                set_layer_on("noise", False)
+                state["suppress_toggle"] = False
+                status.set_text(f"Noise layer failed: {exc}")
+                ui.notify(f"Noise layer failed: {exc}", type="negative")
 
         async def toggle_zoning(enabled: bool) -> None:
             if state["suppress_toggle"]:
@@ -671,6 +712,7 @@ def render(prop: Property, container: ui.element) -> None:
         wire_layer("flood", toggle_flood)
         wire_layer("zoning", toggle_zoning)
         wire_layer("wildfire", toggle_wildfire)
+        wire_layer("noise", toggle_noise)
         wire_layer("aqi", toggle_aqi)
         wire_layer("schools", toggle_schools)
         wire_layer("sales", toggle_sales)

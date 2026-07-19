@@ -18,9 +18,13 @@ from app.core.nearby_signals import (
 
 
 def test_radius_constants():
+    from app.core.nearby_signals import GROCERY_RADIUS_MI, PLAYGROUND_RADIUS_MI
+
     assert HIGHWAY_RADIUS_FT == 800.0
     assert TRANSIT_RADIUS_MI == 0.5
-    assert SHELTER_RADIUS_MI == 0.25
+    assert PLAYGROUND_RADIUS_MI == 0.75
+    assert GROCERY_RADIUS_MI == 0.5
+    assert SHELTER_RADIUS_MI == 0.5
     assert abs(miles_to_ft(0.5) - 2640.0) < 0.01
     assert abs(ft_to_miles(800.0) - (800.0 / 5280.0)) < 1e-9
 
@@ -289,7 +293,7 @@ def test_classify_overpass_nearest_enforces_per_signal_boundaries():
     elements = [
         {
             "type": "node",
-            "lat": pin_lat + (0.30 / 69.0),
+            "lat": pin_lat + (0.60 / 69.0),
             "lon": pin_lng,
             "tags": {
                 "amenity": "social_facility",
@@ -318,23 +322,114 @@ def test_classify_overpass_nearest_enforces_per_signal_boundaries():
     assert nearest["highway"] is None
 
 
+def test_classify_overpass_playground_way_uses_geometry_without_center():
+    """Polygon playgrounds often ship as ways with geom but no center."""
+    from app.core.nearby_signals import classify_overpass_nearest
+
+    pin_lat = 34.05
+    pin_lng = -118.25
+    near_lat = pin_lat + (0.20 / 69.0)
+    elements = [
+        {
+            "type": "way",
+            "id": 99,
+            "geometry": [
+                {"lat": near_lat, "lon": pin_lng},
+                {"lat": near_lat + 0.001, "lon": pin_lng},
+            ],
+            "tags": {"leisure": "playground", "name": "Way Playground"},
+        },
+    ]
+
+    nearest = classify_overpass_nearest(elements, pin_lat=pin_lat, pin_lng=pin_lng)
+    assert nearest["playground"] is not None
+    assert nearest["playground"]["name"] == "Way Playground"
+
+
+def test_classify_overpass_shelter_accepts_for_homeless_list_and_homeless_yes():
+    from app.core.nearby_signals import classify_overpass_nearest
+
+    pin_lat = 34.05
+    pin_lng = -118.25
+    elements = [
+        {
+            "type": "way",
+            "geometry": [{"lat": pin_lat, "lon": pin_lng}],
+            "tags": {
+                "amenity": "social_facility",
+                "social_facility:for": "homeless;child",
+                "name": "Family Shelter",
+            },
+        },
+    ]
+    nearest = classify_overpass_nearest(elements, pin_lat=pin_lat, pin_lng=pin_lng)
+    assert nearest["shelter"] is not None
+    assert nearest["shelter"]["name"] == "Family Shelter"
+
+    tagged = [
+        {
+            "type": "node",
+            "lat": pin_lat,
+            "lon": pin_lng,
+            "tags": {
+                "amenity": "shelter",
+                "homeless": "yes",
+                "name": "Mission Shelter",
+            },
+        },
+    ]
+    nearest_tagged = classify_overpass_nearest(tagged, pin_lat=pin_lat, pin_lng=pin_lng)
+    assert nearest_tagged["shelter"]["name"] == "Mission Shelter"
+
+
+def test_classify_overpass_ignores_bus_stop_weather_shelter():
+    from app.core.nearby_signals import classify_overpass_nearest
+
+    pin_lat = 34.05
+    pin_lng = -118.25
+    elements = [
+        {
+            "type": "node",
+            "lat": pin_lat,
+            "lon": pin_lng,
+            "tags": {
+                "amenity": "shelter",
+                "shelter_type": "public",
+                "name": "Bus Stop Shelter",
+            },
+        },
+    ]
+    nearest = classify_overpass_nearest(elements, pin_lat=pin_lat, pin_lng=pin_lng)
+    assert nearest["shelter"] is None
+
+
 def test_build_overpass_query_contains_exact_signal_tags():
-    from app.core.nearby_signals import build_overpass_query
+    from app.core.nearby_signals import (
+        _HIGHWAY_OVERPASS_M,
+        _NEARBY_OVERPASS_M,
+        build_overpass_query,
+    )
 
     query = build_overpass_query(34.05, -118.25)
-    assert "(around:244,34.05,-118.25)" in query
+    assert f"(around:{_HIGHWAY_OVERPASS_M},34.05,-118.25)" in query
+    assert f"(around:{_NEARBY_OVERPASS_M},34.05,-118.25)" in query
+    assert _NEARBY_OVERPASS_M >= 1207  # covers 0.75 mi playground radius
     assert 'way["highway"="motorway"]' in query
     assert 'way["highway"="motorway_link"]' in query
     assert 'node["railway"="subway_entrance"]' in query
     assert 'way["railway"="station"]["station"="light_rail"]' in query
     assert 'node["railway"="halt"]["light_rail"="yes"]' in query
     assert 'way["leisure"="playground"]' in query
+    assert 'relation["leisure"="playground"]' in query
+    assert '["leisure"="park"]["playground"="yes"]' in query
     assert 'node["shop"="supermarket"]' in query
     assert 'way["shop"="grocery"]' in query
     assert '["shop"="convenience"]' not in query
     assert '["social_facility:for"="homeless"]' in query
     assert '["amenity"="shelter"]["shelter_type"="homeless"]' in query
-    assert "out geom" in query
+    assert '["homeless"="yes"]' in query
+    assert '["shelter_type"="public"]' not in query
+    assert "out center geom tags" in query
 
 
 def test_fetch_overpass_posts_query_and_caches(monkeypatch):
@@ -548,7 +643,7 @@ def test_compute_signals_uses_places_when_key(monkeypatch):
     assert payload["grocery"]["name"] == "Trader Joe's"
 
 
-def test_compute_signals_shelter_searches_use_403_meters(monkeypatch):
+def test_compute_signals_shelter_searches_use_separate_keywords(monkeypatch):
     from app.core import nearby_signals as ns
 
     calls = []
@@ -564,9 +659,65 @@ def test_compute_signals_shelter_searches_use_403_meters(monkeypatch):
     shelter_calls = [call for call in calls if call[1] is not None]
     assert [call[1] for call in shelter_calls] == [
         "homeless shelter",
-        "drug rehabilitation|transitional housing",
+        "transitional housing",
+        "drug rehabilitation",
     ]
-    assert all(call[2] == 403 for call in shelter_calls)
+    expected_m = int(__import__("math").ceil(ns.SHELTER_RADIUS_MI * 1609.344))
+    assert all(call[2] == expected_m for call in shelter_calls)
+    assert all(call[0] == "" for call in shelter_calls)
+
+
+def test_compute_signals_places_empty_keeps_osm_shelter(monkeypatch):
+    """Places ZERO_RESULTS must not wipe a valid OSM shelter hit."""
+    from app.core import nearby_signals as ns
+
+    monkeypatch.setattr(
+        ns,
+        "fetch_overpass",
+        lambda lat, lng: {
+            "elements": [
+                {
+                    "type": "node",
+                    "lat": lat,
+                    "lon": lng,
+                    "tags": {
+                        "amenity": "social_facility",
+                        "social_facility": "shelter",
+                        "name": "OSM Shelter",
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(ns, "fetch_places_nearby", lambda *a, **k: [])
+    payload = ns.compute_signals(34.05, -118.25, api_key="fake-key")
+    assert payload["shelter"]["hit"] is True
+    assert payload["shelter"]["name"] == "OSM Shelter"
+
+
+def test_parse_places_results_filters_shelter_noise():
+    from app.core.nearby_signals import parse_places_results
+
+    results = [
+        {
+            "name": "Sunset Hotel",
+            "geometry": {"location": {"lat": 34.05, "lng": -118.25}},
+            "types": ["lodging", "establishment"],
+        },
+        {
+            "name": "Downtown Homeless Shelter",
+            "geometry": {"location": {"lat": 34.0501, "lng": -118.25}},
+            "types": ["point_of_interest"],
+        },
+    ]
+    hits = parse_places_results(
+        results,
+        pin_lat=34.05,
+        pin_lng=-118.25,
+        radius_mi=0.5,
+        require_shelter_keywords=True,
+    )
+    assert [hit["name"] for hit in hits] == ["Downtown Homeless Shelter"]
 
 
 def test_compute_signals_places_failure_falls_back_per_key(monkeypatch):

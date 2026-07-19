@@ -141,6 +141,22 @@ def _migrate_sqlite() -> None:
                 "ALTER TABLE properties ADD COLUMN nearby_signals_at VARCHAR(64) NOT NULL DEFAULT ''",
             ),
             (
+                "permits_activity",
+                "ALTER TABLE properties ADD COLUMN permits_activity TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "permits_activity_at",
+                "ALTER TABLE properties ADD COLUMN permits_activity_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "broadband_status",
+                "ALTER TABLE properties ADD COLUMN broadband_status TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "broadband_at",
+                "ALTER TABLE properties ADD COLUMN broadband_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
                 "thumbnail_photo_id",
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),
@@ -186,6 +202,14 @@ def _migrate_sqlite() -> None:
             (
                 "home_type",
                 "ALTER TABLE properties ADD COLUMN home_type VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "cooling",
+                "ALTER TABLE properties ADD COLUMN cooling VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "has_central_ac",
+                "ALTER TABLE properties ADD COLUMN has_central_ac BOOLEAN",
             ),
             (
                 "financial_gemini",
@@ -317,4 +341,14 @@ def _migrate_sqlite() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE financial_assumptions ADD COLUMN salt_cap "
                     "FLOAT NOT NULL DEFAULT 10000"
+                )
+            if "monthly_utilities" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_utilities "
+                    "FLOAT NOT NULL DEFAULT 0"
+                )
+            if "utilities_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN utilities_source "
+                    "VARCHAR(96) NOT NULL DEFAULT ''"
                 )

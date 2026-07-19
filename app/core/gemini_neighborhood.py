@@ -8,24 +8,33 @@ load_dotenv()
 
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
+# Bump when prompt inputs change so Property.neighborhood_*_for caches invalidate.
+OVERVIEW_CACHE_PREFIX = "overview_v3"
+THINGS_CACHE_PREFIX = "things_v3"
+
 PROMPT_TEMPLATE = (
-    "I am seriously considering buying a home in the {neighborhood} neighborhood in {city}. "
+    "I am seriously considering buying the home at {address} in the {neighborhood} "
+    "neighborhood in {city}. "
     "Help me decide whether this is a good place to live long-term — be honest and direct, "
     "not a travel brochure or realtor pitch. Write 2 short paragraphs (about 160–220 words total).\n\n"
-    "Cover what I would actually want to know after living there for years: daily quality of life; "
-    "noise, traffic, parking, density; walkability and practical errands; schools/family fit if relevant; "
-    "safety and street feel (with nuance, not fear-mongering); housing stock and whether costs/HOA or "
-    "maintenance pressures are common; flood/heat/climate or wildfire exposure if relevant to the area; "
-    "and who the neighborhood tends to suit vs who may be unhappy there. "
+    "Ground the assessment in this specific address when possible (block-level noise, nearby "
+    "arterials, parking, walkshed to daily errands) while still covering neighborhood-wide "
+    "patterns. Cover what I would actually want to know after living there for years: daily "
+    "quality of life; noise, traffic, parking, density; walkability and practical errands; "
+    "schools/family fit if relevant; safety and street feel (with nuance, not fear-mongering); "
+    "housing stock and whether costs/HOA or maintenance pressures are common; flood/heat/climate "
+    "or wildfire exposure if relevant to the area; and who the neighborhood tends to suit vs who "
+    "may be unhappy there. "
     "Call out real tradeoffs and downsides alongside upsides. "
     "If you are unsure about something, say so rather than inventing certainty. "
     "No bullet points, no headings, no closing pep talk."
 )
 
 THINGS_TO_DO_PROMPT_TEMPLATE = (
-    "I am researching the {neighborhood} neighborhood in {city} as a possible place to live. "
+    "I am researching the home at {address} in the {neighborhood} neighborhood in {city} "
+    "as a possible place to live. "
     "List cool, practical things to do nearby. "
-    "Prioritize places and activities within comfortable walking distance of the neighborhood "
+    "Prioritize places and activities within comfortable walking distance of this address "
     "(roughly under ~20 minutes on foot) first; only after those, add a few slightly farther "
     "worth-the-short-trip options and mark those as a short drive/transit. "
     "Prefer specific place names (cafes, parks, trails, markets, beaches, venues) over vague hype. "
@@ -46,15 +55,65 @@ def _place_city(city: str, state: str = "") -> str:
     return place_city
 
 
-def build_neighborhood_prompt(*, neighborhood: str, city: str, state: str = "") -> str:
+def _place_address(address: str) -> str:
+    return (address or "").strip() or "this address"
+
+
+def build_overview_cache_key(
+    *,
+    address: str,
+    neighborhood: str,
+    city: str,
+    state: str = "",
+) -> str:
+    return (
+        f"{OVERVIEW_CACHE_PREFIX}|"
+        f"{(address or '').strip()}|"
+        f"{(neighborhood or '').strip()}|"
+        f"{(city or '').strip()}|"
+        f"{(state or '').strip()}"
+    )
+
+
+def build_things_to_do_cache_key(
+    *,
+    address: str,
+    neighborhood: str,
+    city: str,
+    state: str = "",
+) -> str:
+    return (
+        f"{THINGS_CACHE_PREFIX}|"
+        f"{(address or '').strip()}|"
+        f"{(neighborhood or '').strip()}|"
+        f"{(city or '').strip()}|"
+        f"{(state or '').strip()}"
+    )
+
+
+def build_neighborhood_prompt(
+    *,
+    address: str,
+    neighborhood: str,
+    city: str,
+    state: str = "",
+) -> str:
     return PROMPT_TEMPLATE.format(
+        address=_place_address(address),
         neighborhood=(neighborhood or "").strip() or "this",
         city=_place_city(city, state),
     )
 
 
-def build_things_to_do_prompt(*, neighborhood: str, city: str, state: str = "") -> str:
+def build_things_to_do_prompt(
+    *,
+    address: str,
+    neighborhood: str,
+    city: str,
+    state: str = "",
+) -> str:
     return THINGS_TO_DO_PROMPT_TEMPLATE.format(
+        address=_place_address(address),
         neighborhood=(neighborhood or "").strip() or "this",
         city=_place_city(city, state),
     )
@@ -84,6 +143,7 @@ def _call_gemini(prompt: str) -> str:
 
 def generate_neighborhood_overview(
     *,
+    address: str,
     neighborhood: str,
     city: str,
     state: str = "",
@@ -93,12 +153,15 @@ def generate_neighborhood_overview(
     if not name:
         raise ValueError("Neighborhood name is required before asking Gemini.")
 
-    prompt = build_neighborhood_prompt(neighborhood=name, city=city, state=state)
+    prompt = build_neighborhood_prompt(
+        address=address, neighborhood=name, city=city, state=state
+    )
     return _call_gemini(prompt)
 
 
 def generate_things_to_do(
     *,
+    address: str,
     neighborhood: str,
     city: str,
     state: str = "",
@@ -108,5 +171,7 @@ def generate_things_to_do(
     if not name:
         raise ValueError("Neighborhood name is required before asking Gemini.")
 
-    prompt = build_things_to_do_prompt(neighborhood=name, city=city, state=state)
+    prompt = build_things_to_do_prompt(
+        address=address, neighborhood=name, city=city, state=state
+    )
     return _call_gemini(prompt)

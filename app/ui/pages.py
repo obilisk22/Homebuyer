@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from nicegui import run, ui
 
-from app.core.compare import build_compare_rows, parse_compare_ids
 from app.core.db import get_session
 from app.core.library_export import (
     LibraryFinancialSnapshot,
@@ -18,12 +19,16 @@ from app.core.nearby_signals import (
     parse_signals_json,
     tooltip_for,
 )
+from app.core.listing_signals import listing_risk_chips
+from app.core.permits_nearby import chip_spec_for, parse_activity_json
 from app.core.property_service import PropertyService, resolve_library_thumbnail
 from app.core.ui_jobs import (
     add_from_zillow_job,
     ensure_gemini_insights_job,
     refresh_listing_details_job,
+    refresh_stale_broadband_status_job,
     refresh_stale_nearby_signals_job,
+    refresh_stale_permits_activity_job,
 )
 from app.ui.theme import apply_theme
 
@@ -51,17 +56,98 @@ def _format_price(value: float | None) -> str:
 
 
 def _library_financial_caption(snap: LibraryFinancialSnapshot) -> str:
-    """Quiet PITI + cash-to-close line when saved financials exist."""
+    """Quiet PITI line when saved financials exist."""
     if not snap.has_financials:
         return ""
     if not (snap.effective_price or 0) > 0:
         return ""
-    parts: list[str] = []
-    if snap.monthly_piti is not None:
-        parts.append(f"PITI {_format_price(snap.monthly_piti)}/mo")
-    if snap.cash_to_close is not None:
-        parts.append(f"Cash {_format_price(snap.cash_to_close)}")
-    return " · ".join(parts)
+    if snap.monthly_piti is None:
+        return ""
+    return f"PITI {_format_price(snap.monthly_piti)}/mo"
+
+
+def _library_appreciation_caption(snap: LibraryFinancialSnapshot) -> str:
+    """Quiet appreciation line when financials include a rate."""
+    if not snap.has_financials or snap.appreciation_pct is None:
+        return ""
+    return f"Appr. {snap.appreciation_pct:.1f}%/yr"
+
+
+def _render_nearby_signal_chips(
+    nearby_signals: str,
+    *,
+    stop_card_nav: bool = False,
+    listing_chips: list | None = None,
+) -> None:
+    """Soft neo proximity + listing risk chips (library card + property header)."""
+    nearby_hits = hits_in_order(parse_signals_json(nearby_signals or ""))
+    extra = list(listing_chips or [])
+    if not nearby_hits and not extra:
+        return
+    with ui.element("div").classes("hb-nearby-icons"):
+        for chip_info in extra:
+            tone = chip_info.get("tone") or chip_info.get("kind") or "risk"
+            chip = ui.element("div").classes(
+                f"hb-nearby-chip hb-nearby-chip--{tone}"
+            )
+            chip._props["title"] = chip_info.get("tooltip") or ""
+            if stop_card_nav:
+                chip.on(
+                    "click",
+                    lambda: None,
+                    js_handler=(
+                        "(e) => { e.stopPropagation(); emit(e); }"
+                    ),
+                )
+            with chip:
+                ui.icon(chip_info.get("icon") or "ac_unit", size="xs")
+        for key, entry in nearby_hits:
+            kind = "risk" if key in RISK_KEYS else "amenity"
+            chip = ui.element("div").classes(
+                f"hb-nearby-chip hb-nearby-chip--{kind}"
+            )
+            chip._props["title"] = tooltip_for(key, entry)
+            if stop_card_nav:
+                chip.on(
+                    "click",
+                    lambda: None,
+                    js_handler=(
+                        "(e) => { e.stopPropagation(); emit(e); }"
+                    ),
+                )
+            with chip:
+                ui.icon(ICON_BY_KEY[key], size="xs")
+
+
+def _extra_signal_chips(
+    *,
+    has_central_ac: bool | None = None,
+    cooling: str = "",
+    broadband_status: str = "",
+    permits_activity: str = "",
+) -> list[dict]:
+    """Listing risk + permit amber chips for library / header rows."""
+    chips: list[dict] = list(
+        listing_risk_chips(
+            SimpleNamespace(
+                has_central_ac=has_central_ac,
+                cooling=cooling or "",
+                broadband_status=broadband_status or "",
+            )
+        )
+    )
+    permit = chip_spec_for(parse_activity_json(permits_activity or ""))
+    if permit:
+        chips.append(
+            {
+                "key": permit["key"],
+                "kind": permit.get("tone") or "amber",
+                "tone": permit.get("tone") or "amber",
+                "icon": permit.get("icon") or "construction",
+                "tooltip": permit.get("tooltip") or "",
+            }
+        )
+    return chips
 
 
 def _format_beds_baths(beds: float | None, baths: float | None) -> str:
@@ -291,9 +377,6 @@ def library_page() -> None:
                         ),
                     ).props("flat dense color=dark")
 
-            compare_btn = ui.button("Compare").props(
-                "unelevated dense color=dark disable"
-            )
             export_btn = ui.button("Export", icon="download").props(
                 "unelevated dense color=dark"
             )
@@ -304,25 +387,6 @@ def library_page() -> None:
 
         list_box = ui.column().classes("w-full gap-3")
         filter_debounce = None
-        selected_ids: set[int] = set()
-
-        def _update_compare_btn() -> None:
-            n = len(selected_ids)
-            compare_btn.set_text(f"Compare · {n}" if n else "Compare")
-            if 2 <= n <= 4:
-                compare_btn.props(remove="disable")
-            else:
-                compare_btn.props("disable")
-
-        def _open_compare() -> None:
-            n = len(selected_ids)
-            if not 2 <= n <= 4:
-                ui.notify("Select 2–4 homes to compare", type="warning")
-                return
-            ids = ",".join(str(i) for i in sorted(selected_ids))
-            ui.navigate.to(f"/compare?ids={ids}")
-
-        compare_btn.on_click(_open_compare)
 
         def _export(fmt: str) -> None:
             with get_session() as session:
@@ -347,7 +411,6 @@ def library_page() -> None:
         def delete_home(property_id: int) -> None:
             with get_session() as session:
                 PropertyService(session).delete_property(property_id)
-            selected_ids.discard(property_id)
             ui.notify("Deleted", type="info")
             refresh()
 
@@ -399,8 +462,6 @@ def library_page() -> None:
                     sort=sort_key,
                 )
                 has_any = True if props else service.has_any_properties()
-                visible_ids = {p.id for p in props}
-                selected_ids.intersection_update(visible_ids)
                 for prop in props:
                     snap = snapshot_from_property(prop)
                     thumb = None
@@ -425,10 +486,16 @@ def library_page() -> None:
                             "zillow_url": prop.zillow_url,
                             "thumb": thumb,
                             "fin_caption": _library_financial_caption(snap),
+                            "appr_caption": _library_appreciation_caption(snap),
+                            "appr_pct": snap.appreciation_pct,
+                            "appr_source": snap.appreciation_source or "",
                             "nearby_signals": prop.nearby_signals or "",
+                            "cooling": prop.cooling or "",
+                            "has_central_ac": prop.has_central_ac,
+                            "broadband_status": prop.broadband_status or "",
+                            "permits_activity": prop.permits_activity or "",
                         }
                     )
-            _update_compare_btn()
             hint_label.set_visibility(not has_any)
             if card_rows:
                 count_label.set_text(
@@ -459,9 +526,6 @@ def library_page() -> None:
                     street = _street_address_line(
                         address, city=city, state=state, zip_code=zip_code
                     )
-                    nearby_hits = hits_in_order(
-                        parse_signals_json(row["nearby_signals"])
-                    )
                     primary_chips = _library_primary_chips(
                         beds=row["beds"],
                         baths=row["baths"],
@@ -477,6 +541,9 @@ def library_page() -> None:
                     thumb = row["thumb"]
                     zillow_url = row["zillow_url"]
                     fin_caption = row["fin_caption"]
+                    appr_caption = row["appr_caption"]
+                    appr_pct = row["appr_pct"]
+                    appr_source = row["appr_source"]
 
                     with ui.card().classes("w-full hb-library-card") as card:
                         card.on(
@@ -486,30 +553,6 @@ def library_page() -> None:
                         with ui.row().classes(
                             "w-full items-stretch justify-between gap-3 flex-nowrap"
                         ):
-                            select_box = ui.checkbox(
-                                value=prop_id in selected_ids
-                            ).props("dense").classes("flex-shrink-0 self-center")
-
-                            def _on_select(
-                                e, pid=prop_id, box=select_box
-                            ) -> None:  # noqa: ANN001
-                                if e.value:
-                                    if len(selected_ids) >= 4 and pid not in selected_ids:
-                                        ui.notify("Compare up to 4 homes", type="warning")
-                                        box.set_value(False)
-                                        return
-                                    selected_ids.add(pid)
-                                else:
-                                    selected_ids.discard(pid)
-                                _update_compare_btn()
-
-                            select_box.on_value_change(_on_select)
-                            select_box.on(
-                                "click",
-                                lambda: None,
-                                js_handler="(e) => { e.stopPropagation(); emit(e); }",
-                            )
-
                             with ui.row().classes(
                                 "items-stretch gap-3 flex-grow hb-library-card-body"
                             ):
@@ -548,8 +591,28 @@ def library_page() -> None:
                                         ui.label(
                                             "Details pending — open and refresh listing"
                                         ).classes("hb-page-meta")
-                                    if fin_caption:
-                                        ui.label(fin_caption).classes("hb-page-meta")
+                                    if fin_caption or appr_caption:
+                                        with ui.row().classes(
+                                            "gap-2 flex-wrap items-baseline"
+                                        ):
+                                            if fin_caption:
+                                                ui.label(fin_caption).classes(
+                                                    "hb-page-meta"
+                                                )
+                                            if appr_caption:
+                                                appr_classes = "hb-page-meta"
+                                                if (
+                                                    appr_pct is not None
+                                                    and appr_pct < 3.0
+                                                ):
+                                                    appr_classes += " hb-appr-low"
+                                                appr_lbl = ui.label(
+                                                    appr_caption
+                                                ).classes(appr_classes)
+                                                if appr_source:
+                                                    appr_lbl._props["title"] = (
+                                                        appr_source
+                                                    )
                                     if notes_teaser:
                                         ui.label(notes_teaser).classes("hb-library-notes")
 
@@ -580,34 +643,29 @@ def library_page() -> None:
                                             ),
                                         )
 
-                        if nearby_hits:
-                            with ui.element("div").classes("hb-nearby-icons"):
-                                for key, entry in nearby_hits:
-                                    kind = (
-                                        "risk" if key in RISK_KEYS else "amenity"
-                                    )
-                                    chip = ui.element("div").classes(
-                                        f"hb-nearby-chip hb-nearby-chip--{kind}"
-                                    )
-                                    chip._props["title"] = tooltip_for(key, entry)
-                                    chip.on(
-                                        "click",
-                                        lambda: None,
-                                        js_handler=(
-                                            "(e) => { "
-                                            "e.stopPropagation(); emit(e); "
-                                            "}"
-                                        ),
-                                    )
-                                    with chip:
-                                        ui.icon(ICON_BY_KEY[key], size="xs")
+                        _render_nearby_signal_chips(
+                            row["nearby_signals"],
+                            stop_card_nav=True,
+                            listing_chips=_extra_signal_chips(
+                                has_central_ac=row.get("has_central_ac"),
+                                cooling=row.get("cooling") or "",
+                                broadband_status=row.get("broadband_status") or "",
+                                permits_activity=row.get("permits_activity") or "",
+                            ),
+                        )
 
         async def _refresh_stale_nearby_after_paint() -> None:
             try:
                 refreshed = await run.io_bound(
                     refresh_stale_nearby_signals_job, limit=3
                 )
-                if refreshed:
+                refreshed_permits = await run.io_bound(
+                    refresh_stale_permits_activity_job, limit=3
+                )
+                refreshed_bb = await run.io_bound(
+                    refresh_stale_broadband_status_job, limit=3
+                )
+                if refreshed or refreshed_permits or refreshed_bb:
                     refresh()
             except Exception:  # noqa: BLE001 - background signals never break library
                 pass
@@ -662,6 +720,7 @@ def property_page(property_id: int) -> None:
         thumb_url = (
             f"/uploads/{thumb_photo.path}" if thumb_photo is not None else None
         )
+        nearby_signals = prop.nearby_signals or ""
         # `get_property` eager-loads module relationships; detach the fully loaded
         # object so all module first paints can share it after this session closes.
         session.expunge(prop)
@@ -811,125 +870,137 @@ def property_page(property_id: int) -> None:
                             icon="auto_awesome",
                         ).props("unelevated dense color=dark")
 
-        with ui.expansion("Edit listing details", icon="edit").classes("w-full"):
-            edit_url = (
-                ui.input("Zillow URL", value=zillow_url)
-                .classes("w-full")
-                .props("dense outlined stack-label")
-            )
-            edit_address = (
-                ui.input("Address", value=address)
-                .classes("w-full")
-                .props("dense outlined stack-label")
-            )
-            with ui.row().classes("w-full gap-3 flex-wrap"):
-                edit_price = (
-                    ui.input(
-                        "List price",
-                        value=""
-                        if list_price is None
-                        else str(
-                            int(list_price)
-                            if list_price == int(list_price)
-                            else list_price
-                        ),
+                with ui.expansion("Edit listing details", icon="edit").classes(
+                    "w-full hb-edit-listing-expansion"
+                ).props("dense"):
+                    edit_url = (
+                        ui.input("Zillow URL", value=zillow_url)
+                        .classes("w-full")
+                        .props("dense outlined stack-label")
                     )
-                    .classes("w-40")
-                    .props("dense outlined stack-label")
-                )
-                edit_beds = (
-                    ui.input(
-                        "Beds",
-                        value="" if beds is None else f"{beds:g}",
+                    edit_address = (
+                        ui.input("Address", value=address)
+                        .classes("w-full")
+                        .props("dense outlined stack-label")
                     )
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-                edit_baths = (
-                    ui.input(
-                        "Baths",
-                        value="" if baths is None else f"{baths:g}",
-                    )
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-                edit_sqft = (
-                    ui.input(
-                        "Sqft",
-                        value="" if sqft is None else f"{sqft:g}",
-                    )
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-                edit_hoa = (
-                    ui.input(
-                        "HOA $/mo",
-                        value="" if hoa_fee is None else f"{hoa_fee:g}",
-                    )
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-                edit_year = (
-                    ui.input(
-                        "Year built",
-                        value="" if year_built is None else str(year_built),
-                    )
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-                edit_home_type = (
-                    ui.input("Home type", value=home_type)
-                    .classes("w-40")
-                    .props("dense outlined stack-label")
-                )
-                edit_city = (
-                    ui.input("City", value=city or "")
-                    .classes("flex-grow min-w-40")
-                    .props("dense outlined stack-label")
-                )
-                edit_state = (
-                    ui.input("State", value=state or "")
-                    .classes("w-24")
-                    .props("dense outlined stack-label")
-                )
-                edit_zip = (
-                    ui.input("ZIP", value=zip_code or "")
-                    .classes("w-28")
-                    .props("dense outlined stack-label")
-                )
-            edit_notes = (
-                ui.textarea("Notes", value=notes)
-                .classes("w-full")
-                .props("dense outlined stack-label")
-            )
-
-            def save_meta() -> None:
-                try:
-                    with get_session() as session:
-                        PropertyService(session).update_property(
-                            prop_id,
-                            address=edit_address.value or "",
-                            zillow_url=edit_url.value or "",
-                            notes=edit_notes.value or "",
-                            list_price=edit_price.value or "",
-                            beds=edit_beds.value or "",
-                            baths=edit_baths.value or "",
-                            sqft=edit_sqft.value or "",
-                            hoa_fee=edit_hoa.value or "",
-                            year_built=edit_year.value or "",
-                            home_type=edit_home_type.value or "",
-                            city=edit_city.value or "",
-                            state=edit_state.value or "",
-                            zip_code=edit_zip.value or "",
+                    with ui.row().classes("w-full gap-3 flex-wrap"):
+                        edit_price = (
+                            ui.input(
+                                "List price",
+                                value=""
+                                if list_price is None
+                                else str(
+                                    int(list_price)
+                                    if list_price == int(list_price)
+                                    else list_price
+                                ),
+                            )
+                            .classes("w-40")
+                            .props("dense outlined stack-label")
                         )
-                    ui.notify("Saved", type="positive")
-                    ui.navigate.to(f"/property/{prop_id}")
-                except ValueError as exc:
-                    ui.notify(str(exc), type="negative")
+                        edit_beds = (
+                            ui.input(
+                                "Beds",
+                                value="" if beds is None else f"{beds:g}",
+                            )
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_baths = (
+                            ui.input(
+                                "Baths",
+                                value="" if baths is None else f"{baths:g}",
+                            )
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_sqft = (
+                            ui.input(
+                                "Sqft",
+                                value="" if sqft is None else f"{sqft:g}",
+                            )
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_hoa = (
+                            ui.input(
+                                "HOA $/mo",
+                                value="" if hoa_fee is None else f"{hoa_fee:g}",
+                            )
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_year = (
+                            ui.input(
+                                "Year built",
+                                value="" if year_built is None else str(year_built),
+                            )
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_home_type = (
+                            ui.input("Home type", value=home_type)
+                            .classes("w-40")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_city = (
+                            ui.input("City", value=city or "")
+                            .classes("flex-grow min-w-40")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_state = (
+                            ui.input("State", value=state or "")
+                            .classes("w-24")
+                            .props("dense outlined stack-label")
+                        )
+                        edit_zip = (
+                            ui.input("ZIP", value=zip_code or "")
+                            .classes("w-28")
+                            .props("dense outlined stack-label")
+                        )
+                    edit_notes = (
+                        ui.textarea("Notes", value=notes)
+                        .classes("w-full")
+                        .props("dense outlined stack-label")
+                    )
 
-            ui.button("Save", on_click=save_meta).props(
-                "unelevated dense color=dark"
-            ).classes("hb-btn-cta")
+                    def save_meta() -> None:
+                        try:
+                            with get_session() as session:
+                                PropertyService(session).update_property(
+                                    prop_id,
+                                    address=edit_address.value or "",
+                                    zillow_url=edit_url.value or "",
+                                    notes=edit_notes.value or "",
+                                    list_price=edit_price.value or "",
+                                    beds=edit_beds.value or "",
+                                    baths=edit_baths.value or "",
+                                    sqft=edit_sqft.value or "",
+                                    hoa_fee=edit_hoa.value or "",
+                                    year_built=edit_year.value or "",
+                                    home_type=edit_home_type.value or "",
+                                    city=edit_city.value or "",
+                                    state=edit_state.value or "",
+                                    zip_code=edit_zip.value or "",
+                                )
+                            ui.notify("Saved", type="positive")
+                            ui.navigate.to(f"/property/{prop_id}")
+                        except ValueError as exc:
+                            ui.notify(str(exc), type="negative")
+
+                    ui.button("Save", on_click=save_meta).props(
+                        "unelevated dense color=dark"
+                    ).classes("hb-btn-cta")
+
+            _render_nearby_signal_chips(
+                nearby_signals,
+                listing_chips=_extra_signal_chips(
+                    has_central_ac=getattr(prop, "has_central_ac", None),
+                    cooling=getattr(prop, "cooling", "") or "",
+                    broadband_status=getattr(prop, "broadband_status", "") or "",
+                    permits_activity=getattr(prop, "permits_activity", "") or "",
+                ),
+            )
 
         modules = get_modules()
         if not modules:
@@ -946,157 +1017,3 @@ def property_page(property_id: int) -> None:
                 with ui.tab_panel(tab_refs[mod.id]):
                     panel = ui.column().classes("w-full")
                     mod.render(prop, panel)
-
-
-def _compare_street(address: str) -> str:
-    street = _street_address_line(address)
-    return street or address
-
-
-@ui.page("/compare")
-def compare_page(ids: str = "") -> None:
-    """Side-by-side compare for 2–4 library homes (TODO-018)."""
-    page_header("Compare")
-    id_list = parse_compare_ids(ids)
-
-    with ui.column().classes("w-full hb-library-shell q-pa-md gap-3"):
-        ui.button(
-            "Back to library",
-            icon="arrow_back",
-            on_click=lambda: ui.navigate.to("/"),
-        ).props("flat dense color=dark")
-
-        if not 2 <= len(id_list) <= 4:
-            ui.label("Select 2–4 homes on the library to compare.").classes(
-                "hb-empty-state w-full"
-            )
-            return
-
-        row_data: list[dict] = []
-        with get_session() as session:
-            service = PropertyService(session)
-            props = []
-            for pid in id_list:
-                prop = service.get_property(pid)
-                if prop is not None:
-                    props.append(prop)
-            if not 2 <= len(props) <= 4:
-                ui.label(
-                    "Could not load 2–4 homes for those ids — go back and reselect."
-                ).classes("hb-empty-state w-full")
-                return
-            try:
-                rows = build_compare_rows(props)
-            except ValueError:
-                ui.label("Compare requires 2–4 homes.").classes(
-                    "hb-empty-state w-full"
-                )
-                return
-            for row in rows:
-                row_data.append(
-                    {
-                        "id": row.id,
-                        "address": row.address,
-                        "street": _compare_street(row.address),
-                        "list_price": row.list_price,
-                        "offer_price": row.offer_price,
-                        "price_per_sqft": row.price_per_sqft,
-                        "beds": row.beds,
-                        "baths": row.baths,
-                        "monthly_piti": row.monthly_piti,
-                        "cash_to_close": row.cash_to_close,
-                    }
-                )
-
-        ui.label("Compare").classes("hb-page-title")
-        ui.label(
-            f"{len(row_data)} homes — price, $/sqft, beds/baths, PITI, cash-to-close"
-        ).classes("hb-page-hint")
-
-        columns = [
-            {
-                "name": "metric",
-                "label": "",
-                "field": "metric",
-                "align": "left",
-                "sortable": False,
-            },
-        ]
-        for i, home in enumerate(row_data):
-            columns.append(
-                {
-                    "name": f"h{i}",
-                    "label": home["street"],
-                    "field": f"h{i}",
-                    "align": "left",
-                    "sortable": False,
-                }
-            )
-
-        def _cell_price(value: float | None) -> str:
-            return _format_price(value) if value is not None else "—"
-
-        def _cell_per_sqft(value: float | None) -> str:
-            if value is None:
-                return "—"
-            return f"${value:,.0f}/sqft"
-
-        def _cell_beds_baths(beds: float | None, baths: float | None) -> str:
-            text = _format_beds_baths(beds, baths)
-            return text or "—"
-
-        def _row(metric: str, values: list[str]) -> dict:
-            out: dict = {"metric": metric}
-            for i, val in enumerate(values):
-                out[f"h{i}"] = val
-            return out
-
-        table_rows = [
-            _row(
-                "Address",
-                [h["address"] for h in row_data],
-            ),
-            _row(
-                "List price",
-                [_cell_price(h["list_price"]) for h in row_data],
-            ),
-            _row(
-                "Offer price",
-                [
-                    _cell_price(h["offer_price"]) if h["offer_price"] else "—"
-                    for h in row_data
-                ],
-            ),
-            _row(
-                "$/sqft",
-                [_cell_per_sqft(h["price_per_sqft"]) for h in row_data],
-            ),
-            _row(
-                "Beds / baths",
-                [_cell_beds_baths(h["beds"], h["baths"]) for h in row_data],
-            ),
-            _row(
-                "Est. PITI",
-                [
-                    f"{_cell_price(h['monthly_piti'])}/mo"
-                    if h["monthly_piti"] is not None
-                    else "—"
-                    for h in row_data
-                ],
-            ),
-            _row(
-                "Cash to close",
-                [_cell_price(h["cash_to_close"]) for h in row_data],
-            ),
-        ]
-
-        ui.table(columns=columns, rows=table_rows, row_key="metric").classes(
-            "w-full hb-compare-table"
-        ).props("flat dense dark separator=horizontal")
-
-        with ui.row().classes("gap-2 flex-wrap"):
-            for home in row_data:
-                ui.button(
-                    home["street"][:40] or f"Home {home['id']}",
-                    on_click=lambda i=home["id"]: ui.navigate.to(f"/property/{i}"),
-                ).props("unelevated dense color=dark")

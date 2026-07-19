@@ -144,6 +144,8 @@ def test_sync_uses_listing_rent_and_blended_appreciation(tmp_path, monkeypatch):
         zillow_url="https://www.zillow.com/homedetails/x_6_zpid/",
         zip_code="98101",
         state="WA",
+        latitude=47.6,
+        longitude=-122.3,
     )
     prop.financial = FinancialAssumptions()
     session.add(prop)
@@ -160,6 +162,9 @@ def test_sync_uses_listing_rent_and_blended_appreciation(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.core.property_service.zip5_cagr", lambda zip_code: 4.0, raising=False
     )
+    monkeypatch.setattr(
+        "app.core.census_acs.county_median_rent_cagr", lambda lat, lng: 4.25
+    )
 
     PropertyService(session)._sync_financial_from_listing(
         prop,
@@ -174,6 +179,8 @@ def test_sync_uses_listing_rent_and_blended_appreciation(tmp_path, monkeypatch):
 
     assert prop.financial.monthly_rent == 2_500
     assert prop.financial.rent_source == "Zillow"
+    assert prop.financial.rent_growth_pct == 4.25
+    assert prop.financial.rent_growth_source == "ACS county ~5y CAGR"
     assert prop.financial.appreciation_fhfa_pct == 4.0
     assert prop.financial.appreciation_zillow_pct == 6.0
     assert prop.financial.appreciation_pct == 5.0

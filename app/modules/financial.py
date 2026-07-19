@@ -142,6 +142,11 @@ def render(prop: Property, container: ui.element) -> None:
         subject_zillow_url=subject_zillow_url,
         peer_refs=peer_refs,
     )
+    growth_state = {
+        "pct": float(fin.rent_growth_pct or 0),
+        "source": (fin.rent_growth_source or "").strip() or "Default",
+        "control": bool(fin.rent_control),
+    }
 
     with container:
         ui.label("Financials").classes("hb-page-title")
@@ -249,13 +254,18 @@ def render(prop: Property, container: ui.element) -> None:
                 ui.label(
                     "Compare selling equity with investing the monthly difference."
                 ).classes("hb-page-meta")
-                rent_in = ui.number(
-                    "Comparable rent / month",
-                    value=values["monthly_rent"],
-                    format="%.0f",
-                ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                with ui.row().classes("w-full items-end gap-2 no-wrap"):
+                    rent_in = ui.number(
+                        "Comparable rent / month",
+                        value=values["monthly_rent"],
+                        format="%.0f",
+                    ).props("prefix=$ dense outlined stack-label").classes("col")
+                    rent_control = ui.checkbox(
+                        "Rent control", value=growth_state["control"]
+                    ).props("dense")
                 if (fin.rent_source or "").strip():
                     ui.label(fin.rent_source).classes("hb-page-meta")
+                growth_caption = ui.label("").classes("hb-page-meta")
                 appr_in = ui.number(
                     "Appreciation",
                     value=values["appreciation_pct"],
@@ -308,6 +318,8 @@ def render(prop: Property, container: ui.element) -> None:
                 "monthly_hoa": float(hoa.value or 0),
                 "closing_cost_pct": float(closing.value or 0),
                 "monthly_rent": float(rent_in.value or 0),
+                "rent_control": bool(growth_state["control"]),
+                "rent_growth_pct": float(growth_state["pct"] or 0),
                 "appreciation_pct": float(appr_in.value or 0),
             }
 
@@ -315,7 +327,13 @@ def render(prop: Property, container: ui.element) -> None:
             return {
                 key: value
                 for key, value in data.items()
-                if key not in {"monthly_rent", "appreciation_pct"}
+                if key
+                not in {
+                    "monthly_rent",
+                    "rent_control",
+                    "rent_growth_pct",
+                    "appreciation_pct",
+                }
             }
 
         offer_in.on_value_change(lambda _: refresh_down_meta())
@@ -324,10 +342,17 @@ def render(prop: Property, container: ui.element) -> None:
 
         gemini_state = {"text": cached_gemini, "for": cached_for}
 
+        def refresh_growth_caption() -> None:
+            growth_caption.set_text(
+                f"Growth {float(growth_state['pct'] or 0):.2f}%/yr · "
+                f"{growth_state['source'] or 'Default'}"
+            )
+
         def redraw() -> None:
             import plotly.graph_objects as go
 
             refresh_down_meta()
+            refresh_growth_caption()
             data = collect()
             result = summarize(**mortgage_data(data))
 
@@ -515,6 +540,7 @@ def render(prop: Property, container: ui.element) -> None:
                         summary=result,
                         appreciation_pct=float(appr_in.value or 0),
                         monthly_rent=float(rent_in.value or 0),
+                        rent_growth_pct=float(growth_state["pct"] or 0),
                     )
                     buy_vs_rent = go.Figure()
                     buy_vs_rent.add_trace(
@@ -557,6 +583,10 @@ def render(prop: Property, container: ui.element) -> None:
                     projection_bits = [
                         f"Appreciation {float(appr_in.value or 0):.2f}%/yr",
                         f"source {fin.appreciation_source or '—'}",
+                        (
+                            f"Rent growth {float(growth_state['pct'] or 0):.2f}%/yr"
+                            f" · {growth_state['source'] or 'Default'}"
+                        ),
                     ]
                     if fin.appreciation_fhfa_pct is not None:
                         projection_bits.append(
@@ -582,10 +612,31 @@ def render(prop: Property, container: ui.element) -> None:
 
             refresh_gemini_panel()
 
+        def on_rent_control(_: object = None) -> None:
+            checked = bool(rent_control.value)
+            with get_session() as session:
+                resolved = PropertyService(session).ensure_rent_growth(
+                    property_id, rent_control=checked
+                )
+                growth_state["control"] = bool(resolved.rent_control)
+                growth_state["pct"] = float(resolved.rent_growth_pct or 0)
+                growth_state["source"] = (
+                    resolved.rent_growth_source or ""
+                ).strip() or "Default"
+            refresh_growth_caption()
+            redraw()
+
+        rent_control.on_value_change(on_rent_control)
+
         def save() -> None:
             data = collect()
             with get_session() as session:
-                PropertyService(session).update_financial(property_id, **data)
+                saved = PropertyService(session).update_financial(property_id, **data)
+                growth_state["control"] = bool(saved.rent_control)
+                growth_state["pct"] = float(saved.rent_growth_pct or 0)
+                growth_state["source"] = (
+                    saved.rent_growth_source or ""
+                ).strip() or "Default"
             ui.notify("Assumptions saved", type="positive")
             redraw()
 
@@ -605,10 +656,10 @@ def render(prop: Property, container: ui.element) -> None:
             field.on("keydown.enter", lambda: redraw())
 
         with ui.row().classes("q-mt-md gap-2"):
-            ui.button("Recalculate", on_click=redraw).props("outline dense")
+            ui.button("Recalculate", on_click=redraw).props("unelevated dense color=dark")
             ui.button("Save assumptions", on_click=save).props(
-                "unelevated color=primary dense"
-            )
+                "unelevated dense color=dark"
+            ).classes("hb-btn-cta")
 
         ui.separator().classes("q-mt-lg").style("border-color: var(--hb-border);")
         ui.label("Gemini financial take").classes("hb-section-title q-mt-md")
@@ -660,14 +711,14 @@ def render(prop: Property, container: ui.element) -> None:
                         "Regenerate",
                         on_click=lambda: run_gemini(force=True),
                         icon="auto_awesome",
-                    ).props("outline color=primary dense")
+                    ).props("unelevated dense color=dark")
                 else:
                     label = "Regenerate" if text else "Ask Gemini"
                     ui.button(
                         label,
                         on_click=lambda: run_gemini(force=True),
                         icon="auto_awesome",
-                    ).props("unelevated color=primary dense")
+                    ).props("unelevated dense color=dark").classes("hb-btn-cta")
 
             gemini_box.clear()
             with gemini_box:

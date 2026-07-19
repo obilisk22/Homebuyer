@@ -73,6 +73,19 @@ def test_library_nav_and_filter_ux():
     assert "hb-page-meta" in src
 
 
+def test_financial_rent_control_wires_growth_into_projection():
+    src = (ROOT / "app" / "modules" / "financial.py").read_text(encoding="utf-8")
+
+    assert "ui.checkbox(" in src
+    assert '"Rent control"' in src
+    assert "growth_state" in src
+    assert "ensure_rent_growth(" in src
+    assert "rent_control=checked" in src
+    assert 'rent_growth_pct=float(growth_state["pct"] or 0)' in src
+    assert '"rent_control": bool(growth_state["control"])' in src
+    assert '"rent_growth_pct": float(growth_state["pct"] or 0)' in src
+
+
 def test_street_address_line_strips_city_state_zip():
     from app.ui.pages import _street_address_line
 

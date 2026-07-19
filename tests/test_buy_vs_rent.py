@@ -1,6 +1,7 @@
 from app.core.finance import (
     blend_appreciation_rates,
     buy_vs_rent_projection,
+    rent_cagr_pct,
     summarize,
 )
 from openpyxl import Workbook
@@ -118,6 +119,47 @@ def test_cagr_from_index_series_decade():
 
 def test_cagr_insufficient_history():
     assert cagr_from_index_series([(2024, 100.0)], span_years=10) is None
+
+
+def test_rent_cagr_pct_five_years():
+    # doubles over 5 years → (2**(1/5)-1)*100
+    rate = rent_cagr_pct(1000.0, 2000.0, years=5)
+    assert rate is not None
+    assert abs(rate - ((2.0 ** (1 / 5) - 1.0) * 100.0)) < 0.01
+
+
+def test_rent_cagr_pct_invalid():
+    assert rent_cagr_pct(0, 2000.0) is None
+    assert rent_cagr_pct(1000.0, 0) is None
+    assert rent_cagr_pct(-1, 2000) is None
+
+
+def test_buy_vs_rent_applies_rent_growth_year_one():
+    summary = summarize(
+        list_price=500_000,
+        offer_price=500_000,
+        down_payment_pct=20,
+        interest_rate_pct=0.0,
+        loan_term_years=30,
+        annual_property_tax=0,
+        annual_insurance=0,
+        monthly_hoa=0,
+        closing_cost_pct=0,
+    )
+    rent0 = summary.monthly_total / 2.0
+    rows = buy_vs_rent_projection(
+        summary=summary,
+        appreciation_pct=0.0,
+        monthly_rent=rent0,
+        invest_return_pct=0.0,
+        selling_cost_pct=6.0,
+        rent_growth_pct=10.0,  # easy math
+    )
+    # Year 0 portfolio = cash_to_close; after year 1: 12 months at rent0*(1.1)
+    rent_y1 = rent0 * 1.10
+    contrib_y1 = summary.monthly_total - rent_y1
+    expected = 100_000 + 12 * contrib_y1
+    assert abs(rows[1].rent_invest_net_worth - expected) < 1.0
 
 
 def test_fhfa_series_skips_title_rows_and_uses_hpi_level():

@@ -172,6 +172,21 @@ def blend_appreciation_rates(
     return blended, "Zillow"
 
 
+def rent_cagr_pct(
+    rent_start: float, rent_end: float, *, years: int = 5
+) -> float | None:
+    if years <= 0:
+        return None
+    try:
+        start = float(rent_start)
+        end = float(rent_end)
+    except (TypeError, ValueError):
+        return None
+    if start <= 0 or end <= 0:
+        return None
+    return ((end / start) ** (1.0 / years) - 1.0) * 100.0
+
+
 def buy_vs_rent_projection(
     *,
     summary: MortgageSummary,
@@ -179,6 +194,7 @@ def buy_vs_rent_projection(
     monthly_rent: float,
     invest_return_pct: float = 10.0,
     selling_cost_pct: float = 6.0,
+    rent_growth_pct: float = 0.0,
 ) -> list[BuyVsRentYear]:
     # Infer horizon from amortization length (cash / empty schedule → year 0 only)
     term_years = max(len(summary.schedule) // 12, 0)
@@ -189,8 +205,8 @@ def buy_vs_rent_projection(
     appr = float(appreciation_pct) / 100.0
     r_month = (float(invest_return_pct) / 100.0) / 12.0
     piti = float(summary.monthly_total)
-    rent = float(monthly_rent or 0)
-    contrib = max(0.0, piti - rent)
+    g = float(rent_growth_pct or 0) / 100.0
+    rent0 = float(monthly_rent or 0)
 
     # Balance lookup by month (1-indexed in schedule)
     bal_by_month = {int(row["month"]): float(row["balance"]) for row in summary.schedule}
@@ -217,6 +233,8 @@ def buy_vs_rent_projection(
         if year == term_years:
             break
         # Advance 12 months of rent-path contributions + compounding
+        rent_year = rent0 * ((1.0 + g) ** (year + 1))
+        contrib = max(0.0, piti - rent_year)
         for _ in range(12):
             portfolio = portfolio * (1.0 + r_month) + contrib
 

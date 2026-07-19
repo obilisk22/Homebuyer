@@ -284,6 +284,7 @@ class PropertyService:
             if (fin.rent_source or "").strip() in ("", "Zillow"):
                 fin.monthly_rent = float(details.rent_zestimate)
                 fin.rent_source = "Zillow"
+        self.resolve_rent_growth(fin, prop)
 
         fhfa = None
         try:
@@ -317,6 +318,46 @@ class PropertyService:
             return
         fin.interest_rate_pct = float(rate)
         fin.interest_rate_source = src
+
+    def resolve_rent_growth(self, fin: FinancialAssumptions, prop: Property) -> None:
+        """Resolve rent growth from control status, ACS county data, or a default."""
+        if fin.rent_control:
+            fin.rent_growth_pct = 2.0
+            fin.rent_growth_source = "Rent control 2%"
+            return
+        if (fin.rent_growth_source or "").strip() == "Manual":
+            return
+
+        cagr = None
+        try:
+            if prop.latitude is not None and prop.longitude is not None:
+                from app.core.census_acs import county_median_rent_cagr
+
+                cagr = county_median_rent_cagr(float(prop.latitude), float(prop.longitude))
+        except Exception:  # noqa: BLE001 - data resolution must not block listing sync
+            cagr = None
+
+        if cagr is not None:
+            fin.rent_growth_pct = float(cagr)
+            fin.rent_growth_source = "ACS county ~5y CAGR"
+        else:
+            fin.rent_growth_pct = 3.0
+            fin.rent_growth_source = "Default"
+
+    def ensure_rent_growth(
+        self, property_id: int, *, rent_control: bool | None = None
+    ) -> FinancialAssumptions:
+        """Resolve and persist rent-growth assumptions for a saved property."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        fin = self.ensure_financial(prop)
+        if rent_control is not None:
+            fin.rent_control = bool(rent_control)
+        self.resolve_rent_growth(fin, prop)
+        self.session.commit()
+        self.session.refresh(fin)
+        return fin
 
     def _fill_location_from_address(self, prop: Property) -> None:
         if prop.city and prop.state:
@@ -841,6 +882,8 @@ class PropertyService:
         prev_tax = float(fin.annual_property_tax or 0)
         prev_ins = float(fin.annual_insurance or 0)
         prev_rent = float(fin.monthly_rent or 0)
+        prev_growth = float(fin.rent_growth_pct or 0)
+        prev_rent_control = bool(fin.rent_control)
         prev_appr = float(fin.appreciation_pct or 0)
         prev_rate = float(fin.interest_rate_pct or 0)
         prev_term = int(fin.loan_term_years or 30)
@@ -854,6 +897,22 @@ class PropertyService:
             fin.insurance_source = ""
         if "monthly_rent" in fields and float(fields["monthly_rent"]) != prev_rent:
             fin.rent_source = "Manual"
+        if "rent_control" in fields and bool(fields["rent_control"]):
+            fin.rent_control = True
+            fin.rent_growth_pct = 2.0
+            fin.rent_growth_source = "Rent control 2%"
+        elif (
+            "rent_growth_pct" in fields
+            and float(fields["rent_growth_pct"]) != prev_growth
+        ):
+            fin.rent_growth_source = "Manual"
+            fin.rent_control = False
+        elif (
+            "rent_control" in fields
+            and prev_rent_control
+            and not bool(fin.rent_control)
+        ):
+            self.resolve_rent_growth(fin, prop)
         if "appreciation_pct" in fields and float(fields["appreciation_pct"]) != prev_appr:
             fin.appreciation_source = "Manual"
         term_changed = (

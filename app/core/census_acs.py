@@ -489,6 +489,64 @@ def _parse_acs_missing(raw: object) -> float | None:
     return val
 
 
+def _county_median_gross_rent(
+    state_fips: str, county_fips: str, year: int
+) -> float | None:
+    key = cache_key("acs", year, state_fips, county_fips, "B25064_county")
+    cached = read_json("acs_county_rent", key, max_age_s=CACHE_MAX_AGE_S)
+    if isinstance(cached, dict) and "rent" in cached:
+        rent = cached.get("rent")
+        return float(rent) if rent is not None else None
+
+    dataset = f"{year}/acs/acs5"
+    url = f"https://api.census.gov/data/{dataset}"
+    params = {
+        "get": "NAME,B25064_001E",
+        "for": f"county:{county_fips}",
+        "in": f"state:{state_fips}",
+        "key": census_api_key(),
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_S)
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+    header, data = rows[0], rows[1]
+    try:
+        rent_i = header.index("B25064_001E")
+        rent = _parse_acs_missing(data[rent_i])
+    except (IndexError, ValueError):
+        return None
+    write_json(
+        "acs_county_rent",
+        key,
+        {"rent": rent, "name": data[header.index("NAME")] if "NAME" in header else ""},
+    )
+    return rent
+
+
+def county_median_rent_cagr(lat: float, lng: float) -> float | None:
+    """Return the five-year CAGR of county median gross rent (ACS B25064)."""
+    from app.core.finance import rent_cagr_pct
+
+    if not has_census_key():
+        return None
+    try:
+        state_fips, county_fips = _fcc_fips(lat, lng)
+    except Exception:
+        return None
+
+    end = _county_median_gross_rent(state_fips, county_fips, ACS_YEAR)
+    start = _county_median_gross_rent(state_fips, county_fips, ACS_YEAR - 5)
+    if end is None or start is None:
+        return None
+    return rent_cagr_pct(start, end, years=5)
+
+
 def county_effective_property_tax_rate(lat: float, lng: float) -> float | None:
     """Median real-estate taxes / median home value for the pin's county (ACS 5-year)."""
     if not has_census_key():

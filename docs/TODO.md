@@ -32,6 +32,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-028 | Open | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
 | TODO-029 | Open | Property header: show library nearby-signal icons (bottom-right, above tabs) |
 | TODO-030 | Open | Gemini neighborhood prompts: pass exact home address (not only hood name) |
+| TODO-031 | Open | Property page: lower visual weight of Edit listing details |
 
 ---
 
@@ -427,3 +428,18 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Out of scope:** Financials Gemini already uses Zillow URLs (URL context) — leave unless a small address label helps; do not dump calculator fields into neighborhood prompts.
 
 **Touch:** `app/core/gemini_neighborhood.py`, `property_service.py`, tests, `AGENTS.md` §6.
+
+---
+
+## TODO-031 — Quieter “Edit listing details”
+
+**Status:** Open
+
+**Problem:** On the property page, **Edit listing details** sits as a full-width expansion under the header actions and competes with Photos / Map / Neighborhood / Financials.
+
+**Goals**
+- Lower its visual weight: quieter/greyed expansion chrome, and/or relocate (e.g. under a ⋮ overflow, footer of header, or collapsed “Advanced” near Refresh listing details).
+- Keep all existing edit fields + Save behavior; no new listing fields.
+- Match dark neo / Creato hierarchy — secondary control, not a peer of the tab strip.
+
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py` as needed, docs.

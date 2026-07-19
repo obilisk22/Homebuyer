@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (filed TODO-031: quieter Edit listing details)
+> Last updated: 2026-07-18 (filed TODO-032: library appreciation on cards)
 
 
 
@@ -211,6 +211,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-029` | **Open** | Property header nearby icons (library chips, above tabs) |
 | `TODO-030` | **Open** | Gemini neighborhood — pass exact home address |
 | `TODO-031` | **Open** | Quieter / relocate Edit listing details |
+| `TODO-032` | **Open** | Library card appreciation % (amber if &lt; 3%) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

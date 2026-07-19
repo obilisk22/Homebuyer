@@ -33,6 +33,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-029 | Open | Property header: show library nearby-signal icons (bottom-right, above tabs) |
 | TODO-030 | Open | Gemini neighborhood prompts: pass exact home address (not only hood name) |
 | TODO-031 | Open | Property page: lower visual weight of Edit listing details |
+| TODO-032 | Open | Library card: show calculated appreciation %; amber if under 3% |
 
 ---
 
@@ -443,3 +444,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 - Match dark neo / Creato hierarchy — secondary control, not a peer of the tab strip.
 
 **Touch:** `app/ui/pages.py`, `app/ui/theme.py` as needed, docs.
+
+---
+
+## TODO-032 — Library card appreciation rate
+
+**Status:** Open
+
+**Show the home’s calculated appreciation %** on each library card (from `FinancialAssumptions.appreciation_pct` — FHFA/Zillow blend or Manual), so low-growth ZIPs are obvious in the list.
+
+**Goals**
+- Quiet caption or chip near the existing PITI/cash financial line (or meta chips) — e.g. `Appr. 2.4%/yr`.
+- **Highlight under 3%** in amber (theme `#FFC107` / existing HOA-high pattern), not magenta risk unless design says otherwise.
+- Hide or show `—` when financials/appreciation missing; don’t invent a fake rate on the card.
+- Optional short source tooltip (`appreciation_source`) — nice-to-have, not required for v1.
+
+**Non-goals:** Change blend math; add appreciation filters/sort (unless trivial later).
+
+**Touch:** `app/ui/pages.py` (library cards), `app/ui/theme.py`, maybe `library_export.snapshot_from_property` if snapshot is the clean path, docs.

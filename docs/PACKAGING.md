@@ -11,6 +11,8 @@
 
 Native mode **auto-picks a free port** (ignores `HOMEBUY_PORT` / 8080) so it can run while the browser session is up. Optional: `HOMEBUY_NATIVE_PORT`.
 
+The native window uses a dark frame (`#0B0D10` background + Windows immersive dark title bar / caption / border) via `app/core/native_chrome.py`.
+
 ## Data & secrets (installed app)
 
 Writable data lives in `%LOCALAPPDATA%\Homebuy\` (DB, uploads, caches).  

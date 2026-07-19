@@ -10,6 +10,7 @@ from nicegui import app, core, ui
 
 from app.core.db import DATA_DIR, init_db
 from app.core.module_registry import discover_modules
+from app.core.native_chrome import apply_dark_frame, configure_native_window_args
 from app.core.paths import env_file, is_frozen, static_dir
 from app.seed import seed_demo_if_empty
 from app.ui.pages import library_page, property_page  # noqa: F401 — registers routes
@@ -22,8 +23,20 @@ WS_MAX_HTTP_BUFFER_BYTES = 32 * 1024 * 1024  # 32 MiB
 
 # Must be set outside the main guard so PyInstaller subprocesses see them
 # (NiceGUI native / freeze_support packaging requirement).
-app.native.window_args["title"] = "Homebuy"
-app.native.window_args["min_size"] = (960, 640)
+configure_native_window_args(app.native.window_args)
+
+
+def _on_native_shown() -> None:
+    """Darken the OS title bar / border once the pywebview window exists."""
+    import threading
+
+    apply_dark_frame()
+    # HWND can lag the first shown event on some Windows builds.
+    for delay in (0.15, 0.6):
+        threading.Timer(delay, apply_dark_frame).start()
+
+
+app.native.on("shown", _on_native_shown)
 
 
 def _env_flag(name: str) -> str | None:

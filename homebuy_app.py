@@ -7,8 +7,9 @@ from multiprocessing import freeze_support
 # Native window args must be applied before freeze_support intercepts subprocesses.
 from nicegui import app
 
-app.native.window_args["title"] = "Homebuy"
-app.native.window_args["min_size"] = (960, 640)
+from app.core.native_chrome import configure_native_window_args
+
+configure_native_window_args(app.native.window_args)
 
 if __name__ == "__main__":
     freeze_support()

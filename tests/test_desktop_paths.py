@@ -73,3 +73,21 @@ def test_native_run_skips_browser_port():
     )
     assert "HOMEBUY_NATIVE_PORT" in src
     assert "Do not reuse HOMEBUY_PORT" in src
+
+
+def test_native_chrome_matches_theme_bg():
+    from app.core.native_chrome import NATIVE_BG, configure_native_window_args
+    from app.ui.theme import COLORS
+
+    assert NATIVE_BG == COLORS["bg"]
+    args: dict = {}
+    configure_native_window_args(args)
+    assert args["background_color"] == COLORS["bg"]
+    assert args["title"] == "Homebuy"
+
+
+def test_hex_to_colorref_bgr():
+    from app.core.native_chrome import _hex_to_colorref
+
+    # #0B0D10 → R=0x0B G=0x0D B=0x10 → 0x00100D0B
+    assert _hex_to_colorref("#0B0D10") == 0x00100D0B

@@ -11,6 +11,10 @@ data/*
 .DS_Store
 Thumbs.db
 
+# PyInstaller / Inno Setup outputs
+build/
+dist/
+
 # Local debug scrapes / probe junk
 _tmp*
 _probe*

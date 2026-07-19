@@ -8,11 +8,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-_CACHE_ROOT = Path("data") / "cache"
+from app.core.paths import DATA_DIR
+
+
+def _cache_root() -> Path:
+    return DATA_DIR / "cache"
 
 
 def cache_dir(*parts: str) -> Path:
-    path = _CACHE_ROOT.joinpath(*parts)
+    path = _cache_root().joinpath(*parts)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

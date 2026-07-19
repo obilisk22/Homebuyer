@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from datetime import date
 from functools import lru_cache
-from pathlib import Path
 
-_TABLE_PATH = Path(__file__).resolve().parents[1] / "data" / "utility_providers.json"
+from app.core.paths import package_data_file
+
+_TABLE_PATH = package_data_file("utility_providers.json")
 
 
 @lru_cache(maxsize=1)

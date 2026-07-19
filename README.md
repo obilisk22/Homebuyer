@@ -34,7 +34,27 @@ cd C:\Users\hheaf\Projects\homebuy
 
 Or double-click `run.bat`.
 
-Opens at [http://127.0.0.1:8080](http://127.0.0.1:8080). A demo property is seeded on first launch.
+Opens at [http://127.0.0.1:8080](http://127.0.0.1:8080) in your **browser**. A demo property is seeded on first launch. Day-to-day iteration stays in the browser.
+
+### Desktop window (optional)
+
+To open the same app in a native window (pywebview / WebView2) without packaging:
+
+```powershell
+.\run-native.bat
+# or:  $env:HOMEBUY_NATIVE=1; .\.venv\Scripts\python.exe -m app.main --native
+```
+
+### Windows installer / packaged exe
+
+See [`docs/PACKAGING.md`](docs/PACKAGING.md). Short version:
+
+```powershell
+.\packaging\build_windows.ps1            # → dist\Homebuy\Homebuy.exe
+.\packaging\build_windows.ps1 -Installer # → dist\installer\Homebuy-Setup-0.1.0.exe (needs Inno Setup 6)
+```
+
+Installed builds write DB/uploads/cache to `%LOCALAPPDATA%\Homebuy\` and load optional keys from `%LOCALAPPDATA%\Homebuy\.env`.
 
 ## Add a home
 

@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-load_dotenv()
+from app.core.paths import DATA_DIR, ROOT, UPLOADS_DIR, env_file
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data"
-UPLOADS_DIR = DATA_DIR / "uploads"
+load_dotenv(env_file())
+# Dev: also load repo `.env` when present (no-op / non-override if same path).
+load_dotenv(ROOT / ".env", override=False)
 
 
 class Base(DeclarativeBase):
@@ -22,11 +22,19 @@ _engine = None
 _SessionLocal: sessionmaker[Session] | None = None
 
 
-def _db_url() -> str:
-    raw = os.getenv("HOMEBUY_DB_PATH", "data/homebuy.db")
+def _resolve_db_path() -> Path:
+    raw = (os.getenv("HOMEBUY_DB_PATH") or "data/homebuy.db").strip()
     path = Path(raw)
-    if not path.is_absolute():
-        path = ROOT / path
+    if path.is_absolute():
+        return path
+    parts = path.parts
+    if parts and parts[0] == "data":
+        return DATA_DIR.joinpath(*parts[1:])
+    return DATA_DIR / path
+
+
+def _db_url() -> str:
+    path = _resolve_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{path.as_posix()}"
 

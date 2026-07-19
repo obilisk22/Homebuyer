@@ -7,6 +7,7 @@ from pathlib import Path
 from nicegui import ui
 
 from app.core.map_basemap import FULLSCREEN_ICON_URL
+from app.core.paths import static_dir
 
 # Accent set: cyan (primary), magenta (secondary), electric lime (highlight)
 NEON = {
@@ -31,7 +32,7 @@ COLORS = {
 }
 
 _THEME_APPLIED_ATTR = "_homebuy_theme_applied"
-_FONTS_DIR = Path(__file__).resolve().parents[1] / "static" / "fonts"
+_FONTS_DIR = static_dir() / "fonts"
 
 # (family, relative path under fonts/, weight)
 _FONT_CANDIDATES: list[tuple[str, str, int]] = [

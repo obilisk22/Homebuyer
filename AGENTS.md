@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (cleanup: dead helpers + shared geo utils)
+> Last updated: 2026-07-19 (Windows desktop packaging: native window + installer recipe)
 
 
 
@@ -14,7 +14,8 @@
 | **Path** | `C:\Users\hheaf\Projects\homebuy` |
 | **Stack** | Python 3.12, NiceGUI, SQLAlchemy + SQLite, Plotly, Leaflet, curl_cffi |
 | **UI** | Dark cyberpunk theme — Creato Display body/prices + Akira Expanded street/brand; cyan emission hierarchy |
-| **App URL** | http://127.0.0.1:8080 |
+| **App URL** | http://127.0.0.1:8080 (browser) · optional native window via `--native` / packaged exe |
+| **Desktop** | NiceGUI `native=True` (pywebview); freeze via `packaging/`; installer Inno Setup — see `docs/PACKAGING.md` |
 
 ## How to run (Windows)
 
@@ -25,7 +26,9 @@ cd C:\Users\hheaf\Projects\homebuy
 .\.venv\Scripts\python.exe -m app.main
 ```
 
-Or double-click `run.bat`.
+Or double-click `run.bat` (browser). For a native desktop window while developing: `run-native.bat` or `--native` / `HOMEBUY_NATIVE=1`.
+
+Packaged Windows build + Setup.exe: [`docs/PACKAGING.md`](docs/PACKAGING.md) (`.\packaging\build_windows.ps1`). Frozen apps use `%LOCALAPPDATA%\Homebuy\` for DB/uploads/cache and `.env` (override with `HOMEBUY_DATA_DIR`). Path helpers live in `app/core/paths.py`.
 
 ```powershell
 # Tests
@@ -116,7 +119,9 @@ Restart the app — the tab appears automatically.
 
 | Area | Path |
 |------|------|
-| Entry | `app/main.py` |
+| Entry | `app/main.py` (`--native` / `--browser`; freeze entry `homebuy_app.py`) |
+| Paths (dev vs frozen) | `app/core/paths.py` — `DATA_DIR`, package JSON, static |
+| Packaging | `packaging/build_windows.ps1`, `homebuy.spec`, `Homebuy.iss` — `docs/PACKAGING.md` |
 | Library + property pages | `app/ui/pages.py` |
 | Theme | `app/ui/theme.py` |
 | Models / migrate | `app/core/models.py`, `app/core/db.py` |
@@ -211,6 +216,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] TODO-044 / TODO-045 / TODO-046 (2026-07-19): Growth caption; street −10% + smaller `#unit`; lime Growth when &gt;6%/yr
 - [x] TODO-047 (2026-07-19): Nearby-signal chips open Google Maps (lat/lng / place_id / name); persist coords on hit JSON
 - [x] TODO-049 (2026-07-19): Nearby chip Maps → specific place (`place_id` / name@coords) + home↔place directions when pinned
+- [x] Windows desktop packaging (2026-07-19): NiceGUI native window (`--native` / packaged default); `%LOCALAPPDATA%\Homebuy` data when frozen; PyInstaller + Inno Setup recipe (`docs/PACKAGING.md`); browser remains default for day-to-day dev
 - [x] TODO-048 (2026-07-19): Playground radius 0.75 → 0.9375 mi (×1.25); Overpass cache `overpass_v3_*`
 - [x] TODO-039 no Central AC chip (2026-07-19): scrape cooling → `Property.cooling` / `has_central_ac`; magenta risk chip via `listing_signals.listing_risk_chips` on library + property header
 - [x] TODO-042 missing broadband chip (2026-07-19): FCC Geo + Living Atlas BDC block UniqueProviders* (no API key); magenta `wifi_off` when no fixed terrestrial service; unknown/error → no chip
@@ -258,7 +264,8 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 2. **Street View:** Free Google `svembed` only; shown **below the map** on the Map tab in a dense collapsible expansion (open by default). Panel is 16:9 with `max-height: min(42vh, 480px)` (no min-height empty shell). Action row: Open in Google Maps / Open Street View / **Open in Google Earth** (`earth.google.com/web/@lat,lng,…` new tab) when pinned. No Maps Embed API keys for SV.
 2b. **Map chrome:** Dark CARTO basemap (`apply_dark_basemap`); compact **neo text toggles** for overlays above the map (short labels; `.hb-map-layer-btn`, cyan glow only when on); single status line; Pin tools expansion below the map (collapsed). Fullscreen via `leaflet.fullscreen` (CDN + `fullscreenControl` options from `leaflet_map_kwargs()`), control near zoom; Escape / browser exit restores the in-tab map. No always-on Census tip — message only when Income toggle fails / key missing.
 3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`.
-4. **Optional env:** `GOOGLE_MAPS_API_KEY` (preferred geocoding + library grocery/shelter via Places Nearby Search when set); `CENSUS_API_KEY` (Map ACS tract choropleths + Financials ACS county tax estimate + buy-vs-rent rent-growth CAGR — required for those); `SOCRATA_APP_TOKEN` (optional, crime / Form 477 rate limits); `GEMINI_API_KEY` (Neighborhood AI + Financials commentary); `GEMINI_MODEL` / `GEMINI_FINANCIAL_MODEL` (see §6 / §6b). Missing-broadband chip (see §8b) and assigned-school quality (see §6e) need **no key**.
+4. **Optional env:** `GOOGLE_MAPS_API_KEY` (preferred geocoding + library grocery/shelter via Places Nearby Search when set); `CENSUS_API_KEY` (Map ACS tract choropleths + Financials ACS county tax estimate + buy-vs-rent rent-growth CAGR — required for those); `SOCRATA_APP_TOKEN` (optional, crime / Form 477 rate limits); `GEMINI_API_KEY` (Neighborhood AI + Financials commentary); `GEMINI_MODEL` / `GEMINI_FINANCIAL_MODEL` (see §6 / §6b). Missing-broadband chip (see §8b) and assigned-school quality (see §6e) need **no key**. Launch: `HOMEBUY_NATIVE` / `--native` / `--browser`; writable root `HOMEBUY_DATA_DIR` (frozen default `%LOCALAPPDATA%\Homebuy`).
+4b. **Desktop packaging:** Dev defaults to **browser** on :8080. Packaged `Homebuy.exe` defaults to **native** pywebview window. Freeze with `.\packaging\build_windows.ps1`; optional Inno Setup (`-Installer`) installs per-user under `%LOCALAPPDATA%\Programs\Homebuy`. Details: `docs/PACKAGING.md`.
 5. **Theme accents:** Cyan `#00E5FF`, Magenta `#FF2BD6`, Lime `#B8FF3C`, Amber `#FFC107`.
 5b. **Visual foundation:** Neon glow is a priority ladder (L1 focus/CTA/tabs/brand; L2 **library card** hover only; L3 chips quiet). **Akira Expanded** = street address + brand; **Creato Display** = body/UI/price (SIL OFL; Akira personal-use/demo — gitignored). Drop `.otf` files in `app/static/fonts/`. Library: stretch-to-match thumb, street hero, quieter price, Creato page chrome; responsive address clamp + stack under ~800px. **All buttons** use dark neumorphism (Quasar primary/secondary/outline remapped to soft neo faces — no cyan fill or cyan outline rings); optional `.hb-btn-cta` for brighter label + cyan hover. Map layers / tabs same language. Photos lightbox: `.hb-lightbox*`. Financials form: primary 2-col `.hb-financial-form` (deal + rent) with collapsed Loan / Ownership / Advanced expansions; `.hb-field-help` / `.hb-field-revert`. **Property header photo:** `PROPERTY_HEADER_PHOTO_MODE` in `pages.py` — `"bleed"` (default, full-bleed + scrim) or `"beside"` (library-card thumb). Rule: `.cursor/rules/homebuy-visual.mdc`.
 5c. **Gemini in-tab:** Neighborhood overview / things-to-do and Financials commentary have Ask / Regenerate inside their tabs (in-place refresh); header Gemini insights may still exist as a bulk shortcut.
@@ -302,6 +309,7 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 - `README.md` — user-facing run instructions  
 - `.env.example` — optional keys  
 - This file (`AGENTS.md`) — continuity for AI agents  
+- `docs/PACKAGING.md` — Windows native window + PyInstaller / Inno Setup  
 - `docs/RESEARCH.md` — map overlays + neighborhood research notes  
 - `docs/TODO.md` — product backlog (listing scrape, area signals, Gemini sections)  
-- `docs/BUGS.md` — deferred bugs / verify-later items 
+- `docs/BUGS.md` — deferred bugs / verify-later items

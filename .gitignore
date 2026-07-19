@@ -17,6 +17,9 @@ _tmp*
 # Visual brainstorm companion mockups
 .superpowers/
 
+# Git worktrees (local feature checkouts)
+.worktrees/
+
 # Personal-use display font — do not publish binaries
 app/static/fonts/Akira*
 app/static/fonts/**/Akira*

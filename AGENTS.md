@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (filed TODO-039: no Central AC library icon)
+> Last updated: 2026-07-18 (filed TODO-040: estimate utilities)
 
 
 
@@ -223,6 +223,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-036` | **Open** | Nearby icons — verify all five; fix playground + shelter |
 | `TODO-037` | **Open** | Library card — remove unclear Cash caption |
 | `TODO-039` | **Open** | Library icon when home has no Central AC |
+| `TODO-040` | **Open** | Estimate utilities from provider + sqft + age |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

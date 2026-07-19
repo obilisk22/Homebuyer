@@ -41,6 +41,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-037 | Open | Library card: remove unclear “Cash” from financial caption |
 | TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
 | TODO-039 | Open | Library icon when home has no Central AC |
+| TODO-040 | Open | Estimate utilities from provider + sqft + age |
 
 ---
 
@@ -590,3 +591,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Full HVAC editor UI; invent AC when Zillow omits the field.
 
 **Touch:** `zillow_listing.py`, `models.py`, `db.py`, `property_service.py`, library card UI/`theme.py`, tests, docs.
+
+---
+
+## TODO-040 — Estimate utilities (provider + sqft + age)
+
+**Status:** Open
+
+**Estimate monthly utilities** for a home from **utility provider**, **sqft**, and **year built / age** (and show/source-caption like other Ownership autofills).
+
+**Goals**
+- Resolve electric/gas (and optionally water/trash) **provider from location** (city/ZIP/lat-lng service territory — e.g. LADWP vs SCE vs SoCalGas for LA-area pins) with a clear fallback when unknown.
+- Estimate $/mo from provider rate/usage heuristics × **sqft** × **age band** (older stock / no central AC may bump cooling/heating — coordinate with TODO-039 if useful).
+- Persist on `FinancialAssumptions` (e.g. `monthly_utilities` + `utilities_source`); autofill on add/refresh unless Manual; show under Ownership (and fold into TODO-028 hierarchy / TODO-033 ? help).
+- Decide whether utilities enter **PITI+maint hero** / buy-vs-rent buyer cost (document decision at implement time).
+
+**Non-goals:** Live utility-account login; bill PDF upload; perfect tariff modeling.
+
+**Touch:** new `app/core/utilities.py` (+ data tables), `models.py` / `db.py`, `property_service.py`, `financial.py`, tests, docs.

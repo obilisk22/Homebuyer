@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (TODO-026: run.io_bound for long UI work)
+> Last updated: 2026-07-18 (filed TODO-027: remove Compare)
 
 
 
@@ -206,6 +206,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-016` / `018` | **Done** | Library snapshots/export + Compare view |
 | `TODO-017` | **Done** | Buy-vs-rent editable invest return / sell cost / maintenance |
 | `TODO-026` | **Done** | Connection lost — `run.io_bound` + `ui_jobs.py` |
+| `TODO-027` | **Open** | Remove Home Compare (checkboxes + `/compare`) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

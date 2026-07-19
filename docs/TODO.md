@@ -28,6 +28,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-024 | Done | Zoning overlay: coverage (1102/bbox/pagination) + WS-safe slim/merge (~16 MB → &lt;1 MB) |
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
 | TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
+| TODO-027 | Open | Remove Home Compare feature (library checkboxes + `/compare`) |
 
 ---
 
@@ -354,3 +355,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 - Flood/wildfire stay sync (instant WMS); `wire_layer` awaits awaitable handlers.
 
 **Touch:** `ui_jobs.py`, `pages.py`, `map_view.py`, `financial.py`, `neighborhood_reviews.py`, docs.
+
+---
+
+## TODO-027 — Remove Home Compare feature
+
+**Status:** Open
+
+**Remove** the side-by-side Compare flow shipped as TODO-018. Keep library financial captions + CSV/JSON export (TODO-016).
+
+**Delete / unwind**
+- Library card checkboxes + **Compare** toolbar button + selection state.
+- `/compare` page route and helpers (`compare_page`, `_compare_street`).
+- `app/core/compare.py` + `tests/test_compare.py`.
+- Docs / AGENTS / README mentions of Compare (product decision §8 + verify checklist).
+
+**Keep:** Export menu, PITI/cash card captions, rest of library chrome.
+
+**Touch:** `app/ui/pages.py`, `app/main.py` (route import), `app/core/compare.py`, tests, `AGENTS.md`, `README.md`, this file.

@@ -44,6 +44,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-040 | Open | Estimate utilities from provider + sqft + age |
 | TODO-041 | Open | Map overlay: National Transportation Noise Map (BTS) |
 | TODO-042 | Open | Library icon when location lacks broadband (FCC BDC) |
+| TODO-043 | Open | Library icon: high building-permit activity within ~0.25 mi |
 
 ---
 
@@ -653,3 +654,25 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Full ISP comparison UI; Map choropleth of broadband; speed-test measurement.
 
 **Touch:** new `app/core/fcc_broadband.py` (or similar), models/db if needed, library card UI / `nearby_signals` pattern, tests, docs.
+
+---
+
+## TODO-043 — Library icon: high permit activity (~0.25 mi)
+
+**Status:** Open
+
+**Show a library-card risk (or amber attention) icon** when **building-permit activity is high** in the surrounding **~quarter mile**, using metro **Socrata / SODA** open-data permit feeds (and/or BuildingEye-style portals) with geospatial queries (`within_circle` or equivalent).
+
+**Goals**
+- Query active structural / electrical / demolition (and similar) permits near the pin for supported cities first (**Los Angeles, Seattle, Austin** — expand later).
+- Define a clear “high activity” threshold (count and/or recent window, e.g. last 12–24 months) at implement time; document it.
+- Persist compact signal + timestamp on `Property` (nearby-signals pattern or sibling JSON); compute on add / post-geocode; stale refresh best-effort; never fail add-home.
+- Soft neo chip on library card with tooltip (count, nearest types, distance); optional header chip with TODO-029.
+- Cache under `data/cache/`; optional `SOCRATA_APP_TOKEN` for rate limits (already used for crime).
+- Note BuildingEye only if it adds value beyond free SODA; prefer official city open data.
+
+**Research first:** list LA / Seattle / Austin permit dataset IDs + geo fields in `docs/RESEARCH.md`.
+
+**Non-goals:** Full permit browser UI; Map overlay of every permit (icon-only v1); national coverage day one.
+
+**Touch:** new `app/core/permits_nearby.py` (or similar), library card UI, tests, docs.

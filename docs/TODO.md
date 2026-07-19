@@ -31,6 +31,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-027 | Open | Remove Home Compare feature (library checkboxes + `/compare`) |
 | TODO-028 | Open | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
 | TODO-029 | Open | Property header: show library nearby-signal icons (bottom-right, above tabs) |
+| TODO-030 | Open | Gemini neighborhood prompts: pass exact home address (not only hood name) |
 
 ---
 
@@ -409,3 +410,20 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Recompute signals on every property open (use cache; optional best-effort refresh is fine if already cheap). Don’t change library card placement.
 
 **Touch:** `app/ui/pages.py` (property header), `app/ui/theme.py` (header icon placement), docs.
+
+---
+
+## TODO-030 — Gemini: exact home address (not only neighborhood)
+
+**Status:** Open
+
+**Problem:** Neighborhood Gemini (overview + things-to-do) prompts only get `{neighborhood}` + city/state (`app/core/gemini_neighborhood.py`). Answers are hood-generic and miss block-level context for the listing.
+
+**Goals**
+- Pass the property’s **exact street address** (and keep neighborhood name when known) into overview + things-to-do prompts so Gemini can reason about the specific location (walkshed, adjacent arterials, micro-area).
+- Wire address from `Property.address` (and city/state as today) through `generate_neighborhood_overview` / `generate_things_to_do` + `PropertyService.ensure_gemini_*`.
+- **Bump cache keys** (`neighborhood_gemini_for` / `things_v*` prefix) so old hood-only caches invalidate; Regenerate still works as today.
+
+**Out of scope:** Financials Gemini already uses Zillow URLs (URL context) — leave unless a small address label helps; do not dump calculator fields into neighborhood prompts.
+
+**Touch:** `app/core/gemini_neighborhood.py`, `property_service.py`, tests, `AGENTS.md` §6.

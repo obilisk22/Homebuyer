@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (filed TODO-029: header nearby icons)
+> Last updated: 2026-07-18 (filed TODO-030: Gemini exact address)
 
 
 
@@ -209,6 +209,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-027` | **Open** | Remove Home Compare (checkboxes + `/compare`) |
 | `TODO-028` | **Open** | Financials UX — collapse rare fields, per-field revert, hierarchy |
 | `TODO-029` | **Open** | Property header nearby icons (library chips, above tabs) |
+| `TODO-030` | **Open** | Gemini neighborhood — pass exact home address |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

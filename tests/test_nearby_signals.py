@@ -22,11 +22,64 @@ def test_radius_constants():
 
     assert HIGHWAY_RADIUS_FT == 800.0
     assert TRANSIT_RADIUS_MI == 0.5
-    assert PLAYGROUND_RADIUS_MI == 0.75
+    # TODO-048: 0.75 mi × 1.25
+    assert PLAYGROUND_RADIUS_MI == 0.75 * 1.25
+    assert abs(PLAYGROUND_RADIUS_MI - 0.9375) < 1e-12
     assert GROCERY_RADIUS_MI == 0.5
     assert SHELTER_RADIUS_MI == 0.5
     assert abs(miles_to_ft(0.5) - 2640.0) < 0.01
     assert abs(ft_to_miles(800.0) - (800.0 / 5280.0)) < 1e-9
+
+
+def test_source_url_for_prefers_lat_lng():
+    from app.core.nearby_signals import source_url_for
+
+    url = source_url_for(
+        {
+            "hit": True,
+            "name": "Near Play",
+            "lat": 34.0502,
+            "lng": -118.25,
+            "place_id": "ChIJ_ignored",
+        }
+    )
+    assert url == "https://www.google.com/maps/search/?api=1&query=34.0502,-118.25"
+
+
+def test_source_url_for_uses_place_id_when_no_coords():
+    from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, urlparse
+
+    url = source_url_for(
+        {"hit": True, "name": "Trader Joe's", "place_id": "ChIJabc123"}
+    )
+    assert url is not None
+    parsed = urlparse(url)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "www.google.com"
+    assert parsed.path.startswith("/maps/")
+    qs = parse_qs(parsed.query)
+    assert qs.get("query_place_id") == ["ChIJabc123"] or "place_id:ChIJabc123" in (
+        qs.get("query") or [""]
+    )[0]
+
+
+def test_source_url_for_falls_back_to_name_search():
+    from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    url = source_url_for({"hit": True, "name": "Expo/Bundy Station"})
+    assert url is not None
+    qs = parse_qs(urlparse(url).query)
+    assert "Expo/Bundy Station" in unquote((qs.get("query") or [""])[0])
+
+
+def test_source_url_for_miss_or_empty_returns_none():
+    from app.core.nearby_signals import source_url_for
+
+    assert source_url_for({"hit": False}) is None
+    assert source_url_for({}) is None
+    assert source_url_for({"hit": True, "name": ""}) is None
 
 
 def test_parse_and_hits_order():
@@ -249,6 +302,27 @@ def test_signal_entry_highway_uses_feet():
     assert entry["hit"] is True
     assert abs(entry["distance_ft"] - 800) < 1.0
     assert entry["name"] == "I-10"
+    assert entry["lat"] == 34.0
+    assert entry["lng"] == -118.0
+    assert "place_id" not in entry
+
+
+def test_signal_entry_persists_coords_and_place_id():
+    from app.core.nearby_signals import signal_entry_from_hit
+
+    hit = {
+        "name": "Trader Joe's",
+        "lat": 34.05,
+        "lng": -118.25,
+        "distance_mi": 0.12,
+        "place_id": "ChIJabc",
+    }
+    entry = signal_entry_from_hit("grocery", hit)
+    assert entry["hit"] is True
+    assert entry["lat"] == 34.05
+    assert entry["lng"] == -118.25
+    assert entry["place_id"] == "ChIJabc"
+    assert entry["distance_mi"] == 0.12
 
 
 def test_signal_entry_miss():
@@ -413,7 +487,7 @@ def test_build_overpass_query_contains_exact_signal_tags():
     query = build_overpass_query(34.05, -118.25)
     assert f"(around:{_HIGHWAY_OVERPASS_M},34.05,-118.25)" in query
     assert f"(around:{_NEARBY_OVERPASS_M},34.05,-118.25)" in query
-    assert _NEARBY_OVERPASS_M >= 1207  # covers 0.75 mi playground radius
+    assert _NEARBY_OVERPASS_M >= 1508  # covers 0.9375 mi playground radius (0.75×1.25)
     assert 'way["highway"="motorway"]' in query
     assert 'way["highway"="motorway_link"]' in query
     assert 'node["railway"="subway_entrance"]' in query
@@ -469,7 +543,17 @@ def test_fetch_overpass_posts_query_and_caches(monkeypatch):
 
     assert payload == {"elements": [{"id": 1}]}
     assert writes[0][0] == ns.CACHE_NAMESPACE
+    assert writes[0][1].startswith("overpass_v3_")
     assert writes[0][2] == payload
+
+
+def test_raw_cache_key_bumped_for_playground_radius():
+    from app.core.nearby_signals import _raw_cache_key
+
+    key = _raw_cache_key(34.05, -118.25)
+    assert key.startswith("overpass_v3_")
+    assert "34.05000" in key
+    assert "-118.25000" in key
 
 
 def test_fetch_overpass_uses_cache(monkeypatch):
@@ -565,6 +649,7 @@ def test_parse_places_results_filters_convenience_and_radius():
         },
         {
             "name": "Market",
+            "place_id": "ChIJ_market",
             "geometry": {"location": {"lat": 34.0502, "lng": -118.25}},
             "types": ["supermarket", "store"],
         },
@@ -580,6 +665,9 @@ def test_parse_places_results_filters_convenience_and_radius():
     )
 
     assert [hit["name"] for hit in hits] == ["Market"]
+    assert hits[0]["place_id"] == "ChIJ_market"
+    assert hits[0]["lat"] == 34.0502
+    assert hits[0]["lng"] == -118.25
 
 
 def test_compute_signals_osm_only(monkeypatch):
@@ -631,6 +719,7 @@ def test_compute_signals_uses_places_when_key(monkeypatch):
             return [
                 {
                     "name": "Trader Joe's",
+                    "place_id": "ChIJ_tj",
                     "geometry": {"location": {"lat": lat, "lng": lng}},
                     "types": ["supermarket", "grocery_or_supermarket", "store"],
                 }
@@ -641,6 +730,8 @@ def test_compute_signals_uses_places_when_key(monkeypatch):
     payload = ns.compute_signals(34.05, -118.25, api_key="fake-key")
     assert payload["grocery"]["hit"] is True
     assert payload["grocery"]["name"] == "Trader Joe's"
+    assert payload["grocery"]["lat"] == 34.05
+    assert payload["grocery"]["lng"] == -118.25
 
 
 def test_compute_signals_shelter_searches_use_separate_keywords(monkeypatch):

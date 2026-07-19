@@ -4,7 +4,8 @@ import json
 import math
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from urllib.parse import urlencode
 
 import requests
 
@@ -16,7 +17,8 @@ if TYPE_CHECKING:
 
 HIGHWAY_RADIUS_FT = 800.0
 TRANSIT_RADIUS_MI = 0.5
-PLAYGROUND_RADIUS_MI = 0.75
+# TODO-048: was 0.75 mi; widen 25% for better hit rate (tags unchanged).
+PLAYGROUND_RADIUS_MI = 0.75 * 1.25  # 0.9375
 GROCERY_RADIUS_MI = 0.5
 SHELTER_RADIUS_MI = 0.5
 STALE_MAX_AGE_DAYS = 30.0
@@ -57,6 +59,7 @@ class NearestHit(TypedDict):
     lat: float
     lng: float
     distance_mi: float
+    place_id: NotRequired[str]
 
 
 def ft_to_miles(ft: float) -> float:
@@ -261,16 +264,55 @@ def signal_entry_from_hit(
 
     name = str(hit.get("name") or _fallback_name(key)).strip() or _fallback_name(key)
     if key == "highway":
-        return {
+        out: dict[str, Any] = {
             "hit": True,
             "distance_ft": miles_to_ft(hit["distance_mi"]),
             "name": name,
+            "lat": hit["lat"],
+            "lng": hit["lng"],
         }
-    return {
-        "hit": True,
-        "distance_mi": round(hit["distance_mi"], 2),
-        "name": name,
-    }
+    else:
+        out = {
+            "hit": True,
+            "distance_mi": round(hit["distance_mi"], 2),
+            "name": name,
+            "lat": hit["lat"],
+            "lng": hit["lng"],
+        }
+    place_id = str(hit.get("place_id") or "").strip()
+    if place_id:
+        out["place_id"] = place_id
+    return out
+
+
+def source_url_for(entry: dict[str, Any] | None) -> str | None:
+    """Google Maps deep link for a nearby-signal chip click (TODO-047)."""
+    if not entry or not entry.get("hit"):
+        return None
+    try:
+        lat = entry.get("lat")
+        lng = entry.get("lng")
+        if lat is not None and lng is not None:
+            # Keep comma unescaped — standard Maps search query form.
+            return (
+                f"https://www.google.com/maps/search/?api=1"
+                f"&query={float(lat)},{float(lng)}"
+            )
+    except (TypeError, ValueError):
+        pass
+    place_id = str(entry.get("place_id") or "").strip()
+    if place_id:
+        name = str(entry.get("name") or "").strip() or "place"
+        return (
+            "https://www.google.com/maps/search/?api=1&"
+            + urlencode({"query": name, "query_place_id": place_id})
+        )
+    name = str(entry.get("name") or "").strip()
+    if name:
+        return (
+            "https://www.google.com/maps/search/?api=1&" + urlencode({"query": name})
+        )
+    return None
 
 
 def build_overpass_query(lat: float, lng: float) -> str:
@@ -320,8 +362,8 @@ def build_overpass_query(lat: float, lng: float) -> str:
 
 
 def _raw_cache_key(lat: float, lng: float) -> str:
-    # v2: wider nearby radius + playground/shelter tag/query fixes (TODO-036)
-    return f"overpass_v2_{float(lat):.5f}_{float(lng):.5f}"
+    # v3: playground radius 0.75→0.9375 mi (TODO-048); v2 was TODO-036 tag/geom fixes
+    return f"overpass_v3_{float(lat):.5f}_{float(lng):.5f}"
 
 
 def _places_raw_cache_key(
@@ -493,14 +535,16 @@ def parse_places_results(
         if distance_mi > radius_mi:
             continue
         name = str(result.get("name") or "Nearby place").strip() or "Nearby place"
-        hits.append(
-            {
-                "name": name,
-                "lat": lat,
-                "lng": lng,
-                "distance_mi": distance_mi,
-            }
-        )
+        hit: NearestHit = {
+            "name": name,
+            "lat": lat,
+            "lng": lng,
+            "distance_mi": distance_mi,
+        }
+        place_id = str(result.get("place_id") or "").strip()
+        if place_id:
+            hit["place_id"] = place_id
+        hits.append(hit)
     return sorted(hits, key=lambda hit: hit["distance_mi"])
 
 

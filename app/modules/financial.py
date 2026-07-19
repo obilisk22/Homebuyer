@@ -380,9 +380,22 @@ def render(prop: Property, container: ui.element) -> None:
             def _mark_rate_manual(_: object = None) -> None:
                 if suppress_rate_manual["on"]:
                     return
-                _show_rate_source("Manual")
+                # State only — DOM caption sync happens on blur / redraw so we
+                # don't push model-value back to the client on every keystroke.
+                rate_source_state["value"] = "Manual"
 
-            term.on_value_change(lambda _: _apply_pmms_rate_for_term())
+            def _sync_rate_source_caption() -> None:
+                text = (rate_source_state["value"] or "").strip()
+                rate_src_label.set_text(text)
+                rate_src_label.set_visibility(bool(text))
+
+            term.on("blur", lambda _: _apply_pmms_rate_for_term())
+
+            def _on_rate_edit(_: object = None) -> None:
+                _mark_rate_manual()
+                _sync_rate_source_caption()
+
+            rate.on("blur", _on_rate_edit)
             rate.on_value_change(_mark_rate_manual)
 
             with ui.expansion("Ownership costs", icon="home").classes(
@@ -703,10 +716,6 @@ def render(prop: Property, container: ui.element) -> None:
             ui.notify(f"Reverted {field.replace('_', ' ')}", type="info")
             redraw()
 
-        offer_in.on_value_change(lambda _: refresh_down_meta())
-        list_in.on_value_change(lambda _: refresh_down_meta())
-        down.on_value_change(lambda _: refresh_down_meta())
-
         gemini_state = {"text": cached_gemini, "for": cached_for}
 
         def refresh_growth_caption() -> None:
@@ -719,6 +728,8 @@ def render(prop: Property, container: ui.element) -> None:
             import plotly.graph_objects as go
 
             refresh_down_meta()
+            _apply_pmms_rate_for_term()
+            _sync_rate_source_caption()
             refresh_growth_caption()
             data = collect()
             result = summarize(**mortgage_data(data))

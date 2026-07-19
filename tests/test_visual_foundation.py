@@ -90,12 +90,15 @@ def test_library_cards_render_nearby_signal_chips():
     assert "parse_signals_json" in src
     assert "hits_in_order" in src
     assert "tooltip_for" in src
+    assert "source_url_for" in src
     assert "ICON_BY_KEY" in src
     assert "RISK_KEYS" in src
     assert "hb-nearby-icons" in src
     assert "hb-nearby-chip--{kind}" in src
     assert "_render_nearby_signal_chips" in src
     assert "listing_risk_chips" in src
+    assert "ui.navigate.to" in src
+    assert "new_tab=True" in src
     assert "refresh_stale_nearby_signals_job, limit=3" in src
     assert "ui.timer(0.1, _refresh_stale_nearby_after_paint, once=True)" in src
     refresh_body = src.split("        def refresh() -> None:", 1)[1].split(
@@ -140,6 +143,20 @@ def test_financial_rent_control_wires_growth_into_projection():
     assert 'rent_growth_pct=float(growth_state["pct"] or 0)' in src
     assert '"rent_control": bool(growth_state["control"])' in src
     assert '"rent_growth_pct": float(growth_state["pct"] or 0)' in src
+
+
+def test_financial_inputs_defer_dom_updates_while_typing():
+    """Avoid NiceGUI controlled-input rebind (backwards typing / cursor jump)."""
+    src = (ROOT / "app" / "modules" / "financial.py").read_text(encoding="utf-8")
+
+    assert "offer_in.on_value_change" not in src
+    assert "list_in.on_value_change" not in src
+    assert "down.on_value_change" not in src
+    assert "term.on_value_change" not in src
+    assert 'term.on("blur"' in src
+    assert "_sync_rate_source_caption()" in src
+    assert "refresh_down_meta()" in src
+    assert '_mark_rate_manual(_: object = None) -> None:\n                if suppress_rate_manual["on"]:\n                    return\n                # State only' in src
 
 
 def test_street_address_line_strips_city_state_zip():

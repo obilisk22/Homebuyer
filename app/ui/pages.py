@@ -19,6 +19,7 @@ from app.core.nearby_signals import (
     RISK_KEYS,
     hits_in_order,
     parse_signals_json,
+    source_url_for,
     tooltip_for,
 )
 from app.core.listing_signals import listing_risk_chips
@@ -120,7 +121,24 @@ def _render_nearby_signal_chips(
                 f"hb-nearby-chip hb-nearby-chip--{kind}"
             )
             chip._props["title"] = tooltip_for(key, entry)
-            if stop_card_nav:
+            url = source_url_for(entry)
+
+            def _open_source(_e=None, *, u: str = url or "") -> None:
+                if u:
+                    ui.navigate.to(u, new_tab=True)
+
+            if url:
+                if stop_card_nav:
+                    chip.on(
+                        "click",
+                        _open_source,
+                        js_handler=(
+                            "(e) => { e.stopPropagation(); emit(e); }"
+                        ),
+                    )
+                else:
+                    chip.on("click", _open_source)
+            elif stop_card_nav:
                 chip.on(
                     "click",
                     lambda: None,

@@ -4,6 +4,8 @@
 **Status:** Approved (pending implementation)  
 **Product:** Homebuy Neighborhood tab  
 
+> **Update (2026-07-18, same day):** the quality layer described below (§ Goal 2, "Quality: SchoolDigger API") was **replaced** before/shortly after shipping. SchoolDigger is a paid API, and SchoolScope (considered as a free alternative) has no publicly usable API (403 / "coming soon"). The shipped quality layer is instead **free and keyless**: a California School Dashboard performance-level color badge (Blue/Green/Yellow/Orange/Red) looked up by CDS code from the free CDE Academic Indicator downloadable data, plus a **Niche** parent-review deep link and a CA Dashboard report-page deep link. See `app/core/school_quality.py` and `docs/RESEARCH.md` for the implementation that superseded every "SchoolDigger" reference in this document.
+
 ## Problem
 
 The Map tab’s **Nearby schools** panel lists NCES public schools within ~4 mi. That is proximity, not **attendance assignment**. Buyers care which Elementary / Middle / High the home is **zoned for**, plus a quality signal (prefer parent reviews) and a deep link — without cluttering the map.

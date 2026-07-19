@@ -12,7 +12,6 @@ from app.core.neighborhood import (
     effective_neighborhood_name,
 )
 from app.core.property_service import PropertyService
-from app.core.schooldigger import has_schooldigger_keys
 from app.core.ui_jobs import (
     ensure_gemini_overview_job,
     ensure_gemini_things_to_do_job,
@@ -42,14 +41,12 @@ _ASSIGNED_SCHOOLS_STATUS_TEXT: dict[str, str] = {
 }
 
 
-def _assigned_schools_caption(result: dict, *, has_keys: bool) -> str:
+def _assigned_schools_caption(result: dict) -> str:
     """Map a resolve_assigned() result to the design-spec caption text."""
     status = (result.get("status") or "").strip()
     if status == "ok":
         source = (result.get("source") or "").strip() or "Assigned schools resolved"
-        if has_keys:
-            return f"{source} · ratings via SchoolDigger"
-        return f"{source} · add SchoolDigger keys in .env for ratings & reviews"
+        return f"{source} · CA Dashboard + Niche"
     if status == "error":
         return (result.get("message") or "Could not load assigned schools.").strip()
     return _ASSIGNED_SCHOOLS_STATUS_TEXT.get(
@@ -57,14 +54,17 @@ def _assigned_schools_caption(result: dict, *, has_keys: bool) -> str:
     )
 
 
-def _star_string(stars: float | int | None) -> str:
-    if stars is None:
-        return ""
-    try:
-        count = max(0, min(5, round(float(stars))))
-    except (TypeError, ValueError):
-        return ""
-    return "★" * count + "☆" * (5 - count)
+# California School Dashboard performance-level colors, approximated for
+# the dark theme (real-world Blue/Green/Yellow/Orange/Red, not the app's
+# cyan/magenta/lime accent palette — this badge is a distinct signal).
+_DASHBOARD_BADGE_HEX: dict[str, str] = {
+    "Blue": "#2979FF",
+    "Green": "#43A047",
+    "Yellow": "#FBC02D",
+    "Orange": "#FB8C00",
+    "Red": "#E53935",
+    "No Color": "#8892A0",
+}
 
 
 def _render_school_card(
@@ -81,27 +81,28 @@ def _render_school_card(
             "font-size: 1rem; margin-top: 0.4rem;"
         )
 
-        stars = (school or {}).get("rating_stars") if school else None
-        star_str = _star_string(stars)
-        ui.label(f"{star_str} · SchoolDigger" if star_str else "—").classes(
-            "hb-page-meta"
-        )
+        dashboard_color = (school or {}).get("dashboard_color") if school else None
+        if dashboard_color:
+            hex_color = _DASHBOARD_BADGE_HEX.get(dashboard_color, "")
+            style = f"color: {hex_color}; border-color: {hex_color};" if hex_color else ""
+            ui.label(f"Dashboard · {dashboard_color}").classes(
+                "hb-page-meta hb-dashboard-badge"
+            ).style(style)
+        else:
+            ui.label("—").classes("hb-page-meta")
 
-        review_avg = (school or {}).get("review_avg") if school else None
-        review_count = (school or {}).get("review_count") if school else None
-        if review_avg is not None and review_count:
-            ui.label(f"Parent reviews: {review_avg} · {review_count}").classes(
-                "hb-page-meta"
-            )
-            quote = (school or {}).get("review_quote") if school else None
-            if quote:
-                ui.label(f"“{quote}”").classes("hb-page-hint")
-
-        url = (school or {}).get("schooldigger_url") if school else None
-        if url:
-            ui.button("SchoolDigger", icon="open_in_new").props(
-                f'unelevated dense color=dark href="{url}" target=_blank'
-            ).classes("q-mt-sm")
+        dashboard_link = (school or {}).get("dashboard_url") if school else None
+        niche_link = (school or {}).get("niche_url") if school else None
+        if dashboard_link or niche_link:
+            with ui.row().classes("gap-2 q-mt-sm"):
+                if dashboard_link:
+                    ui.button("Dashboard", icon="open_in_new").props(
+                        f'unelevated dense color=dark href="{dashboard_link}" target=_blank'
+                    )
+                if niche_link:
+                    ui.button("Niche", icon="reviews").props(
+                        f'unelevated dense color=dark href="{niche_link}" target=_blank'
+                    )
 
 
 def _source_label(source: str, *, has_override: bool) -> str:
@@ -281,11 +282,7 @@ def render(prop: Property, container: ui.element) -> None:
                             "schools": dict(_EMPTY_SCHOOLS),
                         }
 
-                    schools_hint.set_text(
-                        _assigned_schools_caption(
-                            result, has_keys=has_schooldigger_keys()
-                        )
-                    )
+                    schools_hint.set_text(_assigned_schools_caption(result))
 
                     status_value = result.get("status")
                     not_found_text = "—" if status_value == "no_pin" else "Not found"

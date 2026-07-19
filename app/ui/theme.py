@@ -1090,6 +1090,18 @@ a:hover {{
   box-shadow: 0 0 10px rgba(184, 255, 60, 0.18);
 }}
 
+/* CA School Dashboard color badge (Blue/Green/Yellow/Orange/Red) — a quiet
+   outlined chip; free real-world color, distinct from the cyan/magenta/lime
+   level accents above. */
+.hb-dashboard-badge {{
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--hb-border);
+  border-radius: 6px;
+  font-weight: 600;
+}}
+
 .hb-library-notes {{
   font-family: var(--hb-font-body);
   font-size: 0.8rem;

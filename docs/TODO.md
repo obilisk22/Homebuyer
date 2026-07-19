@@ -40,6 +40,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-036 | Open | Library nearby icons: verify all five work; fix playground + shelter |
 | TODO-037 | Open | Library card: remove unclear “Cash” from financial caption |
 | TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
+| TODO-039 | Open | Library icon when home has no Central AC |
 
 ---
 
@@ -554,19 +555,38 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ---
 
-## TODO-038 — Assigned schools on Neighborhood (LAUSD + SchoolDigger)
+## TODO-038 — Assigned schools on Neighborhood (LAUSD + free CA Dashboard/Niche)
 
-**Status:** Done (2026-07-18)
+**Status:** Done (2026-07-18); quality layer swapped off SchoolDigger the same day (see below)
 
 **Show the Elementary / Middle / High schools a home is zoned for** on the Neighborhood tab, instead of only a "nearby NCES points" list on the Map.
 
 **Shipped**
 - `app/core/school_zones.py`: point-in-polygon (`point_in_ring`/`point_in_polygon`) against **LAUSD** attendance ArcGIS layers (elementary/middle/high); resolves each zone's school **name** via layer-0 school points inside the polygon (attendance layers carry a key but no name). `resolve_assigned(lat, lng)` → `status` `ok`/`outside`/`gap`/`no_pin`/`error`, cached ~7d.
-- `app/core/schooldigger.py`: optional SchoolDigger v2.4 enrich (star rating + parent review avg/count/quote + deep link) when `SCHOOLDIGGER_APP_ID`/`SCHOOLDIGGER_APP_KEY` are set; best-effort, never raises.
-- `app/modules/neighborhood_reviews.py`: **Assigned schools** section (three cards, cyan/magenta/lime accents) before the Gemini overview; resolved off the event loop via `resolve_assigned_schools_job` (`ui_jobs.py`) with instant loading placeholders; honest empty-state captions (no pin / outside LAUSD / boundary gap / no SchoolDigger keys).
+- `app/core/school_quality.py`: free, no-key enrich — **CA School Dashboard** color badge (Blue/Green/Yellow/Orange/Red) looked up by CDS code from the free CDE Academic Indicator downloadable data (cached ~30d), plus **Niche** parent-review + **CA Dashboard** report-page deep links; always runs, never gated on a key, never raises.
+- `app/modules/neighborhood_reviews.py`: **Assigned schools** section (three cards, cyan/magenta/lime accents) before the Gemini overview; resolved off the event loop via `resolve_assigned_schools_job` (`ui_jobs.py`) with instant loading placeholders; honest empty-state captions (no pin / outside LAUSD / boundary gap).
 - `app/modules/map_view.py`: removed the old **Nearby schools** distance-list panel; Schools layer toggle, NCES markers, and legend are unchanged.
-- `.env.example`: `SCHOOLDIGGER_APP_ID` / `SCHOOLDIGGER_APP_KEY`.
+
+**Quality-layer swap (2026-07-18):** SchoolDigger is a paid API and SchoolScope's public API isn't usable (403/"coming soon"), so `app/core/schooldigger.py` was deleted and replaced by `app/core/school_quality.py` (free CA Dashboard + Niche, no API keys). `SCHOOLDIGGER_*` removed from `.env.example`.
 
 **Non-goals (v1):** districts other than LAUSD; campus photos; "nearest school" proximity guessing (attendance boundaries only).
 
-**Touch:** `app/core/school_zones.py`, `app/core/schooldigger.py`, `app/core/ui_jobs.py`, `app/modules/neighborhood_reviews.py`, `app/modules/map_view.py`, `.env.example`, `tests/test_school_zones.py`, `tests/test_schooldigger.py`, `tests/test_assigned_schools_ui.py`, docs.
+**Touch:** `app/core/school_zones.py`, `app/core/school_quality.py`, `app/core/ui_jobs.py`, `app/modules/neighborhood_reviews.py`, `app/modules/map_view.py`, `app/ui/theme.py`, `.env.example`, `tests/test_school_zones.py`, `tests/test_school_quality.py`, `tests/test_assigned_schools_ui.py`, docs.
+
+---
+
+## TODO-039 — Library icon: no Central AC
+
+**Status:** Open
+
+**Show a library-card proximity-style risk icon** when the listing does **not** have Central AC (common LA buyer flag — window/wall units only, evaporative, none, etc.).
+
+**Goals**
+- Scrape cooling from Zillow listing HTML into a new `Property` field (e.g. `cooling` / `has_central_ac`) on add + Refresh listing details (`zillow_listing.py` + models/migrate).
+- Treat as **risk chip** (magenta, like highway/shelter) when central AC is clearly absent; hide when present or unknown (don’t false-alarm on missing scrape data).
+- Soft neo chip on library card bottom-right with the nearby icons row (or adjacent); tooltip e.g. `No central AC · Window units`.
+- Optional: same chip on property header when TODO-029 ships.
+
+**Non-goals:** Full HVAC editor UI; invent AC when Zillow omits the field.
+
+**Touch:** `zillow_listing.py`, `models.py`, `db.py`, `property_service.py`, library card UI/`theme.py`, tests, docs.

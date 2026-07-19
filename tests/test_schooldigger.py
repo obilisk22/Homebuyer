@@ -24,6 +24,23 @@ def test_pick_search_match_prefers_city():
     assert picked["schoolid"] == "2"
 
 
+def test_pick_search_match_no_match_returns_none():
+    school_list = [
+        {
+            "schoolid": "1",
+            "schoolName": "Other Elementary School",
+            "address": {"city": "San Diego", "state": "CA"},
+        },
+    ]
+    assert pick_search_match(school_list, name="Mar Vista Elementary School") is None
+    assert (
+        pick_search_match(
+            school_list, name="Mar Vista Elementary School", city="Los Angeles"
+        )
+        is None
+    )
+
+
 def test_normalize_enrichment_reviews():
     detail = {
         "schoolid": "2",

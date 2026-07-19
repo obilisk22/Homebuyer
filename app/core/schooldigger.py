@@ -55,20 +55,33 @@ def pick_search_match(
         for s in school_list
         if _normalize_name(s.get("schoolName") or s.get("name") or "") == target
     ]
-    pool = name_matches or list(school_list)
 
     city_norm = (city or "").strip().casefold()
+
+    if name_matches:
+        pool = name_matches
+        if city_norm:
+            city_matches = [
+                s
+                for s in pool
+                if ((s.get("address") or {}).get("city") or "").strip().casefold()
+                == city_norm
+            ]
+            if city_matches:
+                pool = city_matches
+        return pool[0] if pool else None
+
     if city_norm:
         city_matches = [
             s
-            for s in pool
+            for s in school_list
             if ((s.get("address") or {}).get("city") or "").strip().casefold()
             == city_norm
         ]
         if city_matches:
-            pool = city_matches
+            return city_matches[0]
 
-    return pool[0] if pool else None
+    return None
 
 
 def _truncate_quote(text: str | None, limit: int = QUOTE_MAX_CHARS) -> str | None:

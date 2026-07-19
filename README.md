@@ -11,6 +11,7 @@ Modular Python app for researching homes linked from Zillow. Stores the **Zillow
 - Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API). Neighborhood uses `GEMINI_MODEL` (default `gemini-3.1-flash-lite`). Financials uses `GEMINI_FINANCIAL_MODEL` → else `GEMINI_MODEL` → else `gemini-2.5-flash-lite` (2.5 keeps free-tier URL context + Google Search working).
 - **Census Bureau API (`CENSUS_API_KEY`):** free at https://api.census.gov/data/key_signup.html. Powers all Map ACS tract choropleths (income, home value, median age, avg kids, % owner-occupied, year built, gross rent, % bachelor's+), Financials ACS county property-tax fallback, and buy-vs-rent rent-growth CAGR from county median gross rent. Without it, ACS map toggles show a setup message, Financials skips the ACS county tax estimate (Zillow annual tax → assessed × rate only, else $0), and rent growth defaults to **3%/yr**. Insurance autofill is separate: scrape Zillow's modeled homeowners insurance when the listing HTML includes it → otherwise state average-premium table scaled to list price.
 - Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA County (LAPD Socrata + Santa Monica CKAN) and Seattle crime overlays.
+- Optional: `SCHOOLDIGGER_APP_ID` + `SCHOOLDIGGER_APP_KEY` for star ratings + parent reviews on the Neighborhood tab's **Assigned schools** cards (free DEV/TEST key: https://developer.schooldigger.com/). Without keys, the cards still show the assigned school names (LAUSD attendance boundaries), just no ratings/reviews.
 
 ## Setup (Windows)
 
@@ -88,7 +89,7 @@ Layer toggles are exclusive (one overlay at a time; turning another on clears th
 | Zoning | City of LA (ZIMAS 1102 citywide), Santa Monica (SCAG), LA County DRP | ACS-style polygons merged by zone (~2.8 mi radius, WS-safe); other cities: disabled / message |
 | Wildfire | USFS Wildfire Hazard Potential 2023 WMS | No key; long-term hazard classes |
 | AQI | Open-Meteo US AQI | Hex grid near pin; no key |
-| Schools | NCES CCD / Locale / EDGE public school points | ~4 mi radius + Nearby schools list; no GreatSchools |
+| Schools | NCES CCD / Locale / EDGE public school points | ~4 mi radius markers + legend; no GreatSchools. (Assigned Elementary/Middle/High schools for a home live on the **Neighborhood** tab, not this overlay — see below.) |
 | Sale price | Redfin Data Center ZIP median → ZCTA | First load may ingest the national TSV once (cached) |
 | Median income (ACS) | Census ACS `B19013` tracts | Needs `CENSUS_API_KEY` |
 | Median home value (ACS) | Census ACS `B25077` tracts | Needs `CENSUS_API_KEY` |
@@ -105,6 +106,8 @@ Responses are cached under `data/cache/` (gitignored with other `data/*`).
 ## Neighborhood reviews
 
 The **Neighborhood** tab prefers the neighborhood name from the **Zillow listing**, with Nominatim/Google fallbacks and a manual override.
+
+**Assigned schools:** three cards — Elementary, Middle, High — show the schools a pinned home is zoned for, resolved by checking the pin against **LAUSD attendance-boundary GIS** (point-in-polygon against the district's public ArcGIS attendance layers, then matching the zone to a named school). This is **v1 LAUSD-only**; homes outside LAUSD show a "not available for this district yet" message instead of a wrong guess. With `SCHOOLDIGGER_APP_ID` / `SCHOOLDIGGER_APP_KEY` set, each card also shows a **star rating** and **parent review** average/count/quote with a link to the school's SchoolDigger page; without keys, cards still show the resolved name with a caption to add keys for ratings. This is separate from the Map tab's **Schools** overlay (nearby NCES points for any area) — no "Nearby schools" list on the map anymore; that lookup moved here.
 
 Click **Ask Gemini about this neighborhood** for a short AI overview (vibe + character). Separately, **Ask Gemini: things to do** generates a practical bullet list of nearby parks, food, walks, and activities. Requires `GEMINI_API_KEY` in `.env` (see `.env.example`). Optional `GEMINI_MODEL` (default `gemini-3.1-flash-lite`). Overview and things-to-do are cached independently per neighborhood/city.
 

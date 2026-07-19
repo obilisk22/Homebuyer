@@ -45,14 +45,28 @@ CrimeGrade scraping, GreatSchools paid API, FBI CDE for neighborhood maps, Zillo
 
 ### Implemented (2026-07-18 slice)
 
-Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood; **Zoning** (City of LA ZIMAS **`1102` citywide** — not Chapter 1A `1101` pockets; Santa Monica via SCAG `Zoning_poly_LA`; LA County DRP unincorporated + SCAG fallback; ACS-scale bbox ~0.04° + ArcGIS pagination) as ACS-style GeoJSON (`zoning_gis.py`); ACS choropleths for median income / home value / age / kids / owner% / year built / rent / bachelor's+ via `census_acs.py` (`CENSUS_API_KEY`); LA County + Seattle crime as a **hex density choropleth** (`crime_density.py`); **Schools** via NCES EDGE ArcGIS REST bbox (~4 mi, `schools_nces.py`) + nearest list on Map; **Wildfire** USFS WHP 2023 WMS (`wildfire_whp.py`); **AQI** Open-Meteo US AQI hex grid (`air_quality.py`, no key); **Sale price** Redfin ZIP tracker → ZCTA join (`redfin_sales.py`). Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
+Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood; **Zoning** (City of LA ZIMAS **`1102` citywide** — not Chapter 1A `1101` pockets; Santa Monica via SCAG `Zoning_poly_LA`; LA County DRP unincorporated + SCAG fallback; ACS-scale bbox ~0.04° + ArcGIS pagination) as ACS-style GeoJSON (`zoning_gis.py`); ACS choropleths for median income / home value / age / kids / owner% / year built / rent / bachelor's+ via `census_acs.py` (`CENSUS_API_KEY`); LA County + Seattle crime as a **hex density choropleth** (`crime_density.py`); **Schools** via NCES EDGE ArcGIS REST bbox (~4 mi, `schools_nces.py`) map markers + legend (no nearest-schools list — see "Assigned schools" below for the Neighborhood-tab per-home lookup); **Wildfire** USFS WHP 2023 WMS (`wildfire_whp.py`); **AQI** Open-Meteo US AQI hex grid (`air_quality.py`, no key); **Sale price** Redfin ZIP tracker → ZCTA join (`redfin_sales.py`). Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
 
-### Schools (NCES)
+### Schools (NCES) — Map overlay
 
 - Primary: CCD `Schools_Points_2025_CCD` MapServer layer 4 (`nces.ed.gov/arcgis`) — includes `SLEVEL_TEXT`.
 - Fallbacks: LocaleViewer `PublicSchools24_25`, then EDGE `EDGE_GEOCODE_PUBLICSCH_2425` / `2324` on `opengis` (often 500).
 - Envelope query ~4 mi — **not** a full national download.
-- No GreatSchools paid API. Attendance boundaries out of scope for v1.
+- No GreatSchools paid API. This overlay is nearby-points only; it does not answer "which school is this home zoned for."
+
+### Assigned schools (LAUSD attendance) — Neighborhood tab, shipped 2026-07-18
+
+**Attendance-boundary lookup is now in scope, LAUSD-only.** Distinct from the NCES Map overlay above: instead of "schools near this point," this answers "which Elementary/Middle/High school is this address zoned into."
+
+- **Source:** LAUSD's public `LAUSD_Schools` ArcGIS MapServer (`maps.lacity.org/lahub/rest/services/LAUSD_Schools/MapServer`) — no key, no paid GreatSchools/attendance-boundary API.
+  - Attendance polygons: layers **4** (elementary), **5** (middle), **6** (high) — point query (`geometryType=esriGeometryPoint`, `spatialRel=esriSpatialRelIntersects`) returns the zone's `geometry.rings` plus a key attribute, but **no school name** on the attendance feature itself.
+  - **Name resolve trick:** query layer **0** (school points) within a 3-mile buffer of the pin, filtered by `MAP_TYPE` (`ES`/`MS`/`HS`), then keep only the candidate points that are themselves inside the attendance polygon rings (ray-cast point-in-polygon) — the LAUSD-recommended way to turn an attendance key into a name, since the layer doesn't expose it directly. Ties (rare) break by haversine distance to the pin.
+- **Geometry:** plain ray-casting point-in-polygon (`app/core/school_zones.py::point_in_ring` / `point_in_polygon`), outer ring + hole support — no shapely dependency needed for this simple case.
+- **Coverage:** LAUSD only for v1 (registry-shaped so another district could be added later). A rough LAUSD bbox (`33.70–34.35, -118.70–-118.15`) distinguishes "outside LAUSD" from "inside LAUSD but a rare boundary gap" when zero attendance layers match.
+- **Quality layer:** SchoolDigger REST v2.4 (free DEV/TEST tier, `appID`/`appKey`) — search by name + level, prefer the result whose city matches, then a detail call for `rankHistory` (star rating) and parent `reviews` (average/count/quote). Best-effort only: missing keys, no name match, or any request error all fall back to showing the school with no rating, never a hard failure.
+- **Cache:** ~7 days under `data/cache/school_zones/` (attendance + name resolve) and `data/cache/schooldigger/` (search + detail), both via the existing `overlay_cache` helper.
+- **Avoid:** paid attendance-zone APIs (SchoolDigger's own zone lookup is a paid tier), GreatSchools API, guessing a "nearest school" as the assigned one (attendance boundaries are not proximity-based).
+- **Placement:** Neighborhood tab, not the Map — this is per-home detail, not a spatial overlay layer. The Map tab's old "Nearby schools" distance list was removed; the Schools toggle (NCES markers) stays as the nearby-points overlay.
 
 ### Wildfire + AQI
 

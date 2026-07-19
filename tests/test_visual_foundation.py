@@ -94,10 +94,10 @@ def test_library_cards_render_nearby_signal_chips():
     assert "RISK_KEYS" in src
     assert "hb-nearby-icons" in src
     assert "hb-nearby-chip--{kind}" in src
-    assert "refresh_stale_nearby_signals(limit=3)" in src
+    assert "refresh_stale_nearby_signals_job, limit=3" in src
     assert "ui.timer(0.1, _refresh_stale_nearby_after_paint, once=True)" in src
     refresh_body = src.split("        def refresh() -> None:", 1)[1].split(
-        "        def _refresh_stale_nearby_after_paint() -> None:", 1
+        "        async def _refresh_stale_nearby_after_paint() -> None:", 1
     )[0]
     assert "refresh_stale_nearby_signals" not in refresh_body
 

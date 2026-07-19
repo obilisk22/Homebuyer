@@ -24,10 +24,8 @@ from app.core.models import Property
 from app.core.property_service import PropertyService
 from app.core.redfin_sales import SALE_LEGEND, build_redfin_sales_geojson
 from app.core.schools_nces import (
-    DEFAULT_RADIUS_MI,
     SCHOOLS_LEGEND,
     fetch_schools_near_pin,
-    nearest_schools_list,
 )
 from app.core.ui_jobs import ensure_coordinates_job
 from app.core.wildfire_whp import WHP_LEGEND, wildfire_wms_layer_args
@@ -110,7 +108,6 @@ def render(prop: Property, container: ui.element) -> None:
         status = ui.label("").classes("hb-page-meta hb-map-status")
         legend_box = ui.column().classes("w-full hb-map-legend")
         map_box = ui.column().classes("w-full hb-map-box")
-        schools_panel = ui.column().classes("w-full q-mt-sm")
 
         with ui.expansion("Pin tools", icon="tune").classes("w-full q-mt-md"):
             with ui.row().classes("w-full items-end gap-4 flex-wrap"):
@@ -264,76 +261,6 @@ def render(prop: Property, container: ui.element) -> None:
             if fresh is None or fresh.latitude is None or fresh.longitude is None:
                 return fresh, None, None
             return fresh, float(fresh.latitude), float(fresh.longitude)
-
-        def _render_schools_panel(schools: list[dict[str, Any]] | None = None) -> None:
-            schools_panel.clear()
-            with schools_panel:
-                with ui.expansion("Nearby schools", icon="school").classes("w-full"):
-                    ui.label(
-                        f"NCES public schools within ~{DEFAULT_RADIUS_MI:g} mi "
-                        "(no GreatSchools ratings)."
-                    ).classes("hb-page-hint")
-                    list_box = ui.column().classes("w-full gap-1")
-
-                    async def load_list() -> None:
-                        list_box.clear()
-                        fresh, plat, plng = _fresh_pin()
-                        if plat is None or plng is None:
-                            with list_box:
-                                ui.label("Needs a map pin.").classes("hb-empty-state")
-                            return
-                        try:
-                            if schools is not None:
-                                rows = schools[:8]
-                                meta_msg = f"{len(schools)} within {DEFAULT_RADIUS_MI:g} mi"
-                            else:
-                                result = await run.io_bound(
-                                    nearest_schools_list, plat, plng
-                                )
-                                rows = list(result.get("schools") or [])
-                                meta_msg = str(
-                                    (result.get("meta") or {}).get("message") or ""
-                                )
-                        except Exception as exc:  # noqa: BLE001
-                            with list_box:
-                                ui.label(str(exc)).classes("hb-empty-state")
-                            return
-                        with list_box:
-                            if meta_msg:
-                                ui.label(meta_msg).classes("hb-page-meta")
-                            if not rows:
-                                ui.label("No public schools found nearby.").classes(
-                                    "hb-empty-state"
-                                )
-                                return
-                            for s in rows:
-                                level = s.get("level") or "Other"
-                                dist = s.get("distance_mi")
-                                dist_txt = (
-                                    f"{dist:.1f} mi" if isinstance(dist, (int, float)) else ""
-                                )
-                                district = s.get("district") or ""
-                                line = f"{s.get('name') or 'School'} · {level}"
-                                if dist_txt:
-                                    line += f" · {dist_txt}"
-                                with ui.row().classes(
-                                    "w-full items-center justify-between gap-2 flex-wrap"
-                                ):
-                                    ui.label(line).classes("hb-page-meta")
-                                    url = s.get("url") or ""
-                                    if url:
-                                        ui.button("NCES").props(
-                                            f'unelevated dense color=dark href="{url}" '
-                                            'target=_blank'
-                                        )
-                                if district:
-                                    ui.label(f"LEA {district}").classes("hb-page-hint")
-
-                    ui.button("Load nearest schools", on_click=load_list).props(
-                        "unelevated dense color=dark"
-                    ).classes("hb-btn-cta q-mb-sm")
-                    if schools is not None:
-                        ui.timer(0, load_list, once=True)
 
         def toggle_flood(enabled: bool) -> None:
             if state["suppress_toggle"]:
@@ -493,7 +420,6 @@ def render(prop: Property, container: ui.element) -> None:
             state["show_schools_legend"] = False
             _render_legends()
             if not enabled:
-                _render_schools_panel(None)
                 return
 
             _, plat, plng = _fresh_pin()
@@ -514,7 +440,6 @@ def render(prop: Property, container: ui.element) -> None:
                 state["suppress_toggle"] = False
                 status.set_text(f"Schools layer failed: {exc}")
                 ui.notify(f"Schools layer failed: {exc}", type="warning")
-                _render_schools_panel(None)
                 return
 
             markers: list[Any] = []
@@ -527,7 +452,6 @@ def render(prop: Property, container: ui.element) -> None:
             state["schools"] = markers
             state["show_schools_legend"] = bool(markers)
             _render_legends()
-            _render_schools_panel(schools)
             status.set_text(
                 str((result.get("meta") or {}).get("message") or "Schools loaded")
             )
@@ -802,7 +726,6 @@ def render(prop: Property, container: ui.element) -> None:
             state["show_crime_legend"] = False
             state["map"] = None
             _render_legends()
-            _render_schools_panel(None)
 
             map_box.clear()
             with map_box:

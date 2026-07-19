@@ -39,6 +39,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-035 | Open | Map / Street View: “Open in Google Earth” button |
 | TODO-036 | Open | Library nearby icons: verify all five work; fix playground + shelter |
 | TODO-037 | Open | Library card: remove unclear “Cash” from financial caption |
+| TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
 
 ---
 
@@ -210,10 +211,10 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 **Shipped**
 - Free **NCES EDGE** public school points via ArcGIS REST bbox query (`app/core/schools_nces.py`) — no GreatSchools; no national shapefile download.
-- **Map:** Schools toggle → markers within ~4 mi + legend; **Nearby schools** panel with distance + NCES deep link.
+- **Map:** Schools toggle → markers within ~4 mi + legend. (The original "Nearby schools" distance-list panel was later removed by TODO-038, which moved per-home assigned-school detail to the Neighborhood tab.)
 - Cache under `data/cache/schools_nces/` (~7d).
 
-**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons, walkability.
+**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons, walkability. (Attendance boundaries shipped for LAUSD in TODO-038.)
 
 **Touch:** `app/core/schools_nces.py`, `map_view.py`, tests, `docs/RESEARCH.md` / `AGENTS.md`
 
@@ -550,3 +551,22 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Keep:** `cash_to_close` in Financials tab, CSV/JSON export, and Compare (until TODO-027 removes Compare).
 
 **Touch:** `app/ui/pages.py` (`_library_financial_caption` or equivalent), `AGENTS.md` / `README` library checklist wording.
+
+---
+
+## TODO-038 — Assigned schools on Neighborhood (LAUSD + SchoolDigger)
+
+**Status:** Done (2026-07-18)
+
+**Show the Elementary / Middle / High schools a home is zoned for** on the Neighborhood tab, instead of only a "nearby NCES points" list on the Map.
+
+**Shipped**
+- `app/core/school_zones.py`: point-in-polygon (`point_in_ring`/`point_in_polygon`) against **LAUSD** attendance ArcGIS layers (elementary/middle/high); resolves each zone's school **name** via layer-0 school points inside the polygon (attendance layers carry a key but no name). `resolve_assigned(lat, lng)` → `status` `ok`/`outside`/`gap`/`no_pin`/`error`, cached ~7d.
+- `app/core/schooldigger.py`: optional SchoolDigger v2.4 enrich (star rating + parent review avg/count/quote + deep link) when `SCHOOLDIGGER_APP_ID`/`SCHOOLDIGGER_APP_KEY` are set; best-effort, never raises.
+- `app/modules/neighborhood_reviews.py`: **Assigned schools** section (three cards, cyan/magenta/lime accents) before the Gemini overview; resolved off the event loop via `resolve_assigned_schools_job` (`ui_jobs.py`) with instant loading placeholders; honest empty-state captions (no pin / outside LAUSD / boundary gap / no SchoolDigger keys).
+- `app/modules/map_view.py`: removed the old **Nearby schools** distance-list panel; Schools layer toggle, NCES markers, and legend are unchanged.
+- `.env.example`: `SCHOOLDIGGER_APP_ID` / `SCHOOLDIGGER_APP_KEY`.
+
+**Non-goals (v1):** districts other than LAUSD; campus photos; "nearest school" proximity guessing (attendance boundaries only).
+
+**Touch:** `app/core/school_zones.py`, `app/core/schooldigger.py`, `app/core/ui_jobs.py`, `app/modules/neighborhood_reviews.py`, `app/modules/map_view.py`, `.env.example`, `tests/test_school_zones.py`, `tests/test_schooldigger.py`, `tests/test_assigned_schools_ui.py`, docs.

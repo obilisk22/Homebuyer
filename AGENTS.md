@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (filed TODO-028: Financials UX cleanup)
+> Last updated: 2026-07-18 (filed TODO-029: header nearby icons)
 
 
 
@@ -208,6 +208,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-026` | **Done** | Connection lost — `run.io_bound` + `ui_jobs.py` |
 | `TODO-027` | **Open** | Remove Home Compare (checkboxes + `/compare`) |
 | `TODO-028` | **Open** | Financials UX — collapse rare fields, per-field revert, hierarchy |
+| `TODO-029` | **Open** | Property header nearby icons (library chips, above tabs) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

@@ -30,6 +30,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
 | TODO-027 | Open | Remove Home Compare feature (library checkboxes + `/compare`) |
 | TODO-028 | Open | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
+| TODO-029 | Open | Property header: show library nearby-signal icons (bottom-right, above tabs) |
 
 ---
 
@@ -391,3 +392,20 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Change mortgage math; remove Gemini panel; redesign charts.
 
 **Touch:** `app/modules/financial.py`, `app/ui/theme.py` (form hierarchy CSS as needed), possibly small helpers for default resolution, docs / visual rule if hierarchy changes.
+
+---
+
+## TODO-029 — Nearby icons on property header
+
+**Status:** Open
+
+**Show the same library-card nearby proximity icons** (TODO-025: highway / transit / playground / grocery / shelter) on the **property page header**, bottom-right of the hero — **above the module tabs**.
+
+**Goals**
+- Reuse cached `Property.nearby_signals` + existing chip helpers (`hits_in_order`, tooltips, magenta risk / lime amenity).
+- Position bottom-right of `.hb-property-hero` (or shell edge above tabs); readable on bleed photo + scrim and beside mode.
+- Same fixed order / thresholds as library; no new Map markers or filters.
+
+**Non-goals:** Recompute signals on every property open (use cache; optional best-effort refresh is fine if already cheap). Don’t change library card placement.
+
+**Touch:** `app/ui/pages.py` (property header), `app/ui/theme.py` (header icon placement), docs.

@@ -883,6 +883,7 @@ a:hover {{
 
 /* Thumb stretches to match the text column height beside it */
 .hb-library-thumb-wrap {{
+  position: relative;
   width: clamp(168px, 20vw, 220px);
   min-width: 168px;
   flex-shrink: 0;
@@ -891,6 +892,42 @@ a:hover {{
   border: 1px solid var(--hb-border);
   overflow: hidden;
   background: var(--hb-surface-2);
+}}
+
+.hb-nearby-icons {{
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  z-index: 2;
+  pointer-events: none;
+}}
+
+.hb-nearby-chip {{
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 16, 22, 0.82);
+  border: 1px solid var(--hb-border);
+  box-shadow:
+    2px 2px 6px rgba(0, 0, 0, 0.45),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+  line-height: 1;
+  pointer-events: auto;
+}}
+
+.hb-nearby-chip--amenity {{
+  color: var(--hb-lime, #B8FF3C);
+}}
+
+.hb-nearby-chip--risk {{
+  color: var(--hb-magenta, #FF2BD6);
 }}
 
 .hb-library-thumb-wrap--empty {{

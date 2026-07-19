@@ -4,6 +4,13 @@ from nicegui import ui
 
 from app.core.db import get_session
 from app.core.module_registry import get_modules
+from app.core.nearby_signals import (
+    ICON_BY_KEY,
+    RISK_KEYS,
+    hits_in_order,
+    parse_signals_json,
+    tooltip_for,
+)
 from app.core.property_service import PropertyService, resolve_library_thumbnail
 from app.ui.theme import apply_theme
 
@@ -299,6 +306,10 @@ def library_page() -> None:
 
             with get_session() as session:
                 service = PropertyService(session)
+                try:
+                    service.refresh_stale_nearby_signals(limit=3)
+                except Exception:  # noqa: BLE001 - signals must never block the library
+                    pass
                 props = service.list_properties(
                     search=search_input.value or "",
                     min_price=_parse_filter_float(min_price_input.value),
@@ -354,6 +365,9 @@ def library_page() -> None:
                     street = _street_address_line(
                         address, city=city, state=state, zip_code=zip_code
                     )
+                    nearby_hits = hits_in_order(
+                        parse_signals_json(prop.nearby_signals or "")
+                    )
 
                     with ui.card().classes("w-full hb-library-card") as card:
                         card.on(
@@ -366,16 +380,44 @@ def library_page() -> None:
                             with ui.row().classes(
                                 "items-stretch gap-3 flex-grow hb-library-card-body"
                             ):
-                                if thumb:
-                                    with ui.element("div").classes(
-                                        "hb-library-thumb-wrap"
-                                    ):
+                                thumb_classes = "hb-library-thumb-wrap"
+                                if not thumb:
+                                    thumb_classes += " hb-library-thumb-wrap--empty"
+                                with ui.element("div").classes(thumb_classes):
+                                    if thumb:
                                         ui.image(thumb).classes("hb-library-thumb")
-                                else:
-                                    with ui.element("div").classes(
-                                        "hb-library-thumb-wrap hb-library-thumb-wrap--empty"
-                                    ):
+                                    else:
                                         ui.icon("home", size="2rem")
+                                    if nearby_hits:
+                                        with ui.element("div").classes(
+                                            "hb-nearby-icons"
+                                        ):
+                                            for key, entry in nearby_hits:
+                                                kind = (
+                                                    "risk"
+                                                    if key in RISK_KEYS
+                                                    else "amenity"
+                                                )
+                                                chip = ui.element("div").classes(
+                                                    "hb-nearby-chip "
+                                                    f"hb-nearby-chip--{kind}"
+                                                )
+                                                chip._props["title"] = tooltip_for(
+                                                    key, entry
+                                                )
+                                                chip.on(
+                                                    "click",
+                                                    lambda: None,
+                                                    js_handler=(
+                                                        "(e) => { "
+                                                        "e.stopPropagation(); emit(e); "
+                                                        "}"
+                                                    ),
+                                                )
+                                                with chip:
+                                                    ui.icon(
+                                                        ICON_BY_KEY[key], size="xs"
+                                                    )
                                 with ui.column().classes("gap-1 flex-grow").style(
                                     "min-width: 0"
                                 ):

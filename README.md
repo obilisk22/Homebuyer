@@ -43,7 +43,7 @@ Address, photos, and listing details (beds, baths, price, sqft, HOA, year built,
 
 ## Library list view
 
-The `/` library page is a **list**, not a grid: each wide clickable card shows a photo that stretches to match the text column, a large Akira street address, quieter Creato list price, chips for beds/baths/sqft/`$`-per-sqft, quieter type/year chips, and amber HOA when monthly HOA is $400+. Optional notes appear as a short teaser line. Page chrome (title, Add, Sort/Filter, empty states) uses the same Creato dark theme as the cards.
+The `/` library page is a **list**, not a grid: each wide clickable card shows a photo that stretches to match the text column, a large Akira street address, quieter Creato list price, chips for beds/baths/sqft/`$`-per-sqft, quieter type/year chips, and amber HOA when monthly HOA is $400+. Soft neo icons on the thumbnail flag nearby highway/shelter risks in magenta and transit/playground/grocery amenities in lime; hover an icon for the nearest place and distance. Optional notes appear as a short teaser line. Page chrome (title, Add, Sort/Filter, empty states) uses the same Creato dark theme as the cards.
 
 ## Theme / fonts
 

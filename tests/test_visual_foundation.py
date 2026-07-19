@@ -85,6 +85,27 @@ def test_library_nav_and_filter_ux():
     assert "hb-page-meta" in src
 
 
+def test_library_cards_render_nearby_signal_chips():
+    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    assert "parse_signals_json" in src
+    assert "hits_in_order" in src
+    assert "tooltip_for" in src
+    assert "ICON_BY_KEY" in src
+    assert "RISK_KEYS" in src
+    assert "hb-nearby-icons" in src
+    assert "hb-nearby-chip--{kind}" in src
+    assert "refresh_stale_nearby_signals(limit=3)" in src
+
+
+def test_theme_styles_nearby_signal_chips():
+    css = theme._CSS
+    assert ".hb-nearby-icons" in css
+    assert ".hb-nearby-chip" in css
+    assert ".hb-nearby-chip--risk" in css
+    assert ".hb-nearby-chip--amenity" in css
+    assert "pointer-events: none" in css
+
+
 def test_financial_rent_control_wires_growth_into_projection():
     src = (ROOT / "app" / "modules" / "financial.py").read_text(encoding="utf-8")
 

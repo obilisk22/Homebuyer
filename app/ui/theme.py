@@ -116,7 +116,7 @@ _CSS = f"""
   --hb-amber: {NEON["amber"]};
   --hb-font-display: "Akira Expanded", Impact, system-ui, sans-serif;
   --hb-font-body: "Creato Display", system-ui, sans-serif;
-  --hb-library-address-size: clamp(1.35rem, 4vw, 2.5rem);
+  --hb-library-address-size: clamp(1.215rem, 3.6vw, 2.25rem);
   --hb-library-price-size: 1.35rem;
   --hb-space-1: 0.25rem;
   --hb-space-2: 0.5rem;
@@ -1078,6 +1078,13 @@ a:hover {{
   word-break: break-word;
 }}
 
+.hb-library-unit {{
+  font-size: 0.75em;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}}
+
 /* Stack library card row on narrow viewports (overrides Quasar flex-nowrap) */
 @media (max-width: 800px) {{
   .hb-library-card .flex-nowrap {{
@@ -1151,6 +1158,12 @@ a:hover {{
 
 .hb-appr-low {{
   color: var(--hb-amber) !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}}
+
+.hb-appr-high {{
+  color: var(--hb-neon-3) !important;
   opacity: 1 !important;
   font-weight: 600;
 }}

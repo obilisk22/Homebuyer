@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import re
 from types import SimpleNamespace
 
 from nicegui import run, ui
@@ -67,10 +69,21 @@ def _library_financial_caption(snap: LibraryFinancialSnapshot) -> str:
 
 
 def _library_appreciation_caption(snap: LibraryFinancialSnapshot) -> str:
-    """Quiet appreciation line when financials include a rate."""
+    """Quiet appreciation / Growth line when financials include a rate."""
     if not snap.has_financials or snap.appreciation_pct is None:
         return ""
-    return f"Appr. {snap.appreciation_pct:.1f}%/yr"
+    return f"Growth {snap.appreciation_pct:.1f}%/yr"
+
+
+def _library_appreciation_tone_class(pct: float | None) -> str:
+    """Caption tone: amber <3%, lime >6%, neutral 3–6% inclusive."""
+    if pct is None:
+        return ""
+    if pct < 3.0:
+        return "hb-appr-low"
+    if pct > 6.0:
+        return "hb-appr-high"
+    return ""
 
 
 def _render_nearby_signal_chips(
@@ -271,6 +284,57 @@ def _street_address_line(
     if "," in text:
         return text.split(",", 1)[0].strip()
     return text
+
+
+# Display-only: APT/UNIT/SUITE/#… → compact "#…" suffix (does not mutate stored address).
+_UNIT_MARKER_RE = re.compile(
+    r"""
+    ^(?P<street>.*?)\s+
+    (?:
+        (?:APT|APARTMENT|UNIT|STE|SUITE)\.?\s+(?P<label>[A-Za-z0-9\-]+)
+        |
+        \#\s*(?P<hash>[A-Za-z0-9\-]+)
+    )
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _split_street_unit(street: str) -> tuple[str, str | None]:
+    """Split street vs unit; unit returned as ``#…`` or None. Display-only."""
+    text = (street or "").strip()
+    if not text:
+        return "", None
+    m = _UNIT_MARKER_RE.match(text)
+    if not m:
+        return text, None
+    base = (m.group("street") or "").strip().rstrip(",")
+    unit = (m.group("label") or m.group("hash") or "").strip()
+    if not base or not unit:
+        return text, None
+    return base, f"#{unit}"
+
+
+def _render_street_address(street: str, *, fallback: str = "") -> None:
+    """Akira street line with optional smaller ``#unit`` span (library + header)."""
+    base, unit = _split_street_unit(street or "")
+    display = base or (fallback or "").strip()
+    if not display and not unit:
+        return
+    if not unit:
+        ui.label(display).classes("hb-library-address")
+        return
+    # Keep Akira size on the wrapper; unit uses 0.75em relative to that.
+    with ui.element("div").classes("hb-library-address"):
+        parts = []
+        if display:
+            parts.append(html.escape(display))
+        parts.append(
+            f'<span class="hb-library-unit">{" " if display else ""}'
+            f"{html.escape(unit)}</span>"
+        )
+        ui.html("".join(parts), sanitize=False)
 
 
 def _parse_filter_float(raw: str | float | None) -> float | None:
@@ -567,9 +631,7 @@ def library_page() -> None:
                                 with ui.column().classes("gap-1 flex-grow").style(
                                     "min-width: 0"
                                 ):
-                                    ui.label(street or address).classes(
-                                        "hb-library-address"
-                                    )
+                                    _render_street_address(street, fallback=address)
                                     place = ", ".join(
                                         p for p in (city, state) if p
                                     )
@@ -601,11 +663,11 @@ def library_page() -> None:
                                                 )
                                             if appr_caption:
                                                 appr_classes = "hb-page-meta"
-                                                if (
-                                                    appr_pct is not None
-                                                    and appr_pct < 3.0
-                                                ):
-                                                    appr_classes += " hb-appr-low"
+                                                tone = _library_appreciation_tone_class(
+                                                    appr_pct
+                                                )
+                                                if tone:
+                                                    appr_classes += f" {tone}"
                                                 appr_lbl = ui.label(
                                                     appr_caption
                                                 ).classes(appr_classes)
@@ -774,7 +836,7 @@ def property_page(property_id: int) -> None:
                         with ui.column().classes("gap-1 flex-grow").style(
                             "min-width: 0"
                         ):
-                            ui.label(street or address).classes("hb-library-address")
+                            _render_street_address(street, fallback=address)
                             if place:
                                 ui.label(place).classes("hb-library-place")
                             if list_price is not None:

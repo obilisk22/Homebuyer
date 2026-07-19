@@ -45,9 +45,9 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-041 | Done | Map overlay: National Transportation Noise Map (BTS) |
 | TODO-042 | Done | Library icon when location lacks broadband (FCC BDC; chip when env set) |
 | TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
-| TODO-044 | Open | Library card: rename appreciation label “Appr.” → “Growth” |
-| TODO-045 | Open | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
-| TODO-046 | Open | Library appreciation caption: lime/green when &gt; 6%/yr |
+| TODO-044 | Done | Library card: rename appreciation label “Appr.” → “Growth” |
+| TODO-045 | Done | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
+| TODO-046 | Done | Library appreciation caption: lime/green when &gt; 6%/yr |
 | TODO-047 | Open | Library nearby icons: click opens source URL in browser |
 | TODO-048 | Open | Playground library icon: investigate low hit rate; widen radius and/or match criteria |
 
@@ -463,8 +463,8 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Show the home’s calculated appreciation %** on each library card (from `FinancialAssumptions.appreciation_pct` — FHFA/Zillow blend or Manual), so low-growth ZIPs are obvious in the list.
 
 **Shipped**
-- `LibraryFinancialSnapshot.appreciation_pct` / `appreciation_source` via `snapshot_from_property`; quiet `Appr. N%/yr` beside PITI on library cards.
-- Under 3% uses amber `.hb-appr-low`; hidden when no financials / missing appreciation.
+- `LibraryFinancialSnapshot.appreciation_pct` / `appreciation_source` via `snapshot_from_property`; quiet `Growth N%/yr` beside PITI on library cards.
+- Under 3% uses amber `.hb-appr-low`; over 6% uses lime `.hb-appr-high`; 3–6% neutral; hidden when no financials / missing appreciation.
 - Optional source tooltip from `appreciation_source`.
 
 **Touch:** `app/core/library_export.py`, `app/ui/pages.py`, `app/ui/theme.py`, docs.
@@ -638,9 +638,9 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-044 — Library card: “Growth” instead of “Appr.”
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Rename** the library-card appreciation caption from `Appr. N%/yr` to **`Growth N%/yr`** (same value, amber when &lt; 3% unchanged).
+**Rename** the library-card appreciation caption from `Appr. N%/yr` to **`Growth N%/yr`** (same value; amber &lt; 3% / lime &gt; 6% via TODO-046).
 
 **Touch:** `app/ui/pages.py` (`_library_appreciation_caption`), docs/AGENTS wording if they say “Appr.”.
 
@@ -648,35 +648,31 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-045 — Compact street + unit on library / header
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** Long Akira street lines (with `APT` / `UNIT` / Suite condo markers) overflow or crowd library cards at narrower widths.
 
-**Goals**
-1. Shrink library/header street type by **~10%** (e.g. `--hb-library-address-size` clamp).
-2. Normalize unit markers (`APT`, `APARTMENT`, `UNIT`, `STE`/`SUITE`, `#`, etc.) to a compact **`#…`** suffix (e.g. `123 Main St #4B`) via `_street_address_line` or a small formatter.
-3. Render the unit/`#` segment in a **~25% smaller** font than the street (separate span/class, e.g. `.hb-library-unit`), so the street stays hero and the unit saves space.
-4. Apply on **library cards** and **property header** (same street helper).
+**Shipped**
+1. Library/header street type ~10% smaller (`--hb-library-address-size: clamp(1.215rem, 3.6vw, 2.25rem)`).
+2. Display-only unit normalize (`APT`/`APARTMENT`/`UNIT`/`STE`/`SUITE`/`#…` → `#…`) via `_split_street_unit` — stored `Property.address` unchanged.
+3. Unit segment in `.hb-library-unit` at `0.75em` (~25% smaller) via `_render_street_address` on library cards and property header.
 
-**Non-goals:** Change stored `Property.address`; geocode query stripping already exists separately.
-
-**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, tests for unit abbreviation, docs.
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, `tests/test_library_street_display.py`, docs.
 
 ---
 
 ## TODO-046 — Lime highlight when appreciation &gt; 6%/yr
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** Library cards already amber-highlight low appreciation (`&lt; 3%/yr`, TODO-032). High growth rates have no positive counterpart.
 
-**Goals**
-1. When annual appreciation is **&gt; 6%/yr**, style the appreciation / Growth caption with a **green/lime** highlight (theme accent Lime `#B8FF3C` or a quiet caption class analogous to `.hb-appr-low`).
-2. Keep existing **amber** for **&lt; 3%/yr**.
-3. Leave **3–6% inclusive** neutral (no amber, no lime).
-4. Apply wherever the same appreciation caption pattern is shown (library cards; matching property UI if any).
+**Shipped**
+1. Annual appreciation **&gt; 6%/yr** → lime `.hb-appr-high` (`--hb-neon-3` / `#B8FF3C`).
+2. Keep amber `.hb-appr-low` for **&lt; 3%/yr**.
+3. **3–6% inclusive** stays neutral (`_library_appreciation_tone_class`).
 
-**Bands (document in code/docs)**
+**Bands**
 
 | Rate | Style |
 |------|--------|
@@ -684,9 +680,7 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 | `3%`–`6%` inclusive | Neutral |
 | `&gt; 6%` | Lime / green |
 
-**Non-goals:** Change appreciation math or FHFA/Zillow sources; rename “Appr.” → “Growth” (that’s TODO-044).
-
-**Touch:** `app/ui/pages.py` (`_library_appreciation_caption` or similar), `app/ui/theme.py` (caption class), docs.
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, docs.
 
 ---
 

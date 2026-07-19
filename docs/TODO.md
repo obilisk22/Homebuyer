@@ -47,6 +47,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
 | TODO-044 | Open | Library card: rename appreciation label “Appr.” → “Growth” |
 | TODO-045 | Open | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
+| TODO-046 | Open | Library appreciation caption: lime/green when &gt; 6%/yr |
 
 ---
 
@@ -658,3 +659,29 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Change stored `Property.address`; geocode query stripping already exists separately.
 
 **Touch:** `app/ui/pages.py`, `app/ui/theme.py`, tests for unit abbreviation, docs.
+
+---
+
+## TODO-046 — Lime highlight when appreciation &gt; 6%/yr
+
+**Status:** Open
+
+**Problem:** Library cards already amber-highlight low appreciation (`&lt; 3%/yr`, TODO-032). High growth rates have no positive counterpart.
+
+**Goals**
+1. When annual appreciation is **&gt; 6%/yr**, style the appreciation / Growth caption with a **green/lime** highlight (theme accent Lime `#B8FF3C` or a quiet caption class analogous to `.hb-appr-low`).
+2. Keep existing **amber** for **&lt; 3%/yr**.
+3. Leave **3–6% inclusive** neutral (no amber, no lime).
+4. Apply wherever the same appreciation caption pattern is shown (library cards; matching property UI if any).
+
+**Bands (document in code/docs)**
+
+| Rate | Style |
+|------|--------|
+| `&lt; 3%` | Amber (existing) |
+| `3%`–`6%` inclusive | Neutral |
+| `&gt; 6%` | Lime / green |
+
+**Non-goals:** Change appreciation math or FHFA/Zillow sources; rename “Appr.” → “Growth” (that’s TODO-044).
+
+**Touch:** `app/ui/pages.py` (`_library_appreciation_caption` or similar), `app/ui/theme.py` (caption class), docs.

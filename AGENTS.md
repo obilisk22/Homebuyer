@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (filed TODO-045: compact street / unit display)
+> Last updated: 2026-07-19 (filed TODO-046: lime appreciation &gt; 6%)
 
 
 
@@ -238,6 +238,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-043` | **Done** | High permit activity amber chip (LA / Seattle / Austin) |
 | `TODO-044` | **Open** | Library card — rename “Appr.” → “Growth” |
 | `TODO-045` | **Open** | Street address −10%; APT/UNIT as smaller “#” suffix |
+| `TODO-046` | **Open** | Appreciation caption — lime when &gt; 6%/yr (amber &lt; 3% kept) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

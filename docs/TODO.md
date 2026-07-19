@@ -16,6 +16,15 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-010 | Done | Map + Street View combined |
 | TODO-011 | Done | Financials: autofill list/HOA/tax/insurance from Zillow + ACS/state tables |
 | TODO-012 | Done | Financials: autofill interest rate from Freddie Mac PMMS by loan term |
+| TODO-013 | Open | Schools: nearby / assigned schools from NCES (map + property panel) |
+| TODO-015 | Open | Library pipeline status (Watching / Toured / Offer / Passed / …) |
+| TODO-016 | Open | Library financial snapshot columns (PITI, cash-to-close) + CSV/JSON export |
+| TODO-017 | Open | Buy-vs-rent: editable invest return, sell cost %, optional maintenance |
+| TODO-018 | Open | Side-by-side Compare view (2–4 homes) |
+| TODO-020 | Open | Area signals: wildfire + AQI map layers (TODO-002 slice) |
+| TODO-021 | Open | Area signals: Redfin ZIP median sale choropleth (TODO-002 slice) |
+| TODO-022 | Open | Closing checklist + simple deal timeline module |
+| TODO-023 | Open | Document attachments per property (offers, inspection, disclosures) |
 
 ---
 
@@ -179,3 +188,111 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 - Caption under Interest rate (e.g. `Freddie Mac PMMS 30-yr FRM · 2026-07-16`).
 
 **Touch:** `app/core/mortgage_rates.py`, `property_service.py`, `models.py`, `db.py`, `app/modules/financial.py`, tests, `AGENTS.md`
+
+---
+
+## TODO-013 — Schools support (NCES)
+
+**Status:** Open
+
+**Show school context for a pinned home** so buyers can judge elementary / middle / high options without leaving Homebuy.
+
+**Scope (v1)**
+- Free **NCES** school points (no GreatSchools paid API — see `docs/RESEARCH.md`).
+- **Map:** nearby school markers (name, level) within a radius of the property pin; optional layer toggle.
+- **Property panel:** short list of nearest schools (and district if available) with distance; link out to public school pages when useful.
+- Cache downloads under `data/cache/` like other overlays.
+
+**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons (harder GIS; consider later), walkability (separate day-2 bonus).
+
+**Touch (expected):** new `app/core/schools_nces.py` (or similar), `map_view.py`, property/Neighborhood UI, `overlay_cache.py`, tests, `docs/RESEARCH.md` / `AGENTS.md`
+
+---
+
+## TODO-015 — Library pipeline status
+
+**Status:** Open
+
+**Turn the bookmark list into a shortlist pipeline** with a per-home status chip, e.g. Watching / Toured / Offer / Under contract / Passed (exact labels TBD).
+
+**Notes**
+- New column on `Property` (string enum) + filter/sort on the library page.
+- Quiet chip on cards; editable from card menu or property header.
+
+**Touch (expected):** `models.py`, `db.py`, `pages.py`, tests
+
+---
+
+## TODO-016 — Library financial snapshots + export
+
+**Status:** Open
+
+**Show quick money columns on the library** (e.g. estimated PITI, cash-to-close, $/sqft) derived from saved `FinancialAssumptions`, plus **CSV/JSON export** of library + financials for backup / spreadsheet compare.
+
+**Touch (expected):** `pages.py`, `finance.summarize`, `property_service`, new small export helper, tests
+
+---
+
+## TODO-017 — Buy-vs-rent editable assumptions
+
+**Status:** Open
+
+**Make buy-vs-rent what-ifs editable:** invest return %/yr, sell cost %, optional monthly maintenance — instead of fixed 10% / 6% only.
+
+**Notes**
+- Persist on `FinancialAssumptions`; caption current defaults; keep v1 math in `finance.buy_vs_rent_projection`.
+
+**Touch (expected):** `models.py`, `db.py`, `finance.py`, `financial.py`, tests
+
+---
+
+## TODO-018 — Side-by-side Compare view
+
+**Status:** Open
+
+**Compare 2–4 shortlisted homes** on one page: price, $/sqft, beds/baths, PITI, cash-to-close, status, key area signals if cheap to show.
+
+**Touch (expected):** new module or `/compare` route, thin compare service, library multi-select entry point
+
+---
+
+## TODO-020 — Wildfire + AQI map layers
+
+**Status:** Open
+
+**TODO-002 slice:** Map overlays for **wildfire risk** and **air quality** near the pin (free public sources; see `docs/RESEARCH.md`).
+
+**Touch (expected):** new overlay clients, `map_view.py`, `overlay_cache.py`, tests
+
+---
+
+## TODO-021 — Redfin ZIP median sale choropleth
+
+**Status:** Open
+
+**TODO-002 slice:** ZIP / ZCTA choropleth of recent **median sale prices** from Redfin Data Center (not ACS owner-estimated value).
+
+**Touch (expected):** overlay download + ZCTA join, `map_view.py`, cache, tests
+
+---
+
+## TODO-022 — Closing checklist + deal timeline
+
+**Status:** Open
+
+**Post-offer planner module:** simple closing checklist + timeline (inspection, appraisal, contingencies, closing date) tied to a property.
+
+**Touch (expected):** new module + model(s), property tab or dedicated panel, tests
+
+---
+
+## TODO-023 — Document attachments per property
+
+**Status:** Open
+
+**Document vault** for offers, inspection reports, disclosures, etc. — upload/store under the property and open from the UI.
+
+**Notes**
+- Store under `data/uploads/` (gitignored); metadata in SQLite; gallery-like or list viewer.
+
+**Touch (expected):** new model, upload UI, property service helpers, tests

@@ -265,3 +265,46 @@ def test_extract_tax_annual_when_no_history():
     assert details.annual_tax == 9000
     assert details.property_tax_rate == pytest.approx(0.011)
     assert details.tax_assessed_value == 800_000
+
+
+def test_extract_insurance_from_nested_sibling_dict():
+    """Insurance may live on a payment/calc node, not the best-scored property dict."""
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"componentProps":{"gdpClientCache":"'
+        '{\\"property\\":{\\"zpid\\":9,\\"price\\":900000,\\"bedrooms\\":3,'
+        '\\"bathrooms\\":2,\\"livingArea\\":1400,\\"homeType\\":\\"SINGLE_FAMILY\\",'
+        '\\"city\\":\\"Seattle\\"},'
+        '\\"mortgageCalculator\\":{\\"annualHomeownersInsurance\\":3180}}"'
+        '}}}}'
+        "</script>"
+    )
+    details = extract_listing_details(html)
+    assert details.list_price == 900_000
+    assert details.annual_insurance == 3180
+
+
+def test_extract_insurance_monthly_key_annualized():
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"componentProps":{"gdpClientCache":"'
+        '{\\"zpid\\":3,\\"price\\":500000,\\"resoFacts\\":'
+        '{\\"monthlyHomeownersInsurance\\":175}}"'
+        '}}}}'
+        "</script>"
+    )
+    details = extract_listing_details(html)
+    assert details.annual_insurance == 2100
+
+
+def test_extract_insurance_from_escaped_regex_scan():
+    # No parseable gdpClientCache object — regex fallback over the HTML blob.
+    html = (
+        '<html><body>'
+        r'\"annualHomeownersInsurance\":2640,'
+        r'\"price\":750000,'
+        r'\"bedrooms\":2'
+        "</body></html>"
+    )
+    details = extract_listing_details(html)
+    assert details.annual_insurance == 2640

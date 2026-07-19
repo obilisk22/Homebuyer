@@ -67,6 +67,22 @@ JSON_HOA_RE = re.compile(
 JSON_RENT_ZESTIMATE_RE = re.compile(
     _Q + r"(?:rentZestimate|rent_zestimate)" + _Q + r"\s*:\s*(\d+(?:\.\d+)?)"
 )
+# Homeowners insurance appears under several key names; monthly keys are annualized.
+JSON_INSURANCE_ANNUAL_RE = re.compile(
+    _Q
+    + r"(?:annualHomeownersInsurance|annualHomeownersInsuranceAmount|"
+    r"homeownersInsurance|annualInsurance|hazardInsurance|"
+    r"homeInsurance|annualHazardInsurance)"
+    + _Q
+    + r"\s*:\s*(\d+(?:\.\d+)?)"
+)
+JSON_INSURANCE_MONTHLY_RE = re.compile(
+    _Q
+    + r"(?:monthlyHomeownersInsurance|monthlyInsurance|monthlyHomeInsurance|"
+    r"homeownersInsuranceMonthly)"
+    + _Q
+    + r"\s*:\s*(\d+(?:\.\d+)?)"
+)
 JSON_YEAR_RE = re.compile(_Q + r"yearBuilt" + _Q + r"\s*:\s*(\d{4})")
 JSON_HOME_TYPE_RE = re.compile(
     _Q
@@ -188,9 +204,32 @@ _PROPERTY_FACT_KEYS = (
     "taxAssessedValue",
     "propertyTaxRate",
     "annualHomeownersInsurance",
+    "annualHomeownersInsuranceAmount",
+    "homeownersInsurance",
+    "annualInsurance",
+    "hazardInsurance",
+    "homeInsurance",
+    "monthlyHomeownersInsurance",
+    "monthlyInsurance",
     "taxHistory",
     "rentZestimate",
     "rent_zestimate",
+)
+
+_INSURANCE_ANNUAL_KEYS = (
+    "annualHomeownersInsurance",
+    "annualHomeownersInsuranceAmount",
+    "homeownersInsurance",
+    "annualInsurance",
+    "hazardInsurance",
+    "homeInsurance",
+    "annualHazardInsurance",
+)
+_INSURANCE_MONTHLY_KEYS = (
+    "monthlyHomeownersInsurance",
+    "monthlyInsurance",
+    "monthlyHomeInsurance",
+    "homeownersInsuranceMonthly",
 )
 
 
@@ -321,13 +360,51 @@ def _annual_tax_from_property_dict(d: dict) -> float | None:
     return None
 
 
+def _positive_insurance_amount(raw: object, *, monthly: bool = False) -> float | None:
+    val = _parse_float(raw)
+    if val is None or val <= 0:
+        return None
+    return val * 12.0 if monthly else val
+
+
+def _annual_insurance_from_mapping(d: dict) -> float | None:
+    """Read annual homeowners insurance from a flat mapping (property or resoFacts)."""
+    for key in _INSURANCE_ANNUAL_KEYS:
+        val = _positive_insurance_amount(d.get(key))
+        if val is not None:
+            return val
+    for key in _INSURANCE_MONTHLY_KEYS:
+        val = _positive_insurance_amount(d.get(key), monthly=True)
+        if val is not None:
+            return val
+    return None
+
+
 def _annual_insurance_from_property_dict(d: dict) -> float | None:
-    val = _parse_float(d.get("annualHomeownersInsurance"))
-    if val is not None:
-        return val
+    found = _annual_insurance_from_mapping(d)
+    if found is not None:
+        return found
     reso = d.get("resoFacts")
     if isinstance(reso, dict):
-        return _parse_float(reso.get("annualHomeownersInsurance"))
+        return _annual_insurance_from_mapping(reso)
+    return None
+
+
+def _find_annual_insurance(source: object) -> float | None:
+    """Deep-walk nested Zillow JSON for a homeowners insurance estimate."""
+    if isinstance(source, dict):
+        found = _annual_insurance_from_property_dict(source)
+        if found is not None:
+            return found
+        for value in source.values():
+            found = _find_annual_insurance(value)
+            if found is not None:
+                return found
+    elif isinstance(source, list):
+        for value in source:
+            found = _find_annual_insurance(value)
+            if found is not None:
+                return found
     return None
 
 
@@ -590,13 +667,20 @@ def _from_gdp_cache(html: str) -> ListingDetails:
                 details.year_built is not None,
                 bool(details.home_type),
                 bool(details.city),
+                details.annual_insurance is not None,
             ]
         )
         if score > best_score:
             best = details
             best_score = score
+    insurance = (
+        best.annual_insurance
+        or _find_annual_insurance(cache)
+        or _find_annual_insurance(next_data)
+    )
     return replace(
         best,
+        annual_insurance=insurance,
         appreciation_decade_pct=(
             _find_appreciation_decade_pct(cache)
             or _find_appreciation_decade_pct(next_data)
@@ -828,7 +912,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
     # Also scan a bounded slice of the full HTML for escaped JSON fields
     chunks.append(html[:800_000])
 
-    price = beds = baths = sqft = hoa = rent_zestimate = None
+    price = beds = baths = sqft = hoa = rent_zestimate = annual_insurance = None
     year: int | None = None
     city = state = zip_code = neighborhood = home_type = ""
     for chunk in chunks:
@@ -840,6 +924,13 @@ def _from_embedded_json(html: str) -> ListingDetails:
         rent_zestimate = _coalesce(
             rent_zestimate, _first_json_float(JSON_RENT_ZESTIMATE_RE, chunk)
         )
+        annual_insurance = _coalesce(
+            annual_insurance,
+            _first_json_float(JSON_INSURANCE_ANNUAL_RE, chunk),
+        )
+        monthly_ins = _first_json_float(JSON_INSURANCE_MONTHLY_RE, chunk)
+        if annual_insurance is None and monthly_ins is not None and monthly_ins > 0:
+            annual_insurance = monthly_ins * 12.0
         year = _coalesce_int(year, _first_json_int(JSON_YEAR_RE, chunk))
         home_type = _coalesce_str(
             home_type, normalize_home_type(_first_json_str(JSON_HOME_TYPE_RE, chunk))
@@ -885,6 +976,7 @@ def _from_embedded_json(html: str) -> ListingDetails:
         sqft=sqft,
         hoa_fee=hoa,
         rent_zestimate=rent_zestimate,
+        annual_insurance=annual_insurance,
         year_built=year,
         home_type=home_type,
         city=city,

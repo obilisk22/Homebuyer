@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nicegui import events, ui
+from nicegui import ui
 
 from app.core.db import UPLOADS_DIR, get_session
 from app.core.module_registry import ModuleSpec
@@ -16,7 +16,8 @@ def render(prop: Property, container: ui.element) -> None:
     with container:
         ui.label("Photos").classes("hb-page-title")
         ui.label(
-            "Auto-imported from the Zillow listing. Click any photo to expand."
+            "Imported with the listing. Click any photo to expand; pin sets the "
+            "library thumbnail."
         ).classes("hb-page-hint")
 
         status = ui.label("").classes("hb-page-meta q-mt-xs")
@@ -28,7 +29,7 @@ def render(prop: Property, container: ui.element) -> None:
                 lightbox_caption = ui.label("").classes("hb-lightbox-caption")
                 ui.button(icon="close", on_click=lightbox.close).classes(
                     "hb-lightbox-close"
-                ).props("unelevated round dense color=dark")
+                ).props("flat round dense size=sm")
             lightbox_image = (
                 ui.image()
                 .classes("w-full")
@@ -38,12 +39,12 @@ def render(prop: Property, container: ui.element) -> None:
                 prev_btn = (
                     ui.button(icon="chevron_left")
                     .classes("hb-lightbox-nav")
-                    .props("unelevated round dense color=dark")
+                    .props("flat round dense size=sm")
                 )
                 next_btn = (
                     ui.button(icon="chevron_right")
                     .classes("hb-lightbox-nav")
-                    .props("unelevated round dense color=dark")
+                    .props("flat round dense size=sm")
                 )
 
         photo_urls: list[str] = []
@@ -64,6 +65,8 @@ def render(prop: Property, container: ui.element) -> None:
         prev_btn.on_click(lambda: show_lightbox(current_index["value"] - 1))
         next_btn.on_click(lambda: show_lightbox(current_index["value"] + 1))
 
+        gallery = ui.element("div").classes("hb-photo-gallery q-mt-sm")
+
         def refresh_gallery(initial: Property | None = None) -> None:
             gallery.clear()
             photo_urls.clear()
@@ -83,7 +86,8 @@ def render(prop: Property, container: ui.element) -> None:
             with gallery:
                 if not photos:
                     ui.label(
-                        "No photos yet — import from Zillow or upload manually."
+                        "No photos on file — they import automatically when you "
+                        "add a home from Zillow."
                     ).classes("hb-empty-state w-full")
                     return
 
@@ -126,7 +130,9 @@ def render(prop: Property, container: ui.element) -> None:
                                         PropertyService(session).set_library_thumbnail(
                                             property_id, pid
                                         )
-                                    ui.notify("Library thumbnail updated", type="positive")
+                                    ui.notify(
+                                        "Library thumbnail updated", type="positive"
+                                    )
                                 except ValueError as exc:
                                     ui.notify(str(exc), type="negative")
                                 refresh_gallery()
@@ -137,68 +143,6 @@ def render(prop: Property, container: ui.element) -> None:
                                 js_handler="(e) => { e.stopPropagation(); emit(e); }",
                             )
 
-        def import_from_zillow(replace: bool = False) -> None:
-            try:
-                with get_session() as session:
-                    count = PropertyService(session).import_zillow_photos(
-                        property_id, replace=replace
-                    )
-                if count:
-                    ui.notify(f"Imported {count} photos from Zillow", type="positive")
-                else:
-                    ui.notify("No new photos found (already imported?)", type="info")
-            except ValueError as exc:
-                ui.notify(str(exc), type="negative")
-            except Exception as exc:  # noqa: BLE001 — surface import failures in UI
-                ui.notify(f"Import failed: {exc}", type="negative")
-            refresh_gallery()
-
-        def auto_pick_again() -> None:
-            try:
-                with get_session() as session:
-                    PropertyService(session).unlock_and_select_thumbnail(property_id)
-                ui.notify("Auto-picked a new library thumbnail", type="positive")
-            except ValueError as exc:
-                ui.notify(str(exc), type="negative")
-            refresh_gallery()
-
-        async def handle_upload(e: events.UploadEventArguments) -> None:
-            upload_dir = UPLOADS_DIR / "_tmp"
-            upload_dir.mkdir(parents=True, exist_ok=True)
-            name = e.file.name or "upload.bin"
-            tmp = upload_dir / name
-            await e.file.save(tmp)
-            with get_session() as session:
-                PropertyService(session).add_photo(property_id, tmp, caption=name)
-            tmp.unlink(missing_ok=True)
-            ui.notify("Photo added", type="positive")
-            refresh_gallery()
-
-        with ui.row().classes("q-mt-sm gap-2 flex-wrap"):
-            ui.button(
-                "Import from Zillow",
-                on_click=lambda: import_from_zillow(False),
-                icon="cloud_download",
-            ).props("unelevated dense color=dark").classes("hb-btn-cta")
-            ui.button(
-                "Re-import (replace)",
-                on_click=lambda: import_from_zillow(True),
-                icon="refresh",
-            ).props("unelevated dense color=dark")
-            ui.button(
-                "Auto-pick again",
-                on_click=auto_pick_again,
-                icon="auto_awesome",
-            ).props("unelevated dense color=dark")
-
-        ui.upload(
-            label="Or upload photos",
-            on_upload=handle_upload,
-            auto_upload=True,
-            multiple=True,
-        ).props('accept="image/*"').classes("q-mt-sm")
-
-        gallery = ui.element("div").classes("hb-photo-gallery q-mt-sm")
         refresh_gallery(prop)
 
 

@@ -1,7 +1,7 @@
 # Library nearby icons — Design Spec
 
 **Date:** 2026-07-18  
-**Status:** Approved (awaiting implementation plan)  
+**Status:** Implemented (2026-07-18)  
 **Product:** Homebuy library cards  
 
 ## Problem

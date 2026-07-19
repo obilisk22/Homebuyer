@@ -18,6 +18,8 @@ Source: [Map overlays research v2](323317c3-1601-4d1f-8acb-0a1211070c19)
 
 **Day-2 bonuses:** NCES school points; EPA National Walkability Index.
 
+**Library nearby badges (2026-07-18, not Map overlays):** OSM Overpass around the pin for highway/transit/playground/grocery/shelter; optional Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` is set. Cached per property + raw responses ~7d — see `app/core/nearby_signals.py` and TODO-025.
+
 ### Keys
 
 | Key | Needed? |

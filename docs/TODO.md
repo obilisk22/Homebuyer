@@ -25,6 +25,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-021 | Open | Area signals: Redfin ZIP median sale choropleth (TODO-002 slice) |
 | TODO-022 | Open | Closing checklist + simple deal timeline module |
 | TODO-023 | Open | Document attachments per property (offers, inspection, disclosures) |
+| TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
 
 ---
 
@@ -296,3 +297,21 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 - Store under `data/uploads/` (gitignored); metadata in SQLite; gallery-like or list viewer.
 
 **Touch (expected):** new model, upload UI, property service helpers, tests
+
+---
+
+## TODO-025 — Library nearby proximity icons
+
+**Status:** Done (2026-07-18)
+
+**At-a-glance proximity badges** on library card thumbnails: highway, transit, playground, grocery, shelter/recovery — only when within distance thresholds.
+
+**Shipped**
+- `app/core/nearby_signals.py` — OSM Overpass for all five; Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` set (OSM fallback without key).
+- Cached JSON on `Property` (`nearby_signals`, `nearby_signals_at`); raw responses under `data/cache/nearby/` (~7d).
+- Compute on add + post-geocode; library load refreshes up to 3 stale/missing pins (> ~30 days).
+- Soft neo chips on thumbnail bottom-left (magenta risks, lime amenities); distance + name tooltips; chip click does not open card.
+
+**Non-goals (v1):** Map markers, property Nearby panel, manual refresh, library filters by signal.
+
+**Touch:** `nearby_signals.py`, `models.py`, `db.py`, `property_service.py`, `pages.py`, `theme.py`, `tests/test_nearby_signals.py`

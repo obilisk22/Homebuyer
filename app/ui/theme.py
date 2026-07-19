@@ -864,9 +864,14 @@ a:hover {{
 
 /* Library — list-style home cards */
 .hb-library-card {{
+  position: relative;
   padding: 0.7rem 0.85rem;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}}
+
+.hb-library-card:has(.hb-nearby-icons) {{
+  padding-bottom: 2.35rem;
 }}
 
 .hb-library-card:hover {{
@@ -899,10 +904,12 @@ a:hover {{
 
 .hb-nearby-icons {{
   position: absolute;
-  left: 6px;
-  bottom: 6px;
+  right: 0.85rem;
+  bottom: 0.55rem;
+  left: auto;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
   z-index: 2;
   pointer-events: none;

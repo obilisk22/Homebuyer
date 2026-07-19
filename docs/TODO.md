@@ -310,7 +310,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 - `app/core/nearby_signals.py` — OSM Overpass for all five; Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` set (OSM fallback without key).
 - Cached JSON on `Property` (`nearby_signals`, `nearby_signals_at`); raw responses under `data/cache/nearby/` (~7d).
 - Compute on add + post-geocode; library load refreshes up to 3 stale/missing pins (> ~30 days).
-- Soft neo chips on thumbnail bottom-left (magenta risks, lime amenities); distance + name tooltips; chip click does not open card.
+- Soft neo chips on the library card bottom-right (not over the photo; magenta risks, lime amenities); distance + name tooltips; chip click does not open card.
 
 **Non-goals (v1):** Map markers, property Nearby panel, manual refresh, library filters by signal.
 

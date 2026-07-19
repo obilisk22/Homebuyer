@@ -109,6 +109,8 @@ def test_theme_styles_nearby_signal_chips():
     assert ".hb-nearby-chip--risk" in css
     assert ".hb-nearby-chip--amenity" in css
     assert "pointer-events: none" in css
+    assert "right: 0.85rem" in css
+    assert ".hb-library-card:has(.hb-nearby-icons)" in css
 
 
 def test_financial_rent_control_wires_growth_into_projection():

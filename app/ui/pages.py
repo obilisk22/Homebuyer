@@ -384,36 +384,6 @@ def library_page() -> None:
                                         ui.image(thumb).classes("hb-library-thumb")
                                     else:
                                         ui.icon("home", size="2rem")
-                                    if nearby_hits:
-                                        with ui.element("div").classes(
-                                            "hb-nearby-icons"
-                                        ):
-                                            for key, entry in nearby_hits:
-                                                kind = (
-                                                    "risk"
-                                                    if key in RISK_KEYS
-                                                    else "amenity"
-                                                )
-                                                chip = ui.element("div").classes(
-                                                    "hb-nearby-chip "
-                                                    f"hb-nearby-chip--{kind}"
-                                                )
-                                                chip._props["title"] = tooltip_for(
-                                                    key, entry
-                                                )
-                                                chip.on(
-                                                    "click",
-                                                    lambda: None,
-                                                    js_handler=(
-                                                        "(e) => { "
-                                                        "e.stopPropagation(); emit(e); "
-                                                        "}"
-                                                    ),
-                                                )
-                                                with chip:
-                                                    ui.icon(
-                                                        ICON_BY_KEY[key], size="xs"
-                                                    )
                                 with ui.column().classes("gap-1 flex-grow").style(
                                     "min-width: 0"
                                 ):
@@ -470,6 +440,28 @@ def library_page() -> None:
                                                 p, a
                                             ),
                                         )
+
+                        if nearby_hits:
+                            with ui.element("div").classes("hb-nearby-icons"):
+                                for key, entry in nearby_hits:
+                                    kind = (
+                                        "risk" if key in RISK_KEYS else "amenity"
+                                    )
+                                    chip = ui.element("div").classes(
+                                        f"hb-nearby-chip hb-nearby-chip--{kind}"
+                                    )
+                                    chip._props["title"] = tooltip_for(key, entry)
+                                    chip.on(
+                                        "click",
+                                        lambda: None,
+                                        js_handler=(
+                                            "(e) => { "
+                                            "e.stopPropagation(); emit(e); "
+                                            "}"
+                                        ),
+                                    )
+                                    with chip:
+                                        ui.icon(ICON_BY_KEY[key], size="xs")
 
         def _refresh_stale_nearby_after_paint() -> None:
             try:

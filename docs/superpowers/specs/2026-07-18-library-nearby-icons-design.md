@@ -37,7 +37,7 @@ When scanning the library, homes look similar beyond price and beds. Buyers want
 | Shelter matching | Strict tags/types; tooltip shows what matched |
 | Tooltips | All five icons: distance + nearest name |
 | Compute | On add + post-geocode; stale refresh (~30d) on library load |
-| Icon UI | Soft neo chips overlaid on thumbnail bottom-left |
+| Icon UI | Soft neo chips on library card bottom-right (not over the photo) |
 
 ## Signal definitions
 

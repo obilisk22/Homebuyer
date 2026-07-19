@@ -1,4 +1,4 @@
-﻿"""Disk cache for map overlay API responses under data/cache/."""
+"""Disk cache for map overlay API responses under data/cache/."""
 
 from __future__ import annotations
 

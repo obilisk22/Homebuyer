@@ -52,6 +52,25 @@ def test_is_stale():
     assert is_stale(old, now=now) is True
 
 
+def test_needs_refresh_retries_error_only_cache():
+    from app.core.nearby_signals import needs_refresh
+
+    now = datetime(2026, 7, 18, tzinfo=timezone.utc)
+    fresh = (now - timedelta(days=1)).isoformat()
+    errored = json.dumps(
+        {
+            "highway": {"hit": False, "error": "406 Client Error"},
+            "transit": {"hit": False, "error": "406 Client Error"},
+            "playground": {"hit": False, "error": "406 Client Error"},
+            "grocery": {"hit": False, "error": "406 Client Error"},
+            "shelter": {"hit": False, "error": "406 Client Error"},
+        }
+    )
+    assert needs_refresh(fresh, errored, now=now) is True
+    ok = json.dumps({"highway": {"hit": True, "distance_ft": 100, "name": "I-10"}})
+    assert needs_refresh(fresh, ok, now=now) is False
+
+
 def test_refresh_property_signals_writes_json_and_timestamp(monkeypatch):
     from app.core import nearby_signals as ns
 
@@ -160,16 +179,18 @@ def test_property_service_refreshes_only_stale_signals_up_to_limit(monkeypatch):
 
     now = datetime.now(timezone.utc)
     props = [
-        SimpleNamespace(id=1, nearby_signals_at=""),
+        SimpleNamespace(id=1, nearby_signals_at="", nearby_signals=""),
         SimpleNamespace(
             id=2,
             nearby_signals_at=(now - timedelta(days=2)).isoformat(),
+            nearby_signals='{"highway":{"hit":false}}',
         ),
         SimpleNamespace(
             id=3,
             nearby_signals_at=(now - timedelta(days=40)).isoformat(),
+            nearby_signals="",
         ),
-        SimpleNamespace(id=4, nearby_signals_at=""),
+        SimpleNamespace(id=4, nearby_signals_at="", nearby_signals=""),
     ]
 
     class FakeSession:
@@ -322,6 +343,8 @@ def test_fetch_overpass_posts_query_and_caches(monkeypatch):
     writes = []
 
     class Response:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -329,9 +352,14 @@ def test_fetch_overpass_posts_query_and_caches(monkeypatch):
             return {"elements": [{"id": 1}]}
 
     class Session:
+        def __init__(self):
+            self.calls = 0
+
         def post(self, url, **kwargs):
-            assert url == ns.OVERPASS_URL
-            assert kwargs["data"] == ns.build_overpass_query(34.05, -118.25)
+            self.calls += 1
+            assert url == ns.OVERPASS_URLS[0]
+            assert kwargs["data"] == {"data": ns.build_overpass_query(34.05, -118.25)}
+            assert kwargs["headers"]["User-Agent"] == ns.OVERPASS_USER_AGENT
             assert kwargs["timeout"] == ns.REQUEST_TIMEOUT_S
             return Response()
 

@@ -21,10 +21,20 @@ SHELTER_RADIUS_MI = 0.25
 STALE_MAX_AGE_DAYS = 30.0
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
 PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 CACHE_NAMESPACE = "nearby"
 RAW_CACHE_MAX_AGE_S = 7 * 24 * 3600
 REQUEST_TIMEOUT_S = 45
+OVERPASS_USER_AGENT = "Homebuy/0.1 (local research app)"
+OVERPASS_HEADERS = {
+    "User-Agent": OVERPASS_USER_AGENT,
+    "Accept": "application/json",
+}
 
 SIGNAL_ORDER = ("highway", "transit", "playground", "grocery", "shelter")
 ICON_BY_KEY = {
@@ -313,17 +323,35 @@ def fetch_overpass(
         return cached
 
     client = session or requests
-    response = client.post(
-        OVERPASS_URL,
-        data=build_overpass_query(lat, lng),
-        timeout=REQUEST_TIMEOUT_S,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if not isinstance(payload, dict):
-        raise ValueError("Overpass returned an invalid response")
-    overlay_cache.write_json(CACHE_NAMESPACE, key, payload)
-    return payload
+    query = build_overpass_query(lat, lng)
+    # Overpass public mirrors rate-limit aggressively; rotate on 406/429/5xx.
+    last_error: Exception | None = None
+    for url in OVERPASS_URLS:
+        try:
+            response = client.post(
+                url,
+                data={"data": query},
+                headers=OVERPASS_HEADERS,
+                timeout=REQUEST_TIMEOUT_S,
+            )
+            if response.status_code in {406, 429, 502, 503, 504}:
+                last_error = requests.HTTPError(
+                    f"{response.status_code} for url: {url}",
+                    response=response,
+                )
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Overpass returned an invalid response")
+            overlay_cache.write_json(CACHE_NAMESPACE, key, payload)
+            return payload
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Overpass request failed")
 
 
 def fetch_places_nearby(
@@ -568,3 +596,22 @@ def is_stale(
         ts = ts.replace(tzinfo=timezone.utc)
     age_days = (now - ts).total_seconds() / 86400.0
     return age_days > max_age_days
+
+
+def needs_refresh(
+    nearby_signals_at: str | None,
+    nearby_signals: str | None = None,
+    *,
+    now: datetime | None = None,
+    max_age_days: float = STALE_MAX_AGE_DAYS,
+) -> bool:
+    """True when cache is missing, aged out, or only stores fetch errors."""
+    if is_stale(nearby_signals_at, now=now, max_age_days=max_age_days):
+        return True
+    payload = parse_signals_json(nearby_signals)
+    if not payload:
+        return True
+    if any(bool(entry.get("hit")) for entry in payload.values()):
+        return False
+    # Failed Overpass/Places runs were previously stuck for 30d with hit:false+error.
+    return any(bool(entry.get("error")) for entry in payload.values())

@@ -25,7 +25,7 @@ from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.home_insurance import resolve_annual_insurance
 from app.core.models import FinancialAssumptions, Photo, Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
-from app.core.nearby_signals import is_stale, refresh_property_signals
+from app.core.nearby_signals import needs_refresh, refresh_property_signals
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
@@ -213,6 +213,8 @@ class PropertyService:
 
     def refresh_stale_nearby_signals(self, *, limit: int = 3) -> int:
         """Refresh up to ``limit`` stale properties that have map coordinates."""
+        import time
+
         if limit <= 0:
             return 0
         stmt = (
@@ -225,12 +227,14 @@ class PropertyService:
         )
         refreshed = 0
         for prop in self.session.scalars(stmt):
-            if not is_stale(prop.nearby_signals_at):
+            if not needs_refresh(prop.nearby_signals_at, prop.nearby_signals):
                 continue
             self.refresh_nearby_signals(prop.id)
             refreshed += 1
             if refreshed >= limit:
                 break
+            # Public Overpass mirrors rate-limit; brief pause between homes.
+            time.sleep(1.25)
         return refreshed
 
     def _apply_listing_details(

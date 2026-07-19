@@ -55,15 +55,21 @@ def test_env_file_dev_is_repo_dotenv():
 
 def test_overlay_cache_uses_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("HOMEBUY_DATA_DIR", str(tmp_path))
-    # Re-import path binding used by overlay_cache — it imports DATA_DIR at load time.
-    import importlib
-
+    # overlay_cache holds DATA_DIR from import; patch the module attribute.
     import app.core.overlay_cache as oc
     import app.core.paths as p
 
     p.refresh_data_dirs()
-    # overlay_cache holds DATA_DIR from import; patch the module attribute.
     monkeypatch.setattr(oc, "DATA_DIR", tmp_path)
     d = oc.cache_dir("unit_test")
     assert d == tmp_path / "cache" / "unit_test"
     assert d.is_dir()
+
+
+def test_native_run_skips_browser_port():
+    """Native must not bind HOMEBUY_PORT (8080) so it can coexist with browser."""
+    src = Path(__file__).resolve().parents[1].joinpath("app", "main.py").read_text(
+        encoding="utf-8"
+    )
+    assert "HOMEBUY_NATIVE_PORT" in src
+    assert "Do not reuse HOMEBUY_PORT" in src

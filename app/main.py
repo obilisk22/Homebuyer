@@ -79,6 +79,7 @@ def main() -> None:
 
     host = os.getenv("HOMEBUY_HOST", "127.0.0.1")
     port_raw = (os.getenv("HOMEBUY_PORT") or "").strip()
+    native_port_raw = (os.getenv("HOMEBUY_NATIVE_PORT") or "").strip()
     native = want_native()
 
     # Expose uploaded photos to the browser / webview
@@ -113,15 +114,16 @@ def main() -> None:
     }
 
     if native:
+        # Do not reuse HOMEBUY_PORT (usually 8080 for browser) — native picks a free
+        # port so it can run alongside `python -m app.main` / run.bat.
         run_kwargs.update(
             native=True,
             window_size=(1280, 800),
             show=False,
+            host=host,
         )
-        # Optional fixed port; otherwise NiceGUI picks a free local port.
-        if port_raw:
-            run_kwargs["port"] = int(port_raw)
-        run_kwargs["host"] = host
+        if native_port_raw:
+            run_kwargs["port"] = int(native_port_raw)
     else:
         port = int(port_raw or "8080")
         run_kwargs.update(

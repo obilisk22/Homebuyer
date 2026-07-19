@@ -9,6 +9,8 @@
 | Freeze onedir | `.\packaging\build_windows.ps1` |
 | Freeze + Setup.exe | `.\packaging\build_windows.ps1 -Installer` (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)) |
 
+Native mode **auto-picks a free port** (ignores `HOMEBUY_PORT` / 8080) so it can run while the browser session is up. Optional: `HOMEBUY_NATIVE_PORT`.
+
 ## Data & secrets (installed app)
 
 Writable data lives in `%LOCALAPPDATA%\Homebuy\` (DB, uploads, caches).  

@@ -13,6 +13,8 @@ from typing import Any
 
 from app.core.db import get_session
 from app.core.property_service import PropertyService
+from app.core.school_zones import resolve_assigned
+from app.core.schooldigger import enrich_assigned, has_schooldigger_keys
 
 
 def add_from_zillow_job(zillow_url: str) -> tuple[int, int]:
@@ -74,6 +76,16 @@ def ensure_gemini_things_to_do_job(property_id: int, *, force: bool = False) -> 
             property_id, force=force
         )
         return (prop.neighborhood_things_to_do or "").strip()
+
+
+def resolve_assigned_schools_job(
+    lat: float | None, lng: float | None
+) -> dict[str, Any]:
+    """Resolve assigned schools + SchoolDigger enrichment (network I/O)."""
+    result = resolve_assigned(lat, lng)
+    if result.get("status") in ("ok", "gap") and has_schooldigger_keys():
+        result = enrich_assigned(result)
+    return result
 
 
 def ensure_gemini_financial_job(

@@ -12,12 +12,12 @@ from app.core.neighborhood import (
     effective_neighborhood_name,
 )
 from app.core.property_service import PropertyService
-from app.core.school_zones import resolve_assigned
-from app.core.schooldigger import enrich_assigned, has_schooldigger_keys
+from app.core.schooldigger import has_schooldigger_keys
 from app.core.ui_jobs import (
     ensure_gemini_overview_job,
     ensure_gemini_things_to_do_job,
     ensure_neighborhood_job,
+    resolve_assigned_schools_job,
 )
 
 _SOURCE_LABELS = {
@@ -32,6 +32,29 @@ _SCHOOL_LEVELS: tuple[tuple[str, str, str], ...] = (
     ("middle", "Middle", "magenta"),
     ("high", "High", "lime"),
 )
+
+# Design-spec caption text for resolve_assigned() statuses that are not the
+# happy path — shown verbatim instead of the raw core message.
+_ASSIGNED_SCHOOLS_STATUS_TEXT: dict[str, str] = {
+    "no_pin": "Needs a map pin — geocode this home first.",
+    "outside": "Assigned schools not available for this district yet (SoCal GIS).",
+    "gap": "No attendance match for this pin (rare boundary gap).",
+}
+
+
+def _assigned_schools_caption(result: dict, *, has_keys: bool) -> str:
+    """Map a resolve_assigned() result to the design-spec caption text."""
+    status = (result.get("status") or "").strip()
+    if status == "ok":
+        source = (result.get("source") or "").strip() or "Assigned schools resolved"
+        if has_keys:
+            return f"{source} · ratings via SchoolDigger"
+        return f"{source} · add SchoolDigger keys in .env for ratings & reviews"
+    if status == "error":
+        return (result.get("message") or "Could not load assigned schools.").strip()
+    return _ASSIGNED_SCHOOLS_STATUS_TEXT.get(
+        status, (result.get("message") or "").strip()
+    )
 
 
 def _star_string(stars: float | int | None) -> str:
@@ -227,31 +250,9 @@ def render(prop: Property, container: ui.element) -> None:
                 schools_hint = ui.label("").classes("hb-page-hint")
                 schools_row = ui.row().classes("w-full gap-3 flex-wrap")
 
-                def render_assigned_schools() -> None:
-                    lat = live.latitude
-                    lng = live.longitude
-                    try:
-                        result = resolve_assigned(lat, lng)
-                        if result.get("status") in ("ok", "gap") and has_schooldigger_keys():
-                            result = enrich_assigned(result)
-                    except Exception as exc:  # noqa: BLE001
-                        result = {
-                            "status": "error",
-                            "message": f"Could not load assigned schools: {exc}",
-                            "schools": {"elementary": None, "middle": None, "high": None},
-                        }
-
-                    status_value = result.get("status")
-                    message = (result.get("message") or "").strip()
-                    if status_value in ("ok", "gap") and not has_schooldigger_keys():
-                        message = (
-                            f"{message} Add SchoolDigger keys in .env for ratings & "
-                            "reviews."
-                        ).strip()
-                    schools_hint.set_text(message)
-
-                    not_found_text = "—" if status_value == "no_pin" else "Not found"
-                    schools = result.get("schools") or {}
+                def render_school_cards(
+                    schools: dict, *, not_found_text: str
+                ) -> None:
                     schools_row.clear()
                     with schools_row:
                         for level_key, level_label, accent in _SCHOOL_LEVELS:
@@ -262,7 +263,38 @@ def render(prop: Property, container: ui.element) -> None:
                                 not_found_text=not_found_text,
                             )
 
-                render_assigned_schools()
+                _EMPTY_SCHOOLS = {"elementary": None, "middle": None, "high": None}
+                schools_hint.set_text("Looking up assigned schools…")
+                render_school_cards(_EMPTY_SCHOOLS, not_found_text="Loading…")
+
+                async def load_assigned_schools() -> None:
+                    lat = live.latitude
+                    lng = live.longitude
+                    try:
+                        result = await run.io_bound(
+                            resolve_assigned_schools_job, lat, lng
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        result = {
+                            "status": "error",
+                            "message": f"Could not load assigned schools: {exc}",
+                            "schools": dict(_EMPTY_SCHOOLS),
+                        }
+
+                    schools_hint.set_text(
+                        _assigned_schools_caption(
+                            result, has_keys=has_schooldigger_keys()
+                        )
+                    )
+
+                    status_value = result.get("status")
+                    not_found_text = "—" if status_value == "no_pin" else "Not found"
+                    render_school_cards(
+                        result.get("schools") or _EMPTY_SCHOOLS,
+                        not_found_text=not_found_text,
+                    )
+
+                ui.timer(0.05, load_assigned_schools, once=True)
 
                 ui.separator().style("border-color: var(--hb-border);")
 

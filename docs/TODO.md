@@ -37,6 +37,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-033 | Open | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
 | TODO-034 | Open | Map Street View: negative-space polish and layout tweaks |
 | TODO-035 | Open | Map / Street View: “Open in Google Earth” button |
+| TODO-036 | Open | Library nearby icons: verify all five work; fix playground + shelter |
 
 ---
 
@@ -518,3 +519,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Embed Earth inside Homebuy; replace free Street View.
 
 **Touch:** `app/modules/street_view.py` (and/or `map_view.py`), docs.
+
+---
+
+## TODO-036 — Library nearby icons: verify + fix playground / shelter
+
+**Status:** Open
+
+**Problem:** Library proximity chips (TODO-025) — highway / transit / playground / grocery / shelter — need an end-to-end check. **Playground** and **homeless shelter** distance icons often don’t appear even when amenities exist nearby.
+
+**Goals**
+1. **Test all five** against known pins (OSM + Places when `GOOGLE_MAPS_API_KEY` set): confirm chips show, tooltips show distance/name, order/styling correct.
+2. **Debug playground + shelter** — Overpass tag filters (`leisure=playground`; social_facility / `amenity=shelter`+`shelter_type=homeless`), Places keywords for shelter, radius gates (`PLAYGROUND_RADIUS_MI=0.5`, `SHELTER_RADIUS_MI=0.25`), cache/stale refresh, or false negatives from too-strict tags.
+3. **Retune thresholds** to “reasonable” buyer-useful distances if current ones are wrong (document new values in AGENTS §8a).
+4. Add/adjust tests with fixtures so regressions are caught; never fail add-home on lookup errors.
+
+**Non-goals:** Map markers; library filters by signal; redesign chip UI.
+
+**Touch:** `app/core/nearby_signals.py`, tests, property refresh path, `AGENTS.md` / `README` thresholds if changed.

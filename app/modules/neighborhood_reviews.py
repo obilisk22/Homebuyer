@@ -12,6 +12,8 @@ from app.core.neighborhood import (
     effective_neighborhood_name,
 )
 from app.core.property_service import PropertyService
+from app.core.school_zones import resolve_assigned
+from app.core.schooldigger import enrich_assigned, has_schooldigger_keys
 from app.core.ui_jobs import (
     ensure_gemini_overview_job,
     ensure_gemini_things_to_do_job,
@@ -23,6 +25,60 @@ _SOURCE_LABELS = {
     "nominatim": "OpenStreetMap Nominatim",
     "google": "Google Geocoding",
 }
+
+# (level key, display label, accent token) — one card each, in this order.
+_SCHOOL_LEVELS: tuple[tuple[str, str, str], ...] = (
+    ("elementary", "Elementary", "cyan"),
+    ("middle", "Middle", "magenta"),
+    ("high", "High", "lime"),
+)
+
+
+def _star_string(stars: float | int | None) -> str:
+    if stars is None:
+        return ""
+    try:
+        count = max(0, min(5, round(float(stars))))
+    except (TypeError, ValueError):
+        return ""
+    return "★" * count + "☆" * (5 - count)
+
+
+def _render_school_card(
+    level_label: str, accent: str, school: dict | None, *, not_found_text: str
+) -> None:
+    with ui.card().classes("hb-school-card"):
+        with ui.row().classes("items-center gap-2 w-full no-wrap"):
+            with ui.element("div").classes(f"hb-school-level-ph hb-school-level-ph--{accent}"):
+                ui.icon("school")
+            ui.label(level_label).classes("hb-page-meta").style("font-weight: 600;")
+
+        name = (school or {}).get("name") if school else None
+        ui.label(name or not_found_text).classes("hb-page-title").style(
+            "font-size: 1rem; margin-top: 0.4rem;"
+        )
+
+        stars = (school or {}).get("rating_stars") if school else None
+        star_str = _star_string(stars)
+        ui.label(f"{star_str} · SchoolDigger" if star_str else "—").classes(
+            "hb-page-meta"
+        )
+
+        review_avg = (school or {}).get("review_avg") if school else None
+        review_count = (school or {}).get("review_count") if school else None
+        if review_avg is not None and review_count:
+            ui.label(f"Parent reviews: {review_avg} · {review_count}").classes(
+                "hb-page-meta"
+            )
+            quote = (school or {}).get("review_quote") if school else None
+            if quote:
+                ui.label(f"“{quote}”").classes("hb-page-hint")
+
+        url = (school or {}).get("schooldigger_url") if school else None
+        if url:
+            ui.button("SchoolDigger", icon="open_in_new").props(
+                f'unelevated dense color=dark href="{url}" target=_blank'
+            ).classes("q-mt-sm")
 
 
 def _source_label(source: str, *, has_override: bool) -> str:
@@ -164,6 +220,49 @@ def render(prop: Property, container: ui.element) -> None:
                     ui.button("Refresh from Zillow", on_click=refresh_zillow).props(
                         "unelevated dense color=dark"
                     )
+
+                ui.separator().style("border-color: var(--hb-border);")
+
+                ui.label("Assigned schools").classes("hb-section-title")
+                schools_hint = ui.label("").classes("hb-page-hint")
+                schools_row = ui.row().classes("w-full gap-3 flex-wrap")
+
+                def render_assigned_schools() -> None:
+                    lat = live.latitude
+                    lng = live.longitude
+                    try:
+                        result = resolve_assigned(lat, lng)
+                        if result.get("status") in ("ok", "gap") and has_schooldigger_keys():
+                            result = enrich_assigned(result)
+                    except Exception as exc:  # noqa: BLE001
+                        result = {
+                            "status": "error",
+                            "message": f"Could not load assigned schools: {exc}",
+                            "schools": {"elementary": None, "middle": None, "high": None},
+                        }
+
+                    status_value = result.get("status")
+                    message = (result.get("message") or "").strip()
+                    if status_value in ("ok", "gap") and not has_schooldigger_keys():
+                        message = (
+                            f"{message} Add SchoolDigger keys in .env for ratings & "
+                            "reviews."
+                        ).strip()
+                    schools_hint.set_text(message)
+
+                    not_found_text = "—" if status_value == "no_pin" else "Not found"
+                    schools = result.get("schools") or {}
+                    schools_row.clear()
+                    with schools_row:
+                        for level_key, level_label, accent in _SCHOOL_LEVELS:
+                            _render_school_card(
+                                level_label,
+                                accent,
+                                schools.get(level_key),
+                                not_found_text=not_found_text,
+                            )
+
+                render_assigned_schools()
 
                 ui.separator().style("border-color: var(--hb-border);")
 

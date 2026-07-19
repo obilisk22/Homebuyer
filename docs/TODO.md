@@ -29,6 +29,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
 | TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
 | TODO-027 | Open | Remove Home Compare feature (library checkboxes + `/compare`) |
+| TODO-028 | Open | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
 
 ---
 
@@ -373,3 +374,20 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Keep:** Export menu, PITI/cash card captions, rest of library chrome.
 
 **Touch:** `app/ui/pages.py`, `app/main.py` (route import), `app/core/compare.py`, tests, `AGENTS.md`, `README.md`, this file.
+
+---
+
+## TODO-028 — Financials page cleanup (hierarchy + defaults)
+
+**Status:** Open
+
+**Problem:** The Financials tab lays out nearly every assumption at once (Your deal / Loan / Ownership / Buy vs rent tax knobs). Fields that rarely change compete with offer/down and the charts.
+
+**Goals**
+1. **Primary surface** — keep always-visible only what you tweak often: **Your deal** (offer + down $), hero monthly / charts, and the buy-vs-rent inputs you actually dial (comparable rent + rent control at minimum). Tighten visual hierarchy (deal + results dominate; secondary chrome quieter).
+2. **Collapse the rest** — put infrequently edited variables behind one (or a few) **dropdown / expansion(s)**, e.g. Loan defaults (list, rate, term, closing), Ownership (tax, insurance, HOA, maintenance), Advanced buy-vs-rent (appreciation, invest return, sell cost, monthly budget, marginal tax, CG tax/exclusion, SALT). Exact grouping decided at implement time; preserve source captions when shown.
+3. **Revert to default on every field** — each editable input gets a control that restores that field’s product default / autofill baseline (e.g. PMMS rate, listing tax/insurance, age-blend maintenance, rent $5300/`Default`, invest 10%, sell 6%, budget $13k, tax 41%, CG 24% / $500k, SALT $10k, etc.). Clearing Manual override where source tracking exists. Prefer per-field, not only “reset all.”
+
+**Non-goals:** Change mortgage math; remove Gemini panel; redesign charts.
+
+**Touch:** `app/modules/financial.py`, `app/ui/theme.py` (form hierarchy CSS as needed), possibly small helpers for default resolution, docs / visual rule if hierarchy changes.

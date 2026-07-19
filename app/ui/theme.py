@@ -1050,6 +1050,46 @@ a:hover {{
   font-weight: 600;
 }}
 
+/* Neighborhood — assigned schools (three info cards, no map) */
+.hb-school-card {{
+  background: var(--hb-surface) !important;
+  border: 1px solid var(--hb-border);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  flex: 1 1 220px;
+  min-width: 220px;
+  max-width: 300px;
+}}
+
+.hb-school-level-ph {{
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hb-surface-2);
+  flex-shrink: 0;
+}}
+
+.hb-school-level-ph--cyan {{
+  border: 1px solid rgba(0, 229, 255, 0.5);
+  color: var(--hb-neon);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.18);
+}}
+
+.hb-school-level-ph--magenta {{
+  border: 1px solid rgba(255, 43, 214, 0.5);
+  color: var(--hb-neon-2);
+  box-shadow: 0 0 10px rgba(255, 43, 214, 0.18);
+}}
+
+.hb-school-level-ph--lime {{
+  border: 1px solid rgba(184, 255, 60, 0.5);
+  color: var(--hb-neon-3);
+  box-shadow: 0 0 10px rgba(184, 255, 60, 0.18);
+}}
+
 .hb-library-notes {{
   font-family: var(--hb-font-body);
   font-size: 0.8rem;

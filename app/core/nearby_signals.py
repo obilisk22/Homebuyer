@@ -38,6 +38,16 @@ def miles_to_ft(mi: float) -> float:
     return float(mi) * 5280.0
 
 
+def _signal_radius_mi(key: str) -> float:
+    return {
+        "highway": ft_to_miles(HIGHWAY_RADIUS_FT),
+        "transit": TRANSIT_RADIUS_MI,
+        "playground": PLAYGROUND_RADIUS_MI,
+        "grocery": GROCERY_RADIUS_MI,
+        "shelter": SHELTER_RADIUS_MI,
+    }[key]
+
+
 def haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Great-circle distance in miles."""
     r = 3958.8
@@ -96,7 +106,40 @@ def parse_overpass_elements(
     pin_lng: float,
     radius_mi: float,
 ) -> list[NearestHit]:
-    nearest_by_key: dict[str, NearestHit] = {}
+    nearest_by_key = _classify_overpass_nearest(
+        elements,
+        pin_lat=pin_lat,
+        pin_lng=pin_lng,
+        outer_radius_mi=radius_mi,
+    )
+    return [nearest_by_key[key] for key in SIGNAL_ORDER if nearest_by_key[key] is not None]
+
+
+def classify_overpass_nearest(
+    elements: list[dict],
+    *,
+    pin_lat: float,
+    pin_lng: float,
+) -> dict[str, NearestHit | None]:
+    """Return the nearest in-range Overpass hit for every signal key."""
+    return _classify_overpass_nearest(
+        elements,
+        pin_lat=pin_lat,
+        pin_lng=pin_lng,
+        outer_radius_mi=None,
+    )
+
+
+def _classify_overpass_nearest(
+    elements: list[dict],
+    *,
+    pin_lat: float,
+    pin_lng: float,
+    outer_radius_mi: float | None,
+) -> dict[str, NearestHit | None]:
+    nearest_by_key: dict[str, NearestHit | None] = {
+        key: None for key in SIGNAL_ORDER
+    }
     for element in elements:
         tags = element.get("tags")
         if not isinstance(tags, dict):
@@ -115,6 +158,9 @@ def parse_overpass_elements(
             continue
 
         distance_mi = haversine_miles(pin_lat, pin_lng, lat, lng)
+        radius_mi = _signal_radius_mi(key)
+        if outer_radius_mi is not None:
+            radius_mi = min(radius_mi, outer_radius_mi)
         if distance_mi > radius_mi:
             continue
         name = str(tags.get("name") or tags.get("ref") or _fallback_name(key)).strip()
@@ -127,7 +173,7 @@ def parse_overpass_elements(
         current = nearest_by_key.get(key)
         if current is None or distance_mi < current["distance_mi"]:
             nearest_by_key[key] = hit
-    return [nearest_by_key[key] for key in SIGNAL_ORDER if key in nearest_by_key]
+    return nearest_by_key
 
 
 def nearest_within(

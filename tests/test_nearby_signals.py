@@ -117,6 +117,43 @@ def test_parse_overpass_uses_way_center_and_filters_radius():
     assert hits[0]["name"] == "I-10"
 
 
+def test_classify_overpass_nearest_enforces_per_signal_boundaries():
+    from app.core.nearby_signals import classify_overpass_nearest
+
+    pin_lat = 34.05
+    pin_lng = -118.25
+    elements = [
+        {
+            "type": "node",
+            "lat": pin_lat + (0.30 / 69.0),
+            "lon": pin_lng,
+            "tags": {
+                "amenity": "social_facility",
+                "social_facility": "shelter",
+                "name": "Too Far Shelter",
+            },
+        },
+        {
+            "type": "node",
+            "lat": pin_lat + (0.40 / 69.0),
+            "lon": pin_lng,
+            "tags": {"leisure": "playground", "name": "Nearby Playground"},
+        },
+        {
+            "type": "way",
+            "center": {"lat": pin_lat + ((900.0 / 5280.0) / 69.0), "lon": pin_lng},
+            "tags": {"highway": "motorway", "ref": "Too Far Freeway"},
+        },
+    ]
+
+    nearest = classify_overpass_nearest(elements, pin_lat=pin_lat, pin_lng=pin_lng)
+
+    assert nearest["shelter"] is None
+    assert nearest["playground"] is not None
+    assert nearest["playground"]["name"] == "Nearby Playground"
+    assert nearest["highway"] is None
+
+
 def test_build_overpass_query_contains_exact_signal_tags():
     from app.core.nearby_signals import build_overpass_query
 

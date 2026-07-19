@@ -55,6 +55,8 @@ A Git repository lives in this folder. Commits save history locally; **`git push
 
 **What is NOT in Git** (by design, see `.gitignore`): `.venv/`, `.env`, `data/homebuy.db`, downloaded photos under `data/uploads/`. Your code and docs *are* saved.
 
+**Auto-commit (local only):** a project Cursor `stop` hook (`.cursor/hooks.json` → `.cursor/hooks/auto-commit.cmd`) commits dirty work when an agent turn finishes. It never pushes — upload to GitHub is still a manual `git push`. Empty commits and secrets/`.env`/`data/`/`.venv` are skipped.
+
 ### Everyday commands (run from project folder)
 
 ```powershell

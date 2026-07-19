@@ -284,3 +284,75 @@ def test_update_financial_preserves_sources_when_only_loan_fields_passed(tmp_pat
     assert updated.loan_term_years == 15
     assert updated.property_tax_source == "Estimated: ACS county"
     assert updated.insurance_source == "Estimated: CA avg premium"
+
+
+def test_apply_listing_details_can_skip_financial_sync(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(address="1 Test St", zillow_url="https://www.zillow.com/homedetails/x_zpid/")
+    session.add(prop)
+    session.commit()
+    svc = PropertyService(session)
+    sync_calls = []
+    monkeypatch.setattr(
+        svc, "_sync_financial_from_listing", lambda prop, details: sync_calls.append(details)
+    )
+
+    svc._apply_listing_details(
+        prop, ListingDetails(list_price=500_000), sync_financial=False
+    )
+
+    assert prop.list_price == 500_000
+    assert sync_calls == []
+
+
+def test_refresh_listing_with_existing_coordinates_syncs_once(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_zpid/",
+        latitude=47.6,
+        longitude=-122.3,
+    )
+    session.add(prop)
+    session.commit()
+    svc = PropertyService(session)
+    details = ListingDetails(list_price=500_000)
+    sync_calls = []
+    monkeypatch.setattr(
+        "app.core.property_service.fetch_listing_details", lambda url: details
+    )
+    monkeypatch.setattr(
+        svc, "_sync_financial_from_listing", lambda prop, details: sync_calls.append(details)
+    )
+
+    svc.refresh_listing_details(prop.id)
+
+    assert sync_calls == [details]
+
+
+def test_add_from_zillow_syncs_once_after_geocoding(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    svc = PropertyService(session)
+    details = ListingDetails(list_price=500_000)
+    sync_coordinates = []
+    monkeypatch.setattr(
+        "app.core.property_service.fetch_listing_html", lambda url: "<html></html>"
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.extract_listing_details", lambda html: details
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.geocode_address", lambda address: (47.6, -122.3)
+    )
+    monkeypatch.setattr(
+        svc,
+        "_sync_financial_from_listing",
+        lambda prop, details: sync_coordinates.append((prop.latitude, prop.longitude)),
+    )
+
+    svc.add_from_zillow(
+        "https://www.zillow.com/homedetails/1-Test-St-Seattle-WA-98101/1_zpid/",
+        import_photos=False,
+    )
+
+    assert sync_coordinates == [(47.6, -122.3)]

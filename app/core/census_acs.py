@@ -466,15 +466,6 @@ ACS_LAYERS: dict[str, AcsLayerConfig] = {
 }
 
 
-def income_fill_color(value: float | None) -> str:
-    return fill_color_for_breaks(value, INCOME_BREAKS)
-
-
-def county_fips_for(lat: float, lng: float) -> tuple[str, str]:
-    """Public wrapper: (state_fips, county_fips) via FCC block API."""
-    return _fcc_fips(lat, lng)
-
-
 def _parse_acs_missing(raw: object) -> float | None:
     if raw is None or raw == "" or raw is False:
         return None
@@ -748,9 +739,6 @@ def build_acs_geojson(
                 "popup": f"{name}<br>{layer.popup_metric}: {label}",
             }
         )
-        # Keep median_income key for income layer (compat / older UI expectations).
-        if layer_id == "income":
-            props["median_income"] = value
         features.append(
             {
                 "type": "Feature",
@@ -770,13 +758,3 @@ def build_acs_geojson(
             "layer_id": layer_id,
         },
     }
-
-
-def build_income_geojson(
-    lat: float,
-    lng: float,
-    *,
-    half_span_deg: float = DEFAULT_HALF_SPAN_DEG,
-) -> dict[str, Any]:
-    """Compat wrapper — FeatureCollection of nearby tracts with median income."""
-    return build_acs_geojson("income", lat, lng, half_span_deg=half_span_deg)

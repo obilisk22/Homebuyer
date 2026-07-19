@@ -178,17 +178,3 @@ def generate_financial_commentary(
         peer_refs=peer_refs,
     )
     return _call_gemini_with_web_tools(prompt)
-
-
-# --- Back-compat aliases (older imports / tests migrating) ---
-LibraryCompSnapshot = ZillowListingRef  # type: ignore[misc,assignment]
-
-
-def library_comps_digest(comps: Sequence[ZillowListingRef]) -> str:
-    """Deprecated name — digest peers only (no subject). Prefer zillow_urls_digest."""
-    return zillow_urls_digest("", comps)
-
-
-def format_buy_vs_rent_notes(*_a: object, **_k: object) -> str:
-    """Deprecated — buy-vs-rent now comes from Zillow rent Zestimate via URL context."""
-    return ""

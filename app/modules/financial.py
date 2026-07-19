@@ -716,7 +716,7 @@ def render(prop: Property, container: ui.element) -> None:
                     label = "Regenerate" if text else "Ask Gemini"
                     ui.button(
                         label,
-                        on_click=lambda: run_gemini(force=True),
+                        on_click=lambda: run_gemini(force=False),
                         icon="auto_awesome",
                     ).props("unelevated dense color=dark").classes("hb-btn-cta")
 

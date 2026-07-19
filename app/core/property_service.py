@@ -10,13 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import UPLOADS_DIR
-from app.core.finance import blend_appreciation_rates, summarize
+from app.core.finance import blend_appreciation_rates
 from app.core.fhfa_hpi import zip5_cagr
 from app.core.gemini_financial import (
     ZillowListingRef,
     build_financial_fingerprint,
     generate_financial_commentary,
-    zillow_urls_digest,
 )
 from app.core.gemini_neighborhood import (
     generate_neighborhood_overview,
@@ -198,7 +197,9 @@ class PropertyService:
         )
         return self.session.scalars(stmt).unique().first()
 
-    def _apply_listing_details(self, prop: Property, details: ListingDetails) -> None:
+    def _apply_listing_details(
+        self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
+    ) -> None:
         if details.list_price is not None:
             prop.list_price = details.list_price
         if details.beds is not None:
@@ -226,7 +227,8 @@ class PropertyService:
             if not (prop.neighborhood_name or "").strip():
                 prop.neighborhood_name = details.neighborhood.strip()
                 prop.neighborhood_source = "zillow"
-        self._sync_financial_from_listing(prop, details)
+        if sync_financial:
+            self._sync_financial_from_listing(prop, details)
 
     def _sync_financial_from_listing(self, prop: Property, details: ListingDetails) -> None:
         """Overwrite listing-derived Financials fields; preserve Manual loan inputs."""
@@ -375,6 +377,7 @@ class PropertyService:
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
+        had_coords = prop.latitude is not None and prop.longitude is not None
         details: ListingDetails | None = None
         try:
             details = fetch_listing_details(prop.zillow_url)
@@ -390,7 +393,9 @@ class PropertyService:
             except Exception:
                 pass
         if details is not None:
-            self._sync_financial_from_listing(prop, details)
+            now_has_coords = prop.latitude is not None and prop.longitude is not None
+            if now_has_coords and not had_coords:
+                self._sync_financial_from_listing(prop, details)
         self.session.commit()
         self.session.refresh(prop)
         return prop
@@ -428,7 +433,9 @@ class PropertyService:
         try:
             html = fetch_listing_html(prop.zillow_url)
             details_for_sync = extract_listing_details(html)
-            self._apply_listing_details(prop, details_for_sync)
+            self._apply_listing_details(
+                prop, details_for_sync, sync_financial=False
+            )
             self._fill_location_from_address(prop)
             self.session.commit()
             self.session.refresh(prop)
@@ -443,14 +450,13 @@ class PropertyService:
             prop.longitude = lng
             self.session.commit()
             self.session.refresh(prop)
-            if details_for_sync is not None:
-                # Re-sync now that coordinates exist, so ACS-based tax estimates can run.
-                self._sync_financial_from_listing(prop, details_for_sync)
-                self.session.commit()
-                self.session.refresh(prop)
         except ValueError:
             # Keep the home even if geocoding fails; Map tab can retry later.
             pass
+        if details_for_sync is not None:
+            self._sync_financial_from_listing(prop, details_for_sync)
+            self.session.commit()
+            self.session.refresh(prop)
 
         imported = 0
         if import_photos:
@@ -719,23 +725,6 @@ class PropertyService:
                 self.session.refresh(prop.financial)
         return prop.financial
 
-    def _financial_assumption_dict(self, fin: FinancialAssumptions) -> dict[str, float | int]:
-        list_price = float(getattr(fin, "list_price", None) or fin.purchase_price or 0)
-        offer_price = float(getattr(fin, "offer_price", None) or 0)
-        return {
-            "list_price": list_price,
-            "offer_price": offer_price,
-            "down_payment_pct": float(fin.down_payment_pct or 0),
-            "interest_rate_pct": float(fin.interest_rate_pct or 0),
-            "loan_term_years": int(fin.loan_term_years or 30),
-            "annual_property_tax": float(fin.annual_property_tax or 0),
-            "annual_insurance": float(fin.annual_insurance or 0),
-            "monthly_hoa": float(fin.monthly_hoa or 0),
-            "closing_cost_pct": float(fin.closing_cost_pct or 0),
-            "monthly_rent": float(fin.monthly_rent or 0),
-            "appreciation_pct": float(fin.appreciation_pct or 0),
-        }
-
     def ensure_gemini_financial(
         self, property_id: int, *, force: bool = False
     ) -> Property:
@@ -772,29 +761,26 @@ class PropertyService:
 
     def _library_zillow_refs(self, exclude_property_id: int) -> list[ZillowListingRef]:
         """Other saved homes as Zillow URL peers for Gemini (max 19 peers → 20 URLs)."""
+        rows = self.session.execute(
+            select(Property.id, Property.zillow_url, Property.address)
+            .where(Property.id != exclude_property_id)
+            .order_by(Property.created_at.desc())
+        ).all()
         refs: list[ZillowListingRef] = []
-        for other in self.list_properties():
-            if other.id == exclude_property_id:
-                continue
-            url = (other.zillow_url or "").strip()
+        for pid, zurl, address in rows:
+            url = (zurl or "").strip()
             if not url:
                 continue
             refs.append(
                 ZillowListingRef(
-                    property_id=int(other.id),
+                    property_id=int(pid),
                     zillow_url=url,
-                    label=(other.address or "").strip(),
+                    label=(address or "").strip(),
                 )
             )
             if len(refs) >= 19:
                 break
         return refs
-
-    # Back-compat name used by Financials UI fingerprint helpers
-    def _library_comps_for_financial(
-        self, exclude_property_id: int
-    ) -> list[ZillowListingRef]:
-        return self._library_zillow_refs(exclude_property_id)
 
     def ensure_gemini_insights(
         self, property_id: int, *, force: bool = False

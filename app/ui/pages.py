@@ -67,35 +67,6 @@ def _format_year_built(value: int | None) -> str:
     return f"Built {value}"
 
 
-def _listing_meta_bits(
-    *,
-    list_price: float | None = None,
-    beds: float | None = None,
-    baths: float | None = None,
-    sqft: float | None = None,
-    hoa_fee: float | None = None,
-    year_built: int | None = None,
-    home_type: str = "",
-    city: str = "",
-    state: str = "",
-) -> list[str]:
-    place = ", ".join(b for b in (city, state) if b)
-    return [
-        b
-        for b in (
-            _format_price(list_price),
-            _format_beds_baths(beds, baths),
-            _format_sqft(sqft),
-            _format_price_per_sqft(list_price, sqft),
-            (home_type or "").strip(),
-            _format_year_built(year_built),
-            _format_hoa(hoa_fee),
-            place,
-        )
-        if b
-    ]
-
-
 def _library_primary_chips(
     *,
     beds: float | None,
@@ -610,7 +581,7 @@ def property_page(property_id: int) -> None:
                                 with get_session() as session:
                                     results = PropertyService(
                                         session
-                                    ).ensure_gemini_insights(prop_id, force=True)
+                                    ).ensure_gemini_insights(prop_id, force=False)
                                 ok_bits = [
                                     label
                                     for key, label in (

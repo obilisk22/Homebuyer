@@ -8,8 +8,8 @@ Modular Python app for researching homes linked from Zillow. Stores the **Zillow
 
 - Python 3.12+
 - Optional: `GOOGLE_MAPS_API_KEY` only if you want Google geocoding for Map pins (otherwise free Nominatim is used). Street View uses a **free** iframe embed — no Cloud billing.
-- Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API).
-- **Map income choropleth & Financials county tax estimate:** add `CENSUS_API_KEY` (free at https://api.census.gov/data/key_signup.html). Without it, the Map income toggle shows a setup message and Financials skips the ACS county tax estimate (Zillow annual tax → assessed × rate only, else $0). Insurance autofill is separate: Zillow annual insurance → state average-premium table scaled to list price.
+- Optional: `GEMINI_API_KEY` for Neighborhood tab AI overview + things-to-do, and Financials tab breakdown/opinion (Google AI Studio / Gemini API). Neighborhood uses `GEMINI_MODEL` (default `gemini-3.1-flash-lite`). Financials uses `GEMINI_FINANCIAL_MODEL` → else `GEMINI_MODEL` → else `gemini-2.5-flash-lite` (2.5 keeps free-tier URL context + Google Search working).
+- **Census Bureau API (`CENSUS_API_KEY`):** free at https://api.census.gov/data/key_signup.html. Powers all Map ACS tract choropleths (income, home value, median age, avg kids, % owner-occupied, year built, gross rent, % bachelor's+), Financials ACS county property-tax fallback, and buy-vs-rent rent-growth CAGR from county median gross rent. Without it, ACS map toggles show a setup message, Financials skips the ACS county tax estimate (Zillow annual tax → assessed × rate only, else $0), and rent growth defaults to **3%/yr**. Insurance autofill is separate: Zillow annual insurance → state average-premium table scaled to list price.
 - Optional: `SOCRATA_APP_TOKEN` for higher rate limits on LA County (LAPD Socrata + Santa Monica CKAN) and Seattle crime overlays.
 
 ## Setup (Windows)
@@ -39,7 +39,7 @@ Opens at [http://127.0.0.1:8080](http://127.0.0.1:8080). A demo property is seed
 1. Paste a Zillow listing URL  
 2. Click **Add home**  
 
-Address, photos, and listing details (beds, baths, price, sqft, HOA, year built, home type) are pulled from the link automatically. Use **Refresh listing details** on a property page to re-scrape. The **Photos** tab shows a dense click-to-expand gallery; use **Re-import (replace)** to refresh photos from Zillow.
+Address, photos, and listing details (beds, baths, price, sqft, HOA, year built, home type) are pulled from the link automatically. Use **Refresh listing details** on a property page to re-scrape listing fields. The **Photos** tab is a dense click-to-expand gallery (photos come from the initial add; pin any shot as the library thumbnail).
 
 ## Library list view
 
@@ -53,7 +53,7 @@ Dark near-black UI with cyan hierarchy accents (glow marks priority: active tabs
 - Click **Homebuy** (or the home icon) to return to the library.
 - Card click opens the property. Use the **⋮** menu for **Open on Zillow** or **Delete…** (delete still confirms).
 - When you already have homes, the long “paste a Zillow link…” hint is hidden so Add stays compact.
-- On the **Photos** tab, actions sit above the grid; pin any shot as the library thumbnail. **Auto-pick again** clears the lock and re-runs the exterior-biased picker.
+- On the **Photos** tab, pin any shot as the library thumbnail. Photos are imported when you add the home (no re-import / upload controls on this tab).
 - **Neighborhood** and **Financials** have in-tab **Ask Gemini** / **Regenerate** (AI opinion, not advice).
 
 ## Saving your work (Git)
@@ -115,7 +115,7 @@ Property tax resolves Zillow's annual tax → Zillow assessed value × rate → 
 
 Three standard charts (monthly breakdown, equity, amortization) are followed by a fourth: **Buy vs rent + invest (net worth)** — cyan line = buy path (home equity minus a **6%** selling cost each year), magenta line = rent + invest (cash-to-close plus monthly `PITI − rent` invested at **10%/yr**, with rent rising each year per the growth rate above). The caption under the chart shows rent growth %/source, blended appreciation, FHFA/Zillow components when known, and the fixed 6%/10% assumptions.
 
-Below the charts, the **Gemini financial take** opens the subject Zillow URL plus your other library Zillow links (Gemini **URL context** tool) and writes opinion on why pricing looks as it does, market/location, and buy vs rent — not a restatement of your calculator. Cache key is `fin_v4` over those URLs. Same `GEMINI_API_KEY`; Financials defaults to `gemini-2.5-flash-lite` (override with `GEMINI_FINANCIAL_MODEL`) so free-tier URL context + Google Search keep working. Note: if Zillow blocks the URL fetch, Gemini may return a thin/empty take — regenerate or check the listing links.
+Below the charts, the **Gemini financial take** opens the subject Zillow URL plus your other library Zillow links (Gemini **URL context** tool) and writes opinion on why pricing looks as it does, market/location, and buy vs rent — not a restatement of your calculator. Cache key is `fin_v4` over those URLs. Same `GEMINI_API_KEY`; model resolves `GEMINI_FINANCIAL_MODEL` → else `GEMINI_MODEL` → else `gemini-2.5-flash-lite` (2.5 keeps free-tier URL context + Google Search working). Note: if Zillow blocks the URL fetch, Gemini may return a thin/empty take — regenerate or check the listing links.
 
 ## Extending with a new module
 

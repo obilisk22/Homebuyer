@@ -7,10 +7,10 @@ import pytest
 from app.core.census_acs import (
     AVG_KIDS_BREAKS,
     HOME_VALUE_BREAKS,
+    INCOME_BREAKS,
     MEDIAN_AGE_BREAKS,
     bbox_around,
     fill_color_for_breaks,
-    income_fill_color,
     parse_acs_avg_kids_rows,
     parse_acs_tract_rows,
 )
@@ -46,10 +46,10 @@ def test_parse_acs_tract_rows():
 
 
 def test_income_fill_color_breaks():
-    assert income_fill_color(None) == "#2A3340"
-    assert income_fill_color(30_000) == "#1a237e"
-    assert income_fill_color(90_000) == "#00E5FF"
-    assert income_fill_color(200_000) == "#FF2BD6"
+    assert fill_color_for_breaks(None, INCOME_BREAKS) == "#2A3340"
+    assert fill_color_for_breaks(30_000, INCOME_BREAKS) == "#1a237e"
+    assert fill_color_for_breaks(90_000, INCOME_BREAKS) == "#00E5FF"
+    assert fill_color_for_breaks(200_000, INCOME_BREAKS) == "#FF2BD6"
 
 
 def test_home_value_and_age_fill_breaks():

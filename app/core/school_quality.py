@@ -241,8 +241,3 @@ def enrich_assigned(result: dict[str, Any]) -> dict[str, Any]:
         for level, school in schools.items()
     }
     return out
-
-
-def has_quality_data() -> bool:
-    """Always True — this feature needs no API keys."""
-    return True

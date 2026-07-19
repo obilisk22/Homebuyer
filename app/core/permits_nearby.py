@@ -17,7 +17,7 @@ import requests
 from dotenv import load_dotenv
 
 from app.core import overlay_cache
-from app.core.geo import haversine_miles
+from app.core.geo import haversine_miles, normalize_city, point_in_bbox
 
 if TYPE_CHECKING:
     from app.core.models import Property
@@ -213,15 +213,6 @@ def socrata_app_token() -> str:
     return (os.getenv("SOCRATA_APP_TOKEN") or "").strip()
 
 
-def normalize_city(city: str | None) -> str:
-    return " ".join((city or "").strip().lower().split())
-
-
-def _in_metro(lat: float, lng: float, bbox: tuple[float, float, float, float]) -> bool:
-    min_lat, max_lat, min_lng, max_lng = bbox
-    return min_lat <= lat <= max_lat and min_lng <= lng <= max_lng
-
-
 def resolve_permit_city(
     city: str | None,
     lat: float | None = None,
@@ -235,17 +226,9 @@ def resolve_permit_city(
                 return cfg
     if lat is not None and lng is not None:
         for cfg in PERMIT_CITIES.values():
-            if _in_metro(float(lat), float(lng), cfg.metro_bbox):
+            if point_in_bbox(float(lat), float(lng), cfg.metro_bbox):
                 return cfg
     return None
-
-
-def permits_supported(
-    city: str | None,
-    lat: float | None = None,
-    lng: float | None = None,
-) -> bool:
-    return resolve_permit_city(city, lat, lng) is not None
 
 
 def _headers() -> dict[str, str]:
@@ -576,7 +559,3 @@ def chip_spec_for(
         "count": int(activity.get("count") or 0),
         "nearest_distance_mi": activity.get("nearest_distance_mi"),
     }
-
-
-def miles_to_radius_m(mi: float = RADIUS_MI) -> int:
-    return int(round(float(mi) * 1609.344))

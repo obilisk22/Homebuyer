@@ -15,7 +15,6 @@ def test_radius_and_threshold_constants():
     assert pn.RADIUS_M == 402
     assert pn.WINDOW_MONTHS == 24
     assert pn.HIGH_ACTIVITY_THRESHOLD == 8
-    assert pn.miles_to_radius_m(0.25) == 402
 
 
 def test_resolve_permit_city_by_name_and_bbox():
@@ -28,8 +27,8 @@ def test_resolve_permit_city_by_name_and_bbox():
     assert pn.resolve_permit_city("", 47.61, -122.33).key == "seattle"
     # Outside supported metros.
     assert pn.resolve_permit_city("Denver", 39.74, -104.99) is None
-    assert pn.permits_supported("Austin") is True
-    assert pn.permits_supported("Miami") is False
+    assert pn.resolve_permit_city("Austin") is not None
+    assert pn.resolve_permit_city("Miami") is None
 
 
 def test_empty_activity_and_parse_roundtrip():

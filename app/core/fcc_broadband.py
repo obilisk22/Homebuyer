@@ -10,26 +10,21 @@ Point lookup (no API key):
 2. Esri Living Atlas FeatureServer ``FCC_Broadband_Data_Collection_December_2024_View``
    layer 4 (Blocks) — BDC-derived ``UniqueProviders*`` by tech.
 
-Optional ``FCC_BDC_USERNAME`` + ``FCC_BDC_HASH`` soft-ping the bulk Public Data
-API only (not required for library chips). See docs/RESEARCH.md.
+See docs/RESEARCH.md.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import requests
-from dotenv import load_dotenv
 
 from app.core import overlay_cache
 
 if TYPE_CHECKING:
     from app.core.models import Property
-
-load_dotenv()
 
 STALE_MAX_AGE_DAYS = 30.0
 CACHE_NAMESPACE = "fcc_broadband"
@@ -37,9 +32,6 @@ RAW_CACHE_MAX_AGE_S = 7 * 24 * 3600
 REQUEST_TIMEOUT_S = 30
 USER_AGENT = "Homebuy/0.1 (local research app)"
 
-# Bulk Public Data API (auth required) — credential ping only.
-BDC_PUBLIC_MAP_BASE = "https://broadbandmap.fcc.gov/api/public/map"
-BDC_LIST_AS_OF_DATES = f"{BDC_PUBLIC_MAP_BASE}/listAsOfDates"
 GEO_BLOCK_URL = "https://geo.fcc.gov/api/census/block/find"
 
 # Living Atlas BDC block summaries (UniqueProviders by tech) — point path.
@@ -83,21 +75,6 @@ class BroadbandStatus(TypedDict, total=False):
     error: str
 
 
-def get_credentials() -> tuple[str, str] | None:
-    """Return (username, hash_value) when both env vars are set."""
-    user = (os.getenv("FCC_BDC_USERNAME") or "").strip()
-    token = (
-        os.getenv("FCC_BDC_HASH") or os.getenv("FCC_BDC_HASH_VALUE") or ""
-    ).strip()
-    if user and token:
-        return user, token
-    return None
-
-
-def credentials_configured() -> bool:
-    return get_credentials() is not None
-
-
 def empty_status(
     *,
     status: str = "unknown",
@@ -126,35 +103,6 @@ def empty_status(
     if error:
         out["error"] = error
     return out
-
-
-def verify_bdc_credentials(username: str, hash_value: str) -> bool:
-    """Best-effort ping of BDC listAsOfDates (cached). Failure does not raise."""
-    cache_key = overlay_cache.cache_key("bdc_creds", username[:32])
-    cached = overlay_cache.read_json(
-        CACHE_NAMESPACE, cache_key, max_age_s=RAW_CACHE_MAX_AGE_S
-    )
-    if isinstance(cached, dict) and cached.get("ok") is True:
-        return True
-    try:
-        resp = requests.get(
-            BDC_LIST_AS_OF_DATES,
-            headers={
-                "username": username,
-                "hash_value": hash_value,
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json",
-            },
-            timeout=REQUEST_TIMEOUT_S,
-        )
-        ok = resp.status_code == 200
-        if ok:
-            overlay_cache.write_json(
-                CACHE_NAMESPACE, cache_key, {"ok": True, "status": resp.status_code}
-            )
-        return ok
-    except requests.RequestException:
-        return False
 
 
 def _error_message(exc: BaseException) -> str:
@@ -254,10 +202,6 @@ def resolve_block_geoid(lat: float, lng: float) -> str:
     return geoid
 
 
-# Alias used by some call sites / older tests.
-resolve_block_fips = resolve_block_geoid
-
-
 def _fetch_block_attrs(block_geoid: str) -> dict[str, Any]:
     key = overlay_cache.cache_key("bdc_block", block_geoid)
     cached = overlay_cache.read_json(CACHE_NAMESPACE, key, max_age_s=RAW_CACHE_MAX_AGE_S)
@@ -342,48 +286,6 @@ def compute_broadband(lat: float, lng: float) -> BroadbandStatus:
     geoid = resolve_block_geoid(lat, lng)
     attrs = _fetch_block_attrs(geoid)
     return status_from_block_attrs(attrs, block_geoid=geoid)
-
-
-def compute_broadband_status(lat: float, lng: float) -> BroadbandStatus:
-    """Never-raises wrapper used by property refresh paths."""
-    try:
-        return compute_broadband(lat, lng)
-    except Exception as exc:  # noqa: BLE001
-        return empty_status(
-            status="error",
-            reason="compute_failed",
-            error=_error_message(exc),
-        )
-
-
-def lookup_broadband(
-    *,
-    lat: float | None = None,
-    lng: float | None = None,
-    address: str | None = None,
-) -> BroadbandStatus:
-    """Query fixed broadband availability; never raises — returns unknown on failure.
-
-    Prefers lat/lng. When only ``address`` is given, geocodes via the app geocoder.
-    """
-    try:
-        pin_lat = float(lat) if lat is not None else None
-        pin_lng = float(lng) if lng is not None else None
-    except (TypeError, ValueError):
-        pin_lat, pin_lng = None, None
-
-    if pin_lat is None or pin_lng is None:
-        addr = (address or "").strip()
-        if not addr:
-            return empty_status(reason="no_input", error="No coordinates or address")
-        try:
-            from app.core.geocode import geocode_address
-
-            pin_lat, pin_lng = geocode_address(addr)
-        except Exception as exc:  # noqa: BLE001
-            return empty_status(reason="geocode_failed", error=_error_message(exc))
-
-    return compute_broadband_status(float(pin_lat), float(pin_lng))
 
 
 def parse_status_json(raw: str | None) -> BroadbandStatus:
@@ -482,25 +384,6 @@ def tooltip_for(status: BroadbandStatus | dict[str, Any] | None) -> str:
     return "No fixed broadband reported"
 
 
-def broadband_risk_chip(prop: Any) -> tuple[str, dict[str, Any]] | None:
-    """UI helper: ``(key, entry)`` when the property lacks fixed broadband."""
-    status = parse_status_json(getattr(prop, "broadband_status", None))
-    if not is_broadband_risk(status):
-        return None
-    entry = {
-        "hit": True,
-        "risk": True,
-        "icon": CHIP_ICON,
-        "kind": CHIP_KIND,
-        "tooltip": tooltip_for(status),
-        "tech_summary": status.get("tech_summary") or "None",
-        "block_geoid": status.get("block_geoid") or status.get("block_fips") or "",
-        "has_fixed": False,
-        "source": status.get("source") or BDC_SOURCE_LABEL,
-    }
-    return CHIP_KEY, entry
-
-
 def chip_spec_for(status: BroadbandStatus | dict[str, Any] | None) -> dict[str, Any] | None:
     """RiskChip-shaped dict for ``listing_risk_chips`` / pages listing_chips."""
     if not is_broadband_risk(status):
@@ -511,8 +394,3 @@ def chip_spec_for(status: BroadbandStatus | dict[str, Any] | None) -> dict[str, 
         "icon": CHIP_ICON,
         "tooltip": tooltip_for(status),
     }
-
-
-def broadband_risk_entry(prop: Any) -> dict[str, Any] | None:
-    """Chip dict for listing_risk_chips / pages wiring (alias of chip_spec_for)."""
-    return chip_spec_for(parse_status_json(getattr(prop, "broadband_status", None)))

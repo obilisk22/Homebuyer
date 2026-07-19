@@ -16,10 +16,10 @@ from app.core.census_acs import (
 )
 from app.core.crime_socrata import (
     CRIME_CITIES,
+    bbox_around as crime_bbox_around,
     crime_supported,
     normalize_city,
-    resolve_crime_city,
-    soda_where_preview,
+    resolve_crime_feeds,
 )
 from app.core.fema_flood import FEMA_NFHL_WMS_URL, flood_wms_layer_args
 
@@ -148,19 +148,21 @@ def test_acs_layers_include_new_demos():
 
 
 def test_crime_city_resolution():
-    assert resolve_crime_city("Los Angeles") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("LA") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Seattle") is CRIME_CITIES["seattle"]
+    def primary(city, lat=None, lng=None):
+        feeds = resolve_crime_feeds(city, lat, lng)
+        return feeds[0] if feeds else None
+
+    assert primary("Los Angeles") is CRIME_CITIES["los_angeles"]
+    assert primary("LA") is CRIME_CITIES["los_angeles"]
+    assert primary("Seattle") is CRIME_CITIES["seattle"]
     # Santa Monica / Pasadena / empty Westside pin → LA County (primary = LAPD).
-    assert resolve_crime_city("Santa Monica") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Pasadena") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Torrance") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Portland") is None
-    assert (
-        resolve_crime_city("", 33.9916647, -118.4341763) is CRIME_CITIES["los_angeles"]
-    )
+    assert primary("Santa Monica") is CRIME_CITIES["los_angeles"]
+    assert primary("Pasadena") is CRIME_CITIES["los_angeles"]
+    assert primary("Torrance") is CRIME_CITIES["los_angeles"]
+    assert primary("Portland") is None
+    assert primary("", 33.9916647, -118.4341763) is CRIME_CITIES["los_angeles"]
     # Antelope Valley still in county bbox.
-    assert resolve_crime_city("", 34.69, -118.15) is CRIME_CITIES["los_angeles"]
+    assert primary("", 34.69, -118.15) is CRIME_CITIES["los_angeles"]
     assert crime_supported("seattle")
     assert crime_supported("Santa Monica")
     assert crime_supported("Long Beach")
@@ -168,21 +170,23 @@ def test_crime_city_resolution():
     assert not crime_supported("Austin")
     assert normalize_city("  Los   Angeles ") == "los angeles"
 
-    from app.core.crime_socrata import resolve_crime_feeds
-
     feeds = resolve_crime_feeds("Santa Monica", 34.01, -118.49)
     assert [f.id for f in feeds] == ["los_angeles", "santa_monica"]
 
 
-def test_soda_where_preview_contains_bbox_fields():
+def test_crime_feed_filter_fields():
+    """Sanity-check per-feed lat/lng field names used by SODA / CKAN queries."""
     la = CRIME_CITIES["los_angeles"]
-    clause = soda_where_preview(la, 34.05, -118.25)
-    assert "lat between" in clause
-    assert "lon between" in clause
+    assert la.lat_field == "lat"
+    assert la.lng_field == "lon"
+    assert la.coords_numeric is True
     sea = CRIME_CITIES["seattle"]
-    assert "client-side" in soda_where_preview(sea, 47.6, -122.3)
+    assert sea.coords_numeric is False
     sm = CRIME_CITIES["santa_monica"]
-    assert "ckan SQL bbox" in soda_where_preview(sm, 34.01, -118.49)
+    assert sm.kind == "ckan"
+    min_lng, min_lat, max_lng, max_lat = crime_bbox_around(34.05, -118.25)
+    assert min_lat < 34.05 < max_lat
+    assert min_lng < -118.25 < max_lng
 
 def test_fema_wms_args():
     url, options = flood_wms_layer_args()

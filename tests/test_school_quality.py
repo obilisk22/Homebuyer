@@ -3,7 +3,6 @@ from app.core.school_quality import (
     dashboard_url,
     enrich_assigned,
     enrich_school,
-    has_quality_data,
     niche_school_url,
     normalize_cds,
     parse_dashboard_rows,
@@ -145,7 +144,3 @@ def test_enrich_assigned_enriches_every_present_school_no_key_gate(monkeypatch):
     assert out["schools"]["elementary"]["niche_url"]
     assert out["schools"]["middle"] is None
     assert out["schools"]["high"]["niche_url"]
-
-
-def test_has_quality_data_is_always_true():
-    assert has_quality_data() is True

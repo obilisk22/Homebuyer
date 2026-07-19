@@ -29,7 +29,6 @@ REQUEST_TIMEOUT_S = 45
 CACHE_MAX_AGE_S = 7 * 24 * 3600
 DEFAULT_RADIUS_MI = 4.0
 MAX_SCHOOLS = 80
-LIST_LIMIT = 8
 
 # Miles per degree latitude (approx); longitude scaled by cos(lat).
 _MI_PER_DEG_LAT = 69.0
@@ -319,56 +318,3 @@ def fetch_schools_near_pin(
     }
     write_json("schools_nces", key, result)
     return result
-
-
-def schools_to_geojson(schools: list[dict[str, Any]]) -> dict[str, Any]:
-    """Point FeatureCollection for Map markers (popup + fillColor)."""
-    features: list[dict[str, Any]] = []
-    for s in schools:
-        level = s.get("level") or "Other"
-        dist = s.get("distance_mi")
-        dist_txt = f"{dist:.1f} mi" if isinstance(dist, (int, float)) else ""
-        district = s.get("district") or ""
-        popup = (
-            f"<b>{s.get('name') or 'School'}</b><br>"
-            f"{level}"
-            + (f" · {dist_txt}" if dist_txt else "")
-            + (f"<br>LEA {district}" if district else "")
-        )
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [float(s["lng"]), float(s["lat"])],
-                },
-                "properties": {
-                    "name": s.get("name"),
-                    "level": level,
-                    "distance_mi": dist,
-                    "fillColor": s.get("fillColor") or LEVEL_COLORS.get(level, "#FFC107"),
-                    "popup": popup,
-                    "url": s.get("url") or "",
-                },
-            }
-        )
-    return {
-        "type": "FeatureCollection",
-        "features": features,
-        "meta": {"count": len(features)},
-    }
-
-
-def nearest_schools_list(
-    lat: float,
-    lng: float,
-    *,
-    radius_mi: float = DEFAULT_RADIUS_MI,
-    limit: int = LIST_LIMIT,
-) -> dict[str, Any]:
-    """Convenience for the Map / Neighborhood panel list."""
-    result = fetch_schools_near_pin(lat, lng, radius_mi=radius_mi)
-    schools = list(result.get("schools") or [])[:limit]
-    meta = dict(result.get("meta") or {})
-    meta["list_limit"] = limit
-    return {"schools": schools, "meta": meta}

@@ -49,17 +49,13 @@ Library risk chip when **high permit activity** is within **~0.25 mi** (402 m). 
 
 ### Missing broadband / FCC BDC (TODO-042, 2026-07-19)
 
-Library magenta risk chip when the pin’s census block reports **no fixed terrestrial broadband**. **DSL or cable alone does not flag** — only total absence of fixed terrestrial service. Satellite-only still flags.
+Library magenta risk chip when the pin’s census block reports **no fixed terrestrial broadband**. **DSL or cable alone does not flag** — only total absence of fixed terrestrial service. Satellite-only still flags. **No API key** — Living Atlas + geo.fcc.gov are public.
 
-**Credentials required:** `FCC_BDC_USERNAME` + `FCC_BDC_HASH` (alias `FCC_BDC_HASH_VALUE`) as HTTP headers `username` / `hash_value`. Register at [broadbandmap.fcc.gov](https://broadbandmap.fcc.gov) → Manage API Access. Missing credentials → status `unknown`, **no chip** (never false-alarm). Soft-pings `GET https://broadbandmap.fcc.gov/api/public/map/listAsOfDates`.
-
-**BDC Public Data API** is bulk-download only (`listAvailabilityData`, `downloadFile`, …). Location Fabric needs a separate CostQuest license.
-
-**Point availability (chosen path when credentials are set)** — `app/core/fcc_broadband.py`:
+**Point availability** — `app/core/fcc_broadband.py`:
 1. `GET https://geo.fcc.gov/api/census/block/find?latitude=&longitude=&censusYear=2020&format=json` → 15-digit block FIPS.
 2. Esri Living Atlas FeatureServer `FCC_Broadband_Data_Collection_December_2024_View` layer **4 (Blocks)** — query `GEOID='…'` for `UniqueProvidersCopper|Cable|Fiber|LTFW|LBRTFW` (URL in module).
 
-Block-level aggregation can overstate coverage vs a specific BSL; adequate for a library screening chip.
+Block-level aggregation can overstate coverage vs a specific BSL; adequate for a library screening chip. (FCC BDC Public Data API bulk downloads are unused by Homebuy.)
 
 **Persistence:** `Property.broadband_status` + `broadband_at`; cache under `data/cache/fcc_broadband/` (~7d); compute on add / post-geocode; stale refresh via `refresh_stale_broadband_status_job`. Helpers folded into `listing_risk_chips`.
 
@@ -69,8 +65,7 @@ Block-level aggregation can overstate coverage vs a specific BSL; adequate for a
 |-----|---------|
 | `CENSUS_API_KEY` | Yes for live ACS |
 | `SOCRATA_APP_TOKEN` | Optional (rate limits) |
-| `FCC_BDC_USERNAME` + `FCC_BDC_HASH` | Optional — enables missing-broadband library chip |
-| FEMA / Redfin download / NCES / EPA / Living Atlas BDC | No key (Living Atlas used only after BDC credentials opt-in) |
+| FEMA / Redfin download / NCES / EPA / Living Atlas BDC / geo.fcc.gov | No key |
 
 ### Avoid
 

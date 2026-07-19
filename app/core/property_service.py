@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from sqlalchemy import select
@@ -1324,41 +1323,6 @@ class PropertyService:
         self.session.commit()
         self.session.refresh(fin)
         return fin
-
-    def add_photo(
-        self,
-        property_id: int,
-        source_path: Path,
-        caption: str = "",
-        *,
-        source_url: str = "",
-    ) -> Photo:
-        prop = self.get_property(property_id)
-        if prop is None:
-            raise ValueError("Property not found.")
-
-        dest_dir = UPLOADS_DIR / str(property_id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / source_path.name
-        if dest.exists():
-            stem, suffix = dest.stem, dest.suffix
-            i = 1
-            while dest.exists():
-                dest = dest_dir / f"{stem}_{i}{suffix}"
-                i += 1
-        shutil.copy2(source_path, dest)
-
-        photo = Photo(
-            property_id=property_id,
-            path=str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
-            source_url=source_url or "",
-            caption=caption,
-            sort_order=len(prop.photos),
-        )
-        self.session.add(photo)
-        self.session.commit()
-        self.session.refresh(photo)
-        return photo
 
     def add_photo_bytes(
         self,

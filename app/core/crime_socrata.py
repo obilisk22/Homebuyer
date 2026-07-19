@@ -10,6 +10,7 @@ from typing import Any, Literal
 import requests
 from dotenv import load_dotenv
 
+from app.core.geo import normalize_city, point_in_bbox
 from app.core.overlay_cache import cache_key, read_json, write_json
 
 load_dotenv()
@@ -262,15 +263,6 @@ def socrata_app_token() -> str:
     return (os.getenv("SOCRATA_APP_TOKEN") or "").strip()
 
 
-def normalize_city(city: str | None) -> str:
-    return " ".join((city or "").strip().lower().split())
-
-
-def _in_metro(lat: float, lng: float, bbox: tuple[float, float, float, float]) -> bool:
-    min_lat, max_lat, min_lng, max_lng = bbox
-    return min_lat <= lat <= max_lat and min_lng <= lng <= max_lng
-
-
 def in_la_county(
     city: str | None = None,
     lat: float | None = None,
@@ -281,7 +273,7 @@ def in_la_county(
     if norm and (norm in LA_COUNTY_PLACE_NAMES or "los angeles" in norm):
         return True
     if lat is not None and lng is not None:
-        return _in_metro(float(lat), float(lng), LA_COUNTY_BBOX)
+        return point_in_bbox(float(lat), float(lng), LA_COUNTY_BBOX)
     return False
 
 
@@ -295,7 +287,7 @@ def resolve_crime_feeds(
 
     if norm in CRIME_CITIES["seattle"].aliases or norm == "seattle":
         return [CRIME_CITIES["seattle"]]
-    if lat is not None and lng is not None and _in_metro(
+    if lat is not None and lng is not None and point_in_bbox(
         float(lat), float(lng), CRIME_CITIES["seattle"].metro_bbox
     ):
         return [CRIME_CITIES["seattle"]]
@@ -305,16 +297,6 @@ def resolve_crime_feeds(
         return [CRIME_CITIES["los_angeles"], CRIME_CITIES["santa_monica"]]
 
     return []
-
-
-def resolve_crime_city(
-    city: str | None,
-    lat: float | None = None,
-    lng: float | None = None,
-) -> CrimeCityConfig | None:
-    """Primary feed for messaging / tests; prefer LAPD label for LA County."""
-    feeds = resolve_crime_feeds(city, lat, lng)
-    return feeds[0] if feeds else None
 
 
 def crime_supported(
@@ -610,16 +592,3 @@ def fetch_crime_near_pin(
     }
     write_json("crime", key, result)
     return result
-
-
-def soda_where_preview(cfg: CrimeCityConfig, lat: float, lng: float) -> str:
-    """Test helper — build a sample filter description."""
-    min_lng, min_lat, max_lng, max_lat = bbox_around(lat, lng)
-    if cfg.kind == "ckan":
-        return f"ckan SQL bbox lat {min_lat}..{max_lat} lng {min_lng}..{max_lng}"
-    if cfg.coords_numeric:
-        return (
-            f"{cfg.lat_field} between {min_lat} and {max_lat} AND "
-            f"{cfg.lng_field} between {min_lng} and {max_lng}"
-        )
-    return f"{cfg.date_field} (date filter; bbox applied client-side)"

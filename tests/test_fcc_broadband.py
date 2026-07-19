@@ -68,7 +68,7 @@ def test_status_from_block_attrs_missing_vs_ok():
 
 
 def test_lookup_never_raises_and_empty_status():
-    empty = bb.lookup_broadband()
+    empty = bb.empty_status(reason="no_input", error="No coordinates or address")
     assert empty["status"] == "unknown"
     assert empty["reason"] == "no_input"
     assert empty["has_fixed"] is None
@@ -112,29 +112,21 @@ def test_parse_status_json_roundtrip():
     assert bb.parse_status_json("not-json")["status"] == "error"
 
 
-def test_broadband_risk_chip_tuple():
-    prop = SimpleNamespace(
-        broadband_status=json.dumps(
-            {
-                "status": "missing",
-                "has_fixed": False,
-                "tech_summary": "None",
-                "block_geoid": "06037",
-            }
-        )
-    )
-    chip = bb.broadband_risk_chip(prop)
+def test_chip_spec_for_from_property_status():
+    missing = {
+        "status": "missing",
+        "has_fixed": False,
+        "tech_summary": "None",
+        "block_geoid": "06037",
+    }
+    chip = bb.chip_spec_for(missing)
     assert chip is not None
-    key, entry = chip
-    assert key == "no_broadband"
-    assert entry["icon"] == "wifi_off"
-    assert "No fixed broadband" in entry["tooltip"]
-    assert bb.broadband_risk_entry(prop)["key"] == "no_broadband"
+    assert chip["key"] == "no_broadband"
+    assert chip["icon"] == "wifi_off"
+    assert "No fixed broadband" in chip["tooltip"]
 
-    ok_prop = SimpleNamespace(
-        broadband_status=json.dumps({"status": "ok", "has_fixed": True, "tech_summary": "Fiber"})
-    )
-    assert bb.broadband_risk_chip(ok_prop) is None
+    ok = {"status": "ok", "has_fixed": True, "tech_summary": "Fiber"}
+    assert bb.chip_spec_for(ok) is None
 
 
 def test_is_stale_and_needs_refresh():
@@ -199,14 +191,17 @@ def test_compute_broadband_mocked_http(monkeypatch):
     assert any("block/find" in u for u in calls)
     assert any("FeatureServer" in u for u in calls)
 
-    never_raises = bb.compute_broadband_status(34.05, -118.25)
-    assert never_raises["has_fixed"] is False
-
     def boom(*a, **k):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(bb, "compute_broadband", boom)
-    failed = bb.lookup_broadband(lat=34.0, lng=-118.0)
+    prop = SimpleNamespace(
+        latitude=34.0,
+        longitude=-118.0,
+        broadband_status="",
+        broadband_at="",
+    )
+    failed = bb.refresh_property_broadband(prop)
     assert failed["status"] == "error"
     assert "network" in (failed.get("error") or "")
 
@@ -311,7 +306,6 @@ def test_listing_risk_chips_includes_broadband():
 
 
 def test_endpoints_documented():
-    assert "broadbandmap.fcc.gov/api/public/map" in bb.BDC_PUBLIC_MAP_BASE
     assert "geo.fcc.gov" in bb.GEO_BLOCK_URL
     assert "FeatureServer" in bb.BDC_BLOCKS_URL
     assert bb.CACHE_NAMESPACE == "fcc_broadband"

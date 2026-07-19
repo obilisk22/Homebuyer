@@ -601,16 +601,15 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-042 — Library icon: missing broadband (FCC BDC)
 
-**Status:** Done (2026-07-19) — chip appears when `FCC_BDC_USERNAME` + `FCC_BDC_HASH` (or `FCC_BDC_HASH_VALUE`) are set; without credentials status stays unknown (no chip).
+**Status:** Done (2026-07-19) — chip uses public geo.fcc.gov + Living Atlas BDC UniqueProviders* (no API key); unknown/error → no chip.
 
 **Risk rule:** flag only when **no fixed terrestrial** providers (DSL/copper, cable, fiber, fixed wireless). DSL/cable alone does **not** flag. Satellite-only → risk. Unknown / no credentials / fetch error → no chip.
 
 **Shipped**
-- `app/core/fcc_broadband.py` — credentials gate; soft BDC `listAsOfDates` ping; point path = FCC Geo block FIPS + Living Atlas BDC block UniqueProviders*; cache `data/cache/fcc_broadband/`; never fails add-home.
+- `app/core/fcc_broadband.py` — point path = FCC Geo block FIPS + Living Atlas BDC block UniqueProviders* (no API key); cache `data/cache/fcc_broadband/`; never fails add-home.
 - `Property.broadband_status` + `broadband_at`; migrate in `db.py`; compute on add / post-geocode; stale refresh via `refresh_stale_broadband_status_job`.
 - Helpers: `chip_spec_for` / `tooltip_for`; included in `listing_risk_chips` → library + property header.
 - Tests: `tests/test_fcc_broadband.py` (mocked HTTP).
-- `.env.example`: `FCC_BDC_USERNAME` + `FCC_BDC_HASH`.
 
 **Research:** `docs/RESEARCH.md` § Missing broadband / FCC BDC.
 

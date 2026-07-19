@@ -21,7 +21,7 @@ from typing import Any
 
 import requests
 
-from app.core.crime_socrata import LA_COUNTY_BBOX, in_la_county, normalize_city
+from app.core.crime_socrata import in_la_county, normalize_city
 from app.core.overlay_cache import cache_key, read_json, write_json
 
 REQUEST_TIMEOUT_S = 45

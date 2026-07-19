@@ -74,6 +74,8 @@ git push
 
 Ignored on purpose (not committed): virtualenv, `.env` secrets, SQLite DB, downloaded listing photos. See [`AGENTS.md`](AGENTS.md) for a Perforce-oriented cheat sheet.
 
+Agent turns also **auto-commit locally** when they finish (Cursor `stop` hook). That never pushes — run `git push` yourself when you want GitHub updated.
+
 ## Map (Street View + overlays)
 
 The **Map** tab shows a taller Leaflet pin map with a dark CARTO basemap to match the app theme. Use the fullscreen control (near zoom) to expand the map; Esc exits. Layer toggles sit above the map; Pin tools and Street View are below (Street View starts expanded). Free Street View uses `svembed` (no API key) in a desktop 16:9 panel.

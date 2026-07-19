@@ -11,16 +11,6 @@ from pathlib import Path
 
 MAX_NEW_FILE_BYTES = 5 * 1024 * 1024
 
-# Extra denylist beyond .gitignore (path fragments / names).
-BLOCKED_FRAGMENTS = (
-    ".env",
-    "credentials",
-    "secrets",
-    "homebuy.db",
-    ".venv/",
-)
-
-
 def _find_git() -> str | None:
     which = shutil.which("git")
     if which:
@@ -57,13 +47,22 @@ def _run(
 
 
 def _is_blocked(rel_path: str) -> bool:
+    """Block secrets / venv / DB; allow committed templates like `.env.example`."""
     normalized = rel_path.replace("\\", "/").lower()
     name = Path(normalized).name.lower()
-    if name == ".env" or name.startswith(".env."):
+    if name == ".env":
         return True
-    for frag in BLOCKED_FRAGMENTS:
-        if frag.lower() in normalized:
-            return True
+    # `.env.local`, `.env.production`, etc. — but not `.env.example`
+    if name.startswith(".env.") and name != ".env.example":
+        return True
+    if "homebuy.db" in normalized:
+        return True
+    if normalized == ".venv" or normalized.startswith(".venv/") or "/.venv/" in normalized:
+        return True
+    if "credentials" in name or name.endswith(".pem") or name.endswith(".p12"):
+        return True
+    if "secrets" in name and name != "secrets.example":
+        return True
     return False
 
 

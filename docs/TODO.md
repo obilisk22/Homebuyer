@@ -35,6 +35,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-031 | Open | Property page: lower visual weight of Edit listing details |
 | TODO-032 | Open | Library card: show calculated appreciation %; amber if under 3% |
 | TODO-033 | Open | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
+| TODO-034 | Open | Map Street View: negative-space polish and layout tweaks |
 
 ---
 
@@ -481,3 +482,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Change calculation math; remove Gemini panel.
 
 **Touch:** `app/modules/financial.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-034 — Street View negative-space polish
+
+**Status:** Open
+
+**Polish the Map-tab Street View panel** so the free `svembed` block and surrounding chrome use space better — less empty gutter, tighter expansion, cleaner alignment with the map above.
+
+**Goals (implement-time judgment)**
+- Tighten padding/margins around the 16:9 panorama (`homebuy-sv`), expansion header, and Open Maps / Open Street View row.
+- Revisit `min-height` / `max-height` / aspect so short viewports don’t leave a tall empty shell or a tiny letterboxed iframe.
+- Quieter empty state when unpinned; keep free `svembed` only (no Embed API).
+- Match Map tab neo hierarchy (collapsed expansion optional if open-by-default feels heavy).
+
+**Non-goals:** Paid Street View / Maps Embed API; move SV off the Map tab.
+
+**Touch:** `app/modules/street_view.py`, `map_view.py` / `theme.py` if spacing shared, docs.

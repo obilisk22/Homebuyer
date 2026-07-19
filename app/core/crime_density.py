@@ -41,6 +41,11 @@ def crime_fill_color(count: int) -> str:
     return CRIME_BREAKS[-1][1]
 
 
+def axial_from_lng_lat(lng: float, lat: float, size_deg: float) -> tuple[int, int]:
+    """Public alias for hex axial coordinates (used by AQI + crime layers)."""
+    return _axial_from_lng_lat(lng, lat, size_deg)
+
+
 def _axial_from_lng_lat(lng: float, lat: float, size_deg: float) -> tuple[int, int]:
     """Pointy-top axial (q, r) from lng/lat using size as hex 'size' in degrees."""
     # https://www.redblobgames.com/grids/hexagons/#pixel-to-hex (pointy)

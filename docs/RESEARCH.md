@@ -45,7 +45,23 @@ CrimeGrade scraping, GreatSchools paid API, FBI CDE for neighborhood maps, Zillo
 
 ### Implemented (2026-07-18 slice)
 
-Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood; **Zoning** (City of LA ZIMAS `1101`, Santa Monica via SCAG `Zoning_poly_LA`, LA County DRP unincorporated + SCAG fallback) as ACS-style GeoJSON (`zoning_gis.py`); ACS choropleths for median income / home value / age / kids / owner% / year built / rent / bachelor's+ via `census_acs.py` (`CENSUS_API_KEY`); LA County + Seattle crime as a **hex density choropleth** (`crime_density.py`). Deferred: more cities’ zoning, Redfin sales, air quality, fire risk. Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
+Shipped on Map tab toggles (no Neighborhood chips): FEMA NFHL WMS flood; **Zoning** (City of LA ZIMAS **`1102` citywide** — not Chapter 1A `1101` pockets; Santa Monica via SCAG `Zoning_poly_LA`; LA County DRP unincorporated + SCAG fallback; ACS-scale bbox ~0.04° + ArcGIS pagination) as ACS-style GeoJSON (`zoning_gis.py`); ACS choropleths for median income / home value / age / kids / owner% / year built / rent / bachelor's+ via `census_acs.py` (`CENSUS_API_KEY`); LA County + Seattle crime as a **hex density choropleth** (`crime_density.py`); **Schools** via NCES EDGE ArcGIS REST bbox (~4 mi, `schools_nces.py`) + nearest list on Map; **Wildfire** USFS WHP 2023 WMS (`wildfire_whp.py`); **AQI** Open-Meteo US AQI hex grid (`air_quality.py`, no key); **Sale price** Redfin ZIP tracker → ZCTA join (`redfin_sales.py`). Cache: `data/cache/`. Street View merged into Map tab (TODO-010).
+
+### Schools (NCES)
+
+- Primary: CCD `Schools_Points_2025_CCD` MapServer layer 4 (`nces.ed.gov/arcgis`) — includes `SLEVEL_TEXT`.
+- Fallbacks: LocaleViewer `PublicSchools24_25`, then EDGE `EDGE_GEOCODE_PUBLICSCH_2425` / `2324` on `opengis` (often 500).
+- Envelope query ~4 mi — **not** a full national download.
+- No GreatSchools paid API. Attendance boundaries out of scope for v1.
+
+### Wildfire + AQI
+
+- Wildfire: USFS RMRS WHP classified WMS (same pattern as FEMA flood).
+- AQI: Open-Meteo (no key) preferred over AirNow/OpenAQ registration.
+
+### Redfin sale choropleth
+
+- Public S3 gzip TSV `zip_code_market_tracker.tsv000.gz`; stream once → slim ZIP→median cache (~7d); join TIGER ZCTA near pin; muted fill when join misses.
 
 ---
 

@@ -11,8 +11,10 @@ data/*
 .DS_Store
 Thumbs.db
 
-# Local debug scrapes
+# Local debug scrapes / probe junk
 _tmp*
+_probe*
+pytest_out*.txt
 
 # Visual brainstorm companion mockups
 .superpowers/

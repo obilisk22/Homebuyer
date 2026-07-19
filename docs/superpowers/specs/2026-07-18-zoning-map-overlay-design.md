@@ -3,7 +3,7 @@
 **Date:** 2026-07-18  
 **Status:** Implemented 2026-07-18  
 
-**Implementation notes:** City of LA uses ZIMAS MapServer **1101** (1102 spatial queries returned empty). Santa Monica uses **SCAG** `Zoning_poly_LA` in WGS84 because the city AGOL FeatureServer needs native State Plane for intersects.
+**Implementation notes:** City of LA uses ZIMAS MapServer **1102** (citywide Zoning). Layer **1101** is Chapter 1A rollout only and caused pocket coverage (TODO-024). Santa Monica uses **SCAG** `Zoning_poly_LA` in WGS84 because the city AGOL FeatureServer needs native State Plane for intersects. Queries use ~0.04° half-span + ArcGIS pagination.
 **Product:** Homebuy Map tab  
 
 ## Problem

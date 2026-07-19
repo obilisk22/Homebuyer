@@ -5,7 +5,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | # | Status | One-liner |
 |---|--------|-----------|
 | TODO-001 | Done | Richer Zillow scrape (beds, price, sqft, HOA, year built, home type) |
-| TODO-002 | Partial | Area signals — flood/zoning/ACS/crime done; AQI, fire, Redfin open |
+| TODO-002 | Won't fix | Area signals umbrella — shipped flood/zoning/ACS/crime; no further under this ID |
 | TODO-003 | Done | Cost/Sqft display *(list price ÷ sqft)* |
 | TODO-004 | Done | Neighborhood: Gemini cool things to do |
 | TODO-005 | Done | Financials: Gemini breakdown + opinion |
@@ -16,15 +16,16 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-010 | Done | Map + Street View combined |
 | TODO-011 | Done | Financials: autofill list/HOA/tax/insurance from Zillow + ACS/state tables |
 | TODO-012 | Done | Financials: autofill interest rate from Freddie Mac PMMS by loan term |
-| TODO-013 | Open | Schools: nearby / assigned schools from NCES (map + property panel) |
-| TODO-015 | Open | Library pipeline status (Watching / Toured / Offer / Passed / …) |
-| TODO-016 | Open | Library financial snapshot columns (PITI, cash-to-close) + CSV/JSON export |
-| TODO-017 | Open | Buy-vs-rent: editable invest return, sell cost %, optional maintenance |
-| TODO-018 | Open | Side-by-side Compare view (2–4 homes) |
-| TODO-020 | Open | Area signals: wildfire + AQI map layers (TODO-002 slice) |
-| TODO-021 | Open | Area signals: Redfin ZIP median sale choropleth (TODO-002 slice) |
-| TODO-022 | Open | Closing checklist + simple deal timeline module |
-| TODO-023 | Open | Document attachments per property (offers, inspection, disclosures) |
+| TODO-013 | Done | Schools: nearby / assigned schools from NCES (map + property panel) |
+| TODO-015 | Won't fix | Library pipeline status (Watching / Toured / Offer / Passed / …) |
+| TODO-016 | Done | Library financial snapshot columns (PITI, cash-to-close) + CSV/JSON export |
+| TODO-017 | Done | Buy-vs-rent: editable invest return, sell cost %, optional maintenance |
+| TODO-018 | Done | Side-by-side Compare view (2–4 homes) |
+| TODO-020 | Done | Area signals: wildfire + AQI map layers (TODO-002 slice) |
+| TODO-021 | Done | Area signals: Redfin ZIP median sale choropleth (TODO-002 slice) |
+| TODO-022 | Won't fix | Closing checklist + simple deal timeline module |
+| TODO-023 | Won't fix | Document attachments per property (offers, inspection, disclosures) |
+| TODO-024 | Done | Zoning overlay: coverage (1102/bbox/pagination) + WS-safe slim/merge (~16 MB → &lt;1 MB) |
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
 
 ---
@@ -44,18 +45,15 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ---
 
-## TODO-002 — Area risk & market signals (partial)
+## TODO-002 — Area risk & market signals ❌ Won't fix
 
-**Add:** crime, median income, air quality, fire risk, average home price / demographics.
+**Originally:** crime, median income, air quality, fire risk, average home price / demographics.
 
-**Status (2026-07-18):** Partial — Map tab layer toggles for **FEMA flood**, **Zoning** (LA City / Santa Monica / County), **ACS** demographics, and **LA County + Seattle crime** (hex density). Still pending: air quality, fire risk, Redfin sale-price choropleth.
+**Status:** Won't fix (2026-07-18) — umbrella closed. **Shipped and kept:** FEMA flood, Zoning (LA City / SM / County), ACS demographics, LA County + Seattle crime hex density.
 
-**Notes**
-- See [`docs/RESEARCH.md`](RESEARCH.md). Core helpers: `census_acs.py`, `fema_flood.py`, `crime_socrata.py`, `crime_density.py`, `overlay_cache.py`.
-- ACS layers require `CENSUS_API_KEY` (documented in `.env.example`).
-- Crime: LA County (LAPD Socrata + Santa Monica CKAN) + Seattle; Map shows a **hex density choropleth** (not dots); other cities get a clear “no crime layer” state.
+Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildfire + AQI) and **TODO-021** (Redfin sale choropleth).
 
-**Touch:** `app/modules/map_view.py`, `app/core/*` overlay clients
+**Touch (shipped):** `app/modules/map_view.py`, `app/core/*` overlay clients
 
 ---
 
@@ -194,109 +192,134 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 ## TODO-013 — Schools support (NCES)
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
 **Show school context for a pinned home** so buyers can judge elementary / middle / high options without leaving Homebuy.
 
-**Scope (v1)**
-- Free **NCES** school points (no GreatSchools paid API — see `docs/RESEARCH.md`).
-- **Map:** nearby school markers (name, level) within a radius of the property pin; optional layer toggle.
-- **Property panel:** short list of nearest schools (and district if available) with distance; link out to public school pages when useful.
-- Cache downloads under `data/cache/` like other overlays.
+**Shipped**
+- Free **NCES EDGE** public school points via ArcGIS REST bbox query (`app/core/schools_nces.py`) — no GreatSchools; no national shapefile download.
+- **Map:** Schools toggle → markers within ~4 mi + legend; **Nearby schools** panel with distance + NCES deep link.
+- Cache under `data/cache/schools_nces/` (~7d).
 
-**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons (harder GIS; consider later), walkability (separate day-2 bonus).
+**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons, walkability.
 
-**Touch (expected):** new `app/core/schools_nces.py` (or similar), `map_view.py`, property/Neighborhood UI, `overlay_cache.py`, tests, `docs/RESEARCH.md` / `AGENTS.md`
+**Touch:** `app/core/schools_nces.py`, `map_view.py`, tests, `docs/RESEARCH.md` / `AGENTS.md`
 
 ---
 
-## TODO-015 — Library pipeline status
+## TODO-015 — Library pipeline status ❌ Won't fix
 
-**Status:** Open
+**Status:** Won't fix (2026-07-18)
 
-**Turn the bookmark list into a shortlist pipeline** with a per-home status chip, e.g. Watching / Toured / Offer / Under contract / Passed (exact labels TBD).
-
-**Notes**
-- New column on `Property` (string enum) + filter/sort on the library page.
-- Quiet chip on cards; editable from card menu or property header.
-
-**Touch (expected):** `models.py`, `db.py`, `pages.py`, tests
+**Was:** shortlist pipeline chips (Watching / Toured / Offer / Under contract / Passed). Not pursuing.
 
 ---
 
 ## TODO-016 — Library financial snapshots + export
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
 **Show quick money columns on the library** (e.g. estimated PITI, cash-to-close, $/sqft) derived from saved `FinancialAssumptions`, plus **CSV/JSON export** of library + financials for backup / spreadsheet compare.
 
-**Touch (expected):** `pages.py`, `finance.summarize`, `property_service`, new small export helper, tests
+**Shipped**
+- Quiet `PITI $…/mo · Cash $…` caption on library cards when financials exist (`finance.summarize` via `app/core/library_export.py`).
+- Toolbar **Export** → Download CSV / JSON (properties + key financial fields).
+- `$/sqft` already on library chips (TODO-003).
+
+**Touch:** `pages.py`, `app/core/library_export.py`, tests
 
 ---
 
 ## TODO-017 — Buy-vs-rent editable assumptions
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
 **Make buy-vs-rent what-ifs editable:** invest return %/yr, sell cost %, optional monthly maintenance — instead of fixed 10% / 6% only.
 
-**Notes**
-- Persist on `FinancialAssumptions`; caption current defaults; keep v1 math in `finance.buy_vs_rent_projection`.
+**Shipped**
+- Columns `invest_return_pct` (default 10), `selling_cost_pct` (default 6), `monthly_maintenance` (default 0) on `FinancialAssumptions` + SQLite migrate.
+- `buy_vs_rent_projection` takes these params (backward-compatible defaults); maintenance adds to PITI for the rent surplus.
+- Financials **Buy vs rent** section: number inputs + captions; Save / Recalculate / charts use live values.
 
-**Touch (expected):** `models.py`, `db.py`, `finance.py`, `financial.py`, tests
+**Touch:** `models.py`, `db.py`, `finance.py`, `financial.py`, `tests/test_buy_vs_rent.py`
 
 ---
 
 ## TODO-018 — Side-by-side Compare view
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
-**Compare 2–4 shortlisted homes** on one page: price, $/sqft, beds/baths, PITI, cash-to-close, status, key area signals if cheap to show.
+**Compare 2–4 shortlisted homes** on one page: price, $/sqft, beds/baths, PITI, cash-to-close (no status column — TODO-015 won't fix).
 
-**Touch (expected):** new module or `/compare` route, thin compare service, library multi-select entry point
+**Shipped**
+- Library checkboxes (max 4) + **Compare** → `/compare?ids=…`.
+- Table of address / list / offer / $/sqft / beds·baths / PITI / cash-to-close; back link + open-property buttons.
+- Helpers in `app/core/compare.py` (reuses library snapshots).
+
+**Touch:** `pages.py`, `app/core/compare.py`, `app/main.py` route import, tests
 
 ---
 
 ## TODO-020 — Wildfire + AQI map layers
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
-**TODO-002 slice:** Map overlays for **wildfire risk** and **air quality** near the pin (free public sources; see `docs/RESEARCH.md`).
+**Shipped**
+- **Wildfire:** USFS RMRS Wildfire Hazard Potential 2023 WMS (`app/core/wildfire_whp.py`) — no key; legend for WHP classes.
+- **AQI:** Open-Meteo US AQI grid → hex choropleth (`app/core/air_quality.py`) — no key; graceful status if the API fails.
+- Exclusive Map toggles **Wildfire** / **AQI** alongside existing overlays.
 
-**Touch (expected):** new overlay clients, `map_view.py`, `overlay_cache.py`, tests
+**Touch:** `wildfire_whp.py`, `air_quality.py`, `map_view.py`, tests
 
 ---
 
 ## TODO-021 — Redfin ZIP median sale choropleth
 
-**Status:** Open
+**Status:** Done (2026-07-18)
 
-**TODO-002 slice:** ZIP / ZCTA choropleth of recent **median sale prices** from Redfin Data Center (not ACS owner-estimated value).
+**Shipped**
+- Streams Redfin Data Center zip market tracker TSV (gzip) once → slim `zip → median_sale_price` cache (`app/core/redfin_sales.py`).
+- Joins to TIGER ZCTA polygons near the pin; muted fill + popup note when a ZIP has no Redfin median.
+- Map toggle **Sale price**; first enable may take a minute while the national file is ingested.
 
-**Touch (expected):** overlay download + ZCTA join, `map_view.py`, cache, tests
-
----
-
-## TODO-022 — Closing checklist + deal timeline
-
-**Status:** Open
-
-**Post-offer planner module:** simple closing checklist + timeline (inspection, appraisal, contingencies, closing date) tied to a property.
-
-**Touch (expected):** new module + model(s), property tab or dedicated panel, tests
+**Touch:** `redfin_sales.py`, `map_view.py`, cache, tests
 
 ---
 
-## TODO-023 — Document attachments per property
+## TODO-022 — Closing checklist + deal timeline ❌ Won't fix
 
-**Status:** Open
+**Status:** Won't fix (2026-07-18)
 
-**Document vault** for offers, inspection reports, disclosures, etc. — upload/store under the property and open from the UI.
+**Was:** post-offer closing checklist + timeline module. Not pursuing.
 
-**Notes**
-- Store under `data/uploads/` (gitignored); metadata in SQLite; gallery-like or list viewer.
+---
 
-**Touch (expected):** new model, upload UI, property service helpers, tests
+## TODO-023 — Document attachments per property ❌ Won't fix
+
+**Status:** Won't fix (2026-07-18)
+
+**Was:** document vault for offers / inspection / disclosures. Not pursuing.
+
+---
+
+## TODO-024 — Zoning overlay coverage gaps
+
+**Status:** Done (2026-07-18)
+
+**Problem:** The Map **Zoning** layer only painted zoning in a few pockets near the pin. Those pockets already looked right (colors, labels, neo styling) — appearance kept. The bug was **coverage**: most of the visible map stayed empty. After layer/bbox/pagination fixes, Zoning could still appear empty: Python returned thousands of parcels and status claimed success, but Leaflet never drew polygons.
+
+**Root cause (verified live against ZIMAS):**
+1. **Wrong layer:** City of LA used MapServer **1101** (Zoning Chapter 1A) — rollout-only pockets (e.g. parts of Downtown). Westside / Hollywood / Venice returned **0** features on 1101 while **1102** (citywide Zoning) filled the same bbox continuously.
+2. **Tiny bbox:** `DEFAULT_HALF_SPAN_DEG = 0.012` (~0.8 mi half) left most of the Map viewport empty vs ACS-scale overlays (~0.04°).
+3. **No pagination:** At a larger bbox, ArcGIS `exceededTransferLimit` truncated to one page → sparse parcels.
+4. **SM bbox steal:** Loose Santa Monica bbox + check-before-LA-name routed some Westside LA pins (e.g. Mar Vista) to SCAG `CITY='Santa Monica'` → SM-only pockets.
+5. **WebSocket buffer (remaining bug after 1–4):** Mar Vista pin returned **~3494** parcels ≈ **~16.2 MB** GeoJSON. NiceGUI/engineio `max_http_buffer_size` default is **1 MB**, so the Zoning payload was dropped on the wire (ACS income for the same pin is ~0.47 MB and works). Layer 1102 + pagination were correct; the Map toggle looked on / status updated while polygons never arrived.
+
+**Fix:** Query ZIMAS **1102**; raise default half-span to **0.04°**; paginate ArcGIS GeoJSON (`resultOffset` / `PAGE_SIZE`); LA city name beats SM bbox; tighten SM eastern edge; status caption includes `~N mi radius`. WS buffer **32MB**; full parcel geometry; when ArcGIS truncates at **5000**, binary-search largest pin-centered complete span (cache **v6**).
+
+**Verify:** Restart app → City of LA pin → Map → Zoning → continuous proper parcel polygons; status like `Zoning: N parcels (City of Los Angeles (ZIMAS)) · ~2.8 mi radius`.
+
+**Touch:** `app/main.py`, `app/core/zoning_gis.py`, `tests/test_zoning_gis.py`, docs.
 
 ---
 
@@ -304,7 +327,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 
 **Status:** Done (2026-07-18)
 
-**At-a-glance proximity badges** on library card thumbnails: highway, transit, playground, grocery, shelter/recovery — only when within distance thresholds.
+**At-a-glance proximity badges** on library cards: highway, transit, playground, grocery, shelter/recovery — only when within distance thresholds.
 
 **Shipped**
 - `app/core/nearby_signals.py` — OSM Overpass for all five; Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` set (OSM fallback without key).

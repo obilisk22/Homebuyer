@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "description": "State home-services cost index vs national average (1.00 = US average).",
+    "usage": "Multiply $/sqft and Angi observed-spend legs; blend with % of price so high list prices (e.g. CA land) are not double-counted.",
+    "sources": [
+      "Industry home-service cost indexes (CA ~115 / +15% vs national)",
+      "BLS OEWS construction & installation wage ratios used as a cross-check for relative ranking",
+      "Angi 2024 State of Home Spending: maintenance $1750 + emergency $978 national baseline"
+    ],
+    "notes": "Not a contractor quote. Prefer Manual override when the buyer has better info."
+  },
+  "default_index": 1.0,
+  "index_by_state": {
+    "AL": 0.92, "AK": 1.12, "AZ": 0.97, "AR": 0.90, "CA": 1.15,
+    "CO": 1.05, "CT": 1.10, "DE": 1.02, "DC": 1.12, "FL": 1.02,
+    "GA": 0.95, "HI": 1.25, "ID": 0.98, "IL": 1.05, "IN": 0.94,
+    "IA": 0.92, "KS": 0.92, "KY": 0.90, "LA": 0.95, "ME": 1.00,
+    "MD": 1.05, "MA": 1.12, "MI": 0.98, "MN": 1.02, "MS": 0.88,
+    "MO": 0.93, "MT": 0.98, "NE": 0.92, "NV": 1.01, "NH": 1.05,
+    "NJ": 1.12, "NM": 0.95, "NY": 1.15, "NC": 0.95, "ND": 0.95,
+    "OH": 0.94, "OK": 0.90, "OR": 1.04, "PA": 1.02, "RI": 1.08,
+    "SC": 0.94, "SD": 0.92, "TN": 0.93, "TX": 0.98, "UT": 0.98,
+    "VT": 1.02, "VA": 1.02, "WA": 1.08, "WV": 0.90, "WI": 0.98,
+    "WY": 0.95
+  }
+}

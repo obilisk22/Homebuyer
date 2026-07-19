@@ -234,11 +234,11 @@ def _migrate_sqlite() -> None:
                 )
             if "monthly_rent" not in fin_cols:
                 conn.exec_driver_sql(
-                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_rent FLOAT NOT NULL DEFAULT 0"
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_rent FLOAT NOT NULL DEFAULT 5300"
                 )
             if "rent_source" not in fin_cols:
                 conn.exec_driver_sql(
-                    "ALTER TABLE financial_assumptions ADD COLUMN rent_source VARCHAR(64) NOT NULL DEFAULT ''"
+                    "ALTER TABLE financial_assumptions ADD COLUMN rent_source VARCHAR(64) NOT NULL DEFAULT 'Default'"
                 )
             if "rent_control" not in fin_cols:
                 conn.exec_driver_sql(
@@ -272,4 +272,49 @@ def _migrate_sqlite() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE financial_assumptions ADD COLUMN interest_rate_source "
                     "VARCHAR(96) NOT NULL DEFAULT ''"
+                )
+            if "invest_return_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN invest_return_pct "
+                    "FLOAT NOT NULL DEFAULT 10"
+                )
+            if "selling_cost_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN selling_cost_pct "
+                    "FLOAT NOT NULL DEFAULT 6"
+                )
+            if "monthly_maintenance" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_maintenance "
+                    "FLOAT NOT NULL DEFAULT 0"
+                )
+            if "maintenance_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN maintenance_source "
+                    "VARCHAR(96) NOT NULL DEFAULT ''"
+                )
+            if "monthly_budget" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_budget "
+                    "FLOAT NOT NULL DEFAULT 13000"
+                )
+            if "marginal_tax_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN marginal_tax_pct "
+                    "FLOAT NOT NULL DEFAULT 41"
+                )
+            if "cg_tax_pct" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN cg_tax_pct "
+                    "FLOAT NOT NULL DEFAULT 24"
+                )
+            if "cg_exclusion" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN cg_exclusion "
+                    "FLOAT NOT NULL DEFAULT 500000"
+                )
+            if "salt_cap" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN salt_cap "
+                    "FLOAT NOT NULL DEFAULT 10000"
                 )

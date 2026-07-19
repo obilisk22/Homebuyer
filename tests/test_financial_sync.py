@@ -187,6 +187,122 @@ def test_sync_uses_listing_rent_and_blended_appreciation(tmp_path, monkeypatch):
     assert prop.financial.appreciation_source == "FHFA+Zillow"
 
 
+def test_sync_defaults_monthly_rent_when_no_rent_zestimate(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_8_zpid/",
+        zip_code="98101",
+        state="WA",
+        latitude=47.6,
+        longitude=-122.3,
+    )
+    prop.financial = FinancialAssumptions()
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.zip5_cagr", lambda zip_code: None, raising=False
+    )
+    monkeypatch.setattr(
+        "app.core.census_acs.county_median_rent_cagr", lambda lat, lng: None
+    )
+
+    PropertyService(session)._sync_financial_from_listing(
+        prop,
+        ListingDetails(list_price=500_000, rent_zestimate=None),
+    )
+    session.commit()
+    session.refresh(prop.financial)
+
+    assert prop.financial.monthly_rent == 5_300
+    assert prop.financial.rent_source == "Default"
+
+
+def test_sync_preserves_manual_rent_when_no_rent_zestimate(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_9_zpid/",
+        zip_code="98101",
+        state="WA",
+    )
+    prop.financial = FinancialAssumptions(
+        monthly_rent=4_100.0,
+        rent_source="Manual",
+    )
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.zip5_cagr", lambda zip_code: None, raising=False
+    )
+
+    PropertyService(session)._sync_financial_from_listing(
+        prop,
+        ListingDetails(list_price=500_000, rent_zestimate=None),
+    )
+    session.commit()
+    session.refresh(prop.financial)
+
+    assert prop.financial.monthly_rent == 4_100.0
+    assert prop.financial.rent_source == "Manual"
+
+
+def test_sync_preserves_manual_rent_when_zillow_has_rent(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Seattle, WA 98101",
+        zillow_url="https://www.zillow.com/homedetails/x_10_zpid/",
+        zip_code="98101",
+        state="WA",
+    )
+    prop.financial = FinancialAssumptions(
+        monthly_rent=4_100.0,
+        rent_source="Manual",
+    )
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.zip5_cagr", lambda zip_code: None, raising=False
+    )
+
+    PropertyService(session)._sync_financial_from_listing(
+        prop,
+        ListingDetails(list_price=500_000, rent_zestimate=2_500),
+    )
+    session.commit()
+    session.refresh(prop.financial)
+
+    assert prop.financial.monthly_rent == 4_100.0
+    assert prop.financial.rent_source == "Manual"
+
+
 def test_update_financial_clears_source_captions_on_manual_save(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
     prop = Property(address="1 Test St, Seattle, WA 98101", zillow_url="https://www.zillow.com/homedetails/x_3_zpid/")
@@ -356,3 +472,165 @@ def test_add_from_zillow_syncs_once_after_geocoding(tmp_path, monkeypatch):
     )
 
     assert sync_coordinates == [(47.6, -122.3)]
+
+
+def test_sync_autofills_maintenance_blend(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Los Angeles, CA 90001",
+        zillow_url="https://www.zillow.com/homedetails/x_maint_zpid/",
+        state="CA",
+        sqft=1800,
+        year_built=2000,
+    )
+    fin = FinancialAssumptions(list_price=0, monthly_maintenance=0)
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    details = ListingDetails(
+        list_price=800_000,
+        sqft=1800,
+        year_built=2000,
+        state="CA",
+    )
+    svc = PropertyService(session)
+    svc._sync_financial_from_listing(prop, details)
+    session.commit()
+    session.refresh(fin)
+
+    assert fin.monthly_maintenance > 0
+    assert "age blend" in (fin.maintenance_source or "").lower()
+    assert "CA" in (fin.maintenance_source or "")
+
+
+def test_sync_preserves_manual_maintenance(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Los Angeles, CA 90001",
+        zillow_url="https://www.zillow.com/homedetails/x_maint_manual_zpid/",
+        state="CA",
+        sqft=1800,
+        year_built=2000,
+    )
+    fin = FinancialAssumptions(
+        list_price=500_000,
+        monthly_maintenance=50.0,
+        maintenance_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_property_tax",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_annual_insurance",
+        lambda **kwargs: (None, ""),
+    )
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    details = ListingDetails(list_price=900_000, sqft=1800, year_built=2000, state="CA")
+    svc = PropertyService(session)
+    svc._sync_financial_from_listing(prop, details)
+    session.commit()
+    session.refresh(fin)
+
+    assert fin.monthly_maintenance == 50.0
+    assert fin.maintenance_source == "Manual"
+
+
+def test_update_financial_marks_maintenance_manual(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St",
+        zillow_url="https://www.zillow.com/homedetails/x_maint_edit_zpid/",
+    )
+    fin = FinancialAssumptions(
+        monthly_maintenance=100.0,
+        maintenance_source="Estimated: age blend · CA×1.15",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    svc = PropertyService(session)
+    updated = svc.update_financial(prop.id, monthly_maintenance=250.0)
+    assert updated.monthly_maintenance == 250.0
+    assert updated.maintenance_source == "Manual"
+
+
+def test_ensure_financial_backfills_maintenance(tmp_path, monkeypatch):
+    """Homes saved before maintenance autofill should fill on ensure_financial."""
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Los Angeles, CA 90001",
+        zillow_url="https://www.zillow.com/homedetails/x_maint_ensure_zpid/",
+        state="CA",
+        sqft=1800,
+        year_built=2000,
+        list_price=800_000,
+    )
+    fin = FinancialAssumptions(
+        list_price=800_000,
+        monthly_maintenance=0.0,
+        maintenance_source="",
+        interest_rate_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    monkeypatch.setattr(
+        "app.core.property_service.resolve_interest_rate",
+        lambda term, **kwargs: (None, ""),
+    )
+
+    svc = PropertyService(session)
+    out = svc.ensure_financial(prop)
+    assert out.monthly_maintenance > 0
+    assert "age blend" in (out.maintenance_source or "").lower()
+
+
+def test_ensure_financial_preserves_manual_maintenance(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+    prop = Property(
+        address="1 Test St, Los Angeles, CA 90001",
+        zillow_url="https://www.zillow.com/homedetails/x_maint_ensure_manual_zpid/",
+        state="CA",
+        sqft=1800,
+        year_built=2000,
+        list_price=800_000,
+    )
+    fin = FinancialAssumptions(
+        list_price=800_000,
+        monthly_maintenance=42.0,
+        maintenance_source="Manual",
+        interest_rate_source="Manual",
+    )
+    prop.financial = fin
+    session.add(prop)
+    session.commit()
+
+    svc = PropertyService(session)
+    out = svc.ensure_financial(prop)
+    assert out.monthly_maintenance == 42.0
+    assert out.maintenance_source == "Manual"

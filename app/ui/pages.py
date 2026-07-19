@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from app.core.compare import build_compare_rows, parse_compare_ids
 from app.core.db import get_session
+from app.core.library_export import (
+    LibraryFinancialSnapshot,
+    export_library_csv,
+    export_library_json,
+    snapshot_from_property,
+)
 from app.core.module_registry import get_modules
 from app.core.nearby_signals import (
     ICON_BY_KEY,
@@ -35,6 +42,20 @@ def _format_price(value: float | None) -> str:
     if value is None:
         return ""
     return f"${value:,.0f}"
+
+
+def _library_financial_caption(snap: LibraryFinancialSnapshot) -> str:
+    """Quiet PITI + cash-to-close line when saved financials exist."""
+    if not snap.has_financials:
+        return ""
+    if not (snap.effective_price or 0) > 0:
+        return ""
+    parts: list[str] = []
+    if snap.monthly_piti is not None:
+        parts.append(f"PITI {_format_price(snap.monthly_piti)}/mo")
+    if snap.cash_to_close is not None:
+        parts.append(f"Cash {_format_price(snap.cash_to_close)}")
+    return " · ".join(parts)
 
 
 def _format_beds_baths(beds: float | None, baths: float | None) -> str:
@@ -258,12 +279,63 @@ def library_page() -> None:
                         ),
                     ).props("flat dense color=dark")
 
+            compare_btn = ui.button("Compare").props(
+                "unelevated dense color=dark disable"
+            )
+            export_btn = ui.button("Export", icon="download").props(
+                "unelevated dense color=dark"
+            )
+            with export_btn:
+                with ui.menu().props('anchor="top end" self="top end"'):
+                    ui.menu_item("Download CSV", on_click=lambda: _export("csv"))
+                    ui.menu_item("Download JSON", on_click=lambda: _export("json"))
+
         list_box = ui.column().classes("w-full gap-3")
         filter_debounce = None
+        selected_ids: set[int] = set()
+
+        def _update_compare_btn() -> None:
+            n = len(selected_ids)
+            compare_btn.set_text(f"Compare · {n}" if n else "Compare")
+            if 2 <= n <= 4:
+                compare_btn.props(remove="disable")
+            else:
+                compare_btn.props("disable")
+
+        def _open_compare() -> None:
+            n = len(selected_ids)
+            if not 2 <= n <= 4:
+                ui.notify("Select 2–4 homes to compare", type="warning")
+                return
+            ids = ",".join(str(i) for i in sorted(selected_ids))
+            ui.navigate.to(f"/compare?ids={ids}")
+
+        compare_btn.on_click(_open_compare)
+
+        def _export(fmt: str) -> None:
+            with get_session() as session:
+                props = PropertyService(session).list_properties(sort="newest")
+                snaps = [snapshot_from_property(p) for p in props]
+            if not snaps:
+                ui.notify("Nothing to export yet", type="info")
+                return
+            if fmt == "json":
+                ui.download(
+                    export_library_json(snaps).encode("utf-8"),
+                    "homebuy-library.json",
+                    "application/json",
+                )
+            else:
+                ui.download(
+                    export_library_csv(snaps).encode("utf-8"),
+                    "homebuy-library.csv",
+                    "text/csv",
+                )
 
         def delete_home(property_id: int) -> None:
             with get_session() as session:
                 PropertyService(session).delete_property(property_id)
+            selected_ids.discard(property_id)
             ui.notify("Deleted", type="info")
             refresh()
 
@@ -304,6 +376,7 @@ def library_page() -> None:
             )
             filter_expansion.update()
 
+            card_rows: list[dict] = []
             with get_session() as session:
                 service = PropertyService(session)
                 props = service.list_properties(
@@ -314,17 +387,47 @@ def library_page() -> None:
                     sort=sort_key,
                 )
                 has_any = True if props else service.has_any_properties()
+                visible_ids = {p.id for p in props}
+                selected_ids.intersection_update(visible_ids)
+                for prop in props:
+                    snap = snapshot_from_property(prop)
+                    thumb = None
+                    thumb_photo = resolve_library_thumbnail(prop)
+                    if thumb_photo is not None:
+                        thumb = f"/uploads/{thumb_photo.path}"
+                    card_rows.append(
+                        {
+                            "id": prop.id,
+                            "address": prop.address,
+                            "list_price": prop.list_price,
+                            "beds": prop.beds,
+                            "baths": prop.baths,
+                            "sqft": prop.sqft,
+                            "home_type": prop.home_type or "",
+                            "year_built": prop.year_built,
+                            "hoa_fee": prop.hoa_fee,
+                            "notes": prop.notes or "",
+                            "city": (prop.city or "").strip(),
+                            "state": (prop.state or "").strip(),
+                            "zip_code": (prop.zip_code or "").strip(),
+                            "zillow_url": prop.zillow_url,
+                            "thumb": thumb,
+                            "fin_caption": _library_financial_caption(snap),
+                            "nearby_signals": prop.nearby_signals or "",
+                        }
+                    )
+            _update_compare_btn()
             hint_label.set_visibility(not has_any)
-            if props:
+            if card_rows:
                 count_label.set_text(
-                    f"{len(props)} home" + ("" if len(props) == 1 else "s")
+                    f"{len(card_rows)} home" + ("" if len(card_rows) == 1 else "s")
                 )
             elif has_any:
                 count_label.set_text("0 homes")
             else:
                 count_label.set_text("")
             with list_box:
-                if not props:
+                if not card_rows:
                     if not has_any:
                         ui.label(
                             "No homes yet — paste a Zillow link above."
@@ -334,36 +437,34 @@ def library_page() -> None:
                             "hb-empty-state w-full"
                         )
                     return
-                for prop in props:
-                    primary_chips = _library_primary_chips(
-                        beds=prop.beds,
-                        baths=prop.baths,
-                        sqft=prop.sqft,
-                        list_price=prop.list_price,
-                    )
-                    secondary_chips = _library_secondary_chips(
-                        home_type=prop.home_type or "",
-                        year_built=prop.year_built,
-                        hoa_fee=prop.hoa_fee,
-                    )
-                    notes_teaser = _truncate_notes(prop.notes or "")
-                    thumb = None
-                    thumb_photo = resolve_library_thumbnail(prop)
-                    if thumb_photo is not None:
-                        thumb = f"/uploads/{thumb_photo.path}"
-                    zillow_url = prop.zillow_url
-                    prop_id = prop.id
-                    address = prop.address
-                    list_price = prop.list_price
-                    city = (prop.city or "").strip()
-                    state = (prop.state or "").strip()
-                    zip_code = (prop.zip_code or "").strip()
+                for row in card_rows:
+                    prop_id = row["id"]
+                    address = row["address"]
+                    list_price = row["list_price"]
+                    city = row["city"]
+                    state = row["state"]
+                    zip_code = row["zip_code"]
                     street = _street_address_line(
                         address, city=city, state=state, zip_code=zip_code
                     )
                     nearby_hits = hits_in_order(
-                        parse_signals_json(prop.nearby_signals or "")
+                        parse_signals_json(row["nearby_signals"])
                     )
+                    primary_chips = _library_primary_chips(
+                        beds=row["beds"],
+                        baths=row["baths"],
+                        sqft=row["sqft"],
+                        list_price=list_price,
+                    )
+                    secondary_chips = _library_secondary_chips(
+                        home_type=row["home_type"],
+                        year_built=row["year_built"],
+                        hoa_fee=row["hoa_fee"],
+                    )
+                    notes_teaser = _truncate_notes(row["notes"])
+                    thumb = row["thumb"]
+                    zillow_url = row["zillow_url"]
+                    fin_caption = row["fin_caption"]
 
                     with ui.card().classes("w-full hb-library-card") as card:
                         card.on(
@@ -373,6 +474,30 @@ def library_page() -> None:
                         with ui.row().classes(
                             "w-full items-stretch justify-between gap-3 flex-nowrap"
                         ):
+                            select_box = ui.checkbox(
+                                value=prop_id in selected_ids
+                            ).props("dense").classes("flex-shrink-0 self-center")
+
+                            def _on_select(
+                                e, pid=prop_id, box=select_box
+                            ) -> None:  # noqa: ANN001
+                                if e.value:
+                                    if len(selected_ids) >= 4 and pid not in selected_ids:
+                                        ui.notify("Compare up to 4 homes", type="warning")
+                                        box.set_value(False)
+                                        return
+                                    selected_ids.add(pid)
+                                else:
+                                    selected_ids.discard(pid)
+                                _update_compare_btn()
+
+                            select_box.on_value_change(_on_select)
+                            select_box.on(
+                                "click",
+                                lambda: None,
+                                js_handler="(e) => { e.stopPropagation(); emit(e); }",
+                            )
+
                             with ui.row().classes(
                                 "items-stretch gap-3 flex-grow hb-library-card-body"
                             ):
@@ -411,6 +536,8 @@ def library_page() -> None:
                                         ui.label(
                                             "Details pending — open and refresh listing"
                                         ).classes("hb-page-meta")
+                                    if fin_caption:
+                                        ui.label(fin_caption).classes("hb-page-meta")
                                     if notes_teaser:
                                         ui.label(notes_teaser).classes("hb-library-notes")
 
@@ -810,3 +937,157 @@ def property_page(property_id: int) -> None:
                 with ui.tab_panel(tab_refs[mod.id]):
                     panel = ui.column().classes("w-full")
                     mod.render(prop, panel)
+
+
+def _compare_street(address: str) -> str:
+    street = _street_address_line(address)
+    return street or address
+
+
+@ui.page("/compare")
+def compare_page(ids: str = "") -> None:
+    """Side-by-side compare for 2–4 library homes (TODO-018)."""
+    page_header("Compare")
+    id_list = parse_compare_ids(ids)
+
+    with ui.column().classes("w-full hb-library-shell q-pa-md gap-3"):
+        ui.button(
+            "Back to library",
+            icon="arrow_back",
+            on_click=lambda: ui.navigate.to("/"),
+        ).props("flat dense color=dark")
+
+        if not 2 <= len(id_list) <= 4:
+            ui.label("Select 2–4 homes on the library to compare.").classes(
+                "hb-empty-state w-full"
+            )
+            return
+
+        row_data: list[dict] = []
+        with get_session() as session:
+            service = PropertyService(session)
+            props = []
+            for pid in id_list:
+                prop = service.get_property(pid)
+                if prop is not None:
+                    props.append(prop)
+            if not 2 <= len(props) <= 4:
+                ui.label(
+                    "Could not load 2–4 homes for those ids — go back and reselect."
+                ).classes("hb-empty-state w-full")
+                return
+            try:
+                rows = build_compare_rows(props)
+            except ValueError:
+                ui.label("Compare requires 2–4 homes.").classes(
+                    "hb-empty-state w-full"
+                )
+                return
+            for row in rows:
+                row_data.append(
+                    {
+                        "id": row.id,
+                        "address": row.address,
+                        "street": _compare_street(row.address),
+                        "list_price": row.list_price,
+                        "offer_price": row.offer_price,
+                        "price_per_sqft": row.price_per_sqft,
+                        "beds": row.beds,
+                        "baths": row.baths,
+                        "monthly_piti": row.monthly_piti,
+                        "cash_to_close": row.cash_to_close,
+                    }
+                )
+
+        ui.label("Compare").classes("hb-page-title")
+        ui.label(
+            f"{len(row_data)} homes — price, $/sqft, beds/baths, PITI, cash-to-close"
+        ).classes("hb-page-hint")
+
+        columns = [
+            {
+                "name": "metric",
+                "label": "",
+                "field": "metric",
+                "align": "left",
+                "sortable": False,
+            },
+        ]
+        for i, home in enumerate(row_data):
+            columns.append(
+                {
+                    "name": f"h{i}",
+                    "label": home["street"],
+                    "field": f"h{i}",
+                    "align": "left",
+                    "sortable": False,
+                }
+            )
+
+        def _cell_price(value: float | None) -> str:
+            return _format_price(value) if value is not None else "—"
+
+        def _cell_per_sqft(value: float | None) -> str:
+            if value is None:
+                return "—"
+            return f"${value:,.0f}/sqft"
+
+        def _cell_beds_baths(beds: float | None, baths: float | None) -> str:
+            text = _format_beds_baths(beds, baths)
+            return text or "—"
+
+        def _row(metric: str, values: list[str]) -> dict:
+            out: dict = {"metric": metric}
+            for i, val in enumerate(values):
+                out[f"h{i}"] = val
+            return out
+
+        table_rows = [
+            _row(
+                "Address",
+                [h["address"] for h in row_data],
+            ),
+            _row(
+                "List price",
+                [_cell_price(h["list_price"]) for h in row_data],
+            ),
+            _row(
+                "Offer price",
+                [
+                    _cell_price(h["offer_price"]) if h["offer_price"] else "—"
+                    for h in row_data
+                ],
+            ),
+            _row(
+                "$/sqft",
+                [_cell_per_sqft(h["price_per_sqft"]) for h in row_data],
+            ),
+            _row(
+                "Beds / baths",
+                [_cell_beds_baths(h["beds"], h["baths"]) for h in row_data],
+            ),
+            _row(
+                "Est. PITI",
+                [
+                    f"{_cell_price(h['monthly_piti'])}/mo"
+                    if h["monthly_piti"] is not None
+                    else "—"
+                    for h in row_data
+                ],
+            ),
+            _row(
+                "Cash to close",
+                [_cell_price(h["cash_to_close"]) for h in row_data],
+            ),
+        ]
+
+        ui.table(columns=columns, rows=table_rows, row_key="metric").classes(
+            "w-full hb-compare-table"
+        ).props("flat dense dark separator=horizontal")
+
+        with ui.row().classes("gap-2 flex-wrap"):
+            for home in row_data:
+                ui.button(
+                    home["street"][:40] or f"Home {home['id']}",
+                    on_click=lambda i=home["id"]: ui.navigate.to(f"/property/{i}"),
+                ).props("unelevated dense color=dark")

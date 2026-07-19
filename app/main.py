@@ -4,19 +4,25 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from nicegui import app, ui
+from nicegui import app, core, ui
 
 from app.core.db import DATA_DIR, init_db
 from app.core.module_registry import discover_modules
 from app.seed import seed_demo_if_empty
-from app.ui.pages import library_page, property_page  # noqa: F401 — registers routes
+from app.ui.pages import compare_page, library_page, property_page  # noqa: F401 — registers routes
 from app.ui.theme import COLORS, NEON
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+# Zoning GeoJSON near an LA pin can be ~10–20 MB. NiceGUI/engineio defaults to a
+# 1 MB max_http_buffer_size, which silently drops those Map overlay payloads.
+# Raise before ui.run() so Socket.IO negotiates a larger maxPayload with the browser.
+WS_MAX_HTTP_BUFFER_BYTES = 32 * 1024 * 1024  # 32 MiB
+
 
 def main() -> None:
     load_dotenv()
+    core.sio.eio.max_http_buffer_size = WS_MAX_HTTP_BUFFER_BYTES
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     discover_modules()

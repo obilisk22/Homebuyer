@@ -12,6 +12,10 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Buy-vs-rent comparable rent when Zillow has no rentZestimate.
+DEFAULT_MONTHLY_RENT = 5300.0
+
+
 class Property(Base):
     __tablename__ = "properties"
 
@@ -100,8 +104,9 @@ class FinancialAssumptions(Base):
     property_tax_source: Mapped[str] = mapped_column(String(64), default="")
     insurance_source: Mapped[str] = mapped_column(String(64), default="")
     interest_rate_source: Mapped[str] = mapped_column(String(96), default="")
-    monthly_rent: Mapped[float] = mapped_column(Float, default=0.0)
-    rent_source: Mapped[str] = mapped_column(String(64), default="")
+    # Comparable rent when Zillow has no rentZestimate (buy-vs-rent chart).
+    monthly_rent: Mapped[float] = mapped_column(Float, default=DEFAULT_MONTHLY_RENT)
+    rent_source: Mapped[str] = mapped_column(String(64), default="Default")
     rent_control: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     rent_growth_pct: Mapped[float] = mapped_column(Float, default=3.0)
     rent_growth_source: Mapped[str] = mapped_column(String(64), default="")
@@ -109,5 +114,16 @@ class FinancialAssumptions(Base):
     appreciation_source: Mapped[str] = mapped_column(String(64), default="")
     appreciation_fhfa_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     appreciation_zillow_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Buy-vs-rent what-ifs (v1 defaults: 10% invest / 6% sell; maint autofilled).
+    invest_return_pct: Mapped[float] = mapped_column(Float, default=10.0)
+    selling_cost_pct: Mapped[float] = mapped_column(Float, default=6.0)
+    monthly_maintenance: Mapped[float] = mapped_column(Float, default=0.0)
+    maintenance_source: Mapped[str] = mapped_column(String(96), default="")
+    # Buy-vs-rent tax + shared budget (CA MFJ defaults).
+    monthly_budget: Mapped[float] = mapped_column(Float, default=13_000.0)
+    marginal_tax_pct: Mapped[float] = mapped_column(Float, default=41.0)
+    cg_tax_pct: Mapped[float] = mapped_column(Float, default=24.0)
+    cg_exclusion: Mapped[float] = mapped_column(Float, default=500_000.0)
+    salt_cap: Mapped[float] = mapped_column(Float, default=10_000.0)
 
     property: Mapped[Property] = relationship(back_populates="financial")

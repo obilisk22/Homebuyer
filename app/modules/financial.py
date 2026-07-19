@@ -23,8 +23,7 @@ _CHART = {
     "ins": "#B8FF3C",
     "hoa": "#FFC107",
     "pmi": "#FF6B9D",
-    "balance": "#00E5FF",
-    "principal": "#00E5FF",
+    "maint": "#7CFFB2",
     "interest": "#FF2BD6",
     "paper": "#12151A",
     "plot": "#0B0D10",
@@ -104,15 +103,13 @@ def _section(title: str, *, quiet: bool = False):
 
 def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
-    live = prop
-    if live.financial is None:
-        # Creating a missing financial record mutates storage, so do it in a
-        # fresh session; normal first paint uses the detached page property.
-        with get_session() as session:
-            fresh = PropertyService(session).get_property(property_id)
-            assert fresh is not None
-            PropertyService(session).ensure_financial(fresh)
-            live = fresh
+    # Always ensure_financial so maintenance (and PMMS rate) backfill on tab open
+    # for homes that predate those autofills.
+    with get_session() as session:
+        fresh = PropertyService(session).get_property(property_id)
+        assert fresh is not None
+        PropertyService(session).ensure_financial(fresh)
+        live = fresh
 
     fin = live.financial
     assert fin is not None
@@ -132,6 +129,14 @@ def render(prop: Property, container: ui.element) -> None:
         "closing_cost_pct": fin.closing_cost_pct,
         "monthly_rent": fin.monthly_rent,
         "appreciation_pct": fin.appreciation_pct,
+        "invest_return_pct": float(getattr(fin, "invest_return_pct", None) or 10.0),
+        "selling_cost_pct": float(getattr(fin, "selling_cost_pct", None) or 6.0),
+        "monthly_maintenance": float(getattr(fin, "monthly_maintenance", None) or 0.0),
+        "monthly_budget": float(getattr(fin, "monthly_budget", None) or 13_000.0),
+        "marginal_tax_pct": float(getattr(fin, "marginal_tax_pct", None) or 41.0),
+        "cg_tax_pct": float(getattr(fin, "cg_tax_pct", None) or 24.0),
+        "cg_exclusion": float(getattr(fin, "cg_exclusion", None) or 500_000.0),
+        "salt_cap": float(getattr(fin, "salt_cap", None) or 10_000.0),
     }
     cached_gemini = (live.financial_gemini or "").strip()
     cached_for = (live.financial_gemini_for or "").strip()
@@ -249,6 +254,18 @@ def render(prop: Property, container: ui.element) -> None:
                 hoa = ui.number(
                     "HOA / month", value=values["monthly_hoa"], format="%.0f"
                 ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                maint_in = ui.number(
+                    "Maintenance / month",
+                    value=values["monthly_maintenance"],
+                    format="%.0f",
+                ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                maint_src = (fin.maintenance_source or "").strip()
+                if maint_src:
+                    ui.label(maint_src).classes("hb-page-meta")
+                else:
+                    ui.label(
+                        "Repairs & upkeep reserve (age blend × state cost index)."
+                    ).classes("hb-page-meta")
 
             with _section("Buy vs rent", quiet=True):
                 ui.label(
@@ -282,6 +299,60 @@ def render(prop: Property, container: ui.element) -> None:
                     ui.label(" · ".join(bit for bit in appreciation_bits if bit)).classes(
                         "hb-page-meta"
                     )
+                invest_in = ui.number(
+                    "Invest return",
+                    value=values["invest_return_pct"],
+                    format="%.2f",
+                ).props("suffix=%/yr dense outlined stack-label").classes("w-full")
+                ui.label("Return on the rent+invest portfolio (default 10%).").classes(
+                    "hb-page-meta"
+                )
+                sell_in = ui.number(
+                    "Sell cost",
+                    value=values["selling_cost_pct"],
+                    format="%.2f",
+                ).props("suffix=% dense outlined stack-label").classes("w-full")
+                ui.label("Closing/selling costs when comparing buy equity (default 6%).").classes(
+                    "hb-page-meta"
+                )
+                budget_in = ui.number(
+                    "Housing budget / month",
+                    value=values["monthly_budget"],
+                    format="%.0f",
+                ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                ui.label(
+                    "Both paths invest max(0, budget − housing cost). Default $13,000."
+                ).classes("hb-page-meta")
+                tax_rate_in = ui.number(
+                    "Marginal tax rate",
+                    value=values["marginal_tax_pct"],
+                    format="%.1f",
+                ).props("suffix=% dense outlined stack-label").classes("w-full")
+                ui.label(
+                    "CA MFJ-style combined rate for interest + SALT-capped property tax shield."
+                ).classes("hb-page-meta")
+                cg_rate_in = ui.number(
+                    "Capital gains rate",
+                    value=values["cg_tax_pct"],
+                    format="%.1f",
+                ).props("suffix=% dense outlined stack-label").classes("w-full")
+                ui.label("~15% federal LTCG + ~9% CA (editable).").classes("hb-page-meta")
+                cg_excl_in = ui.number(
+                    "CG exclusion",
+                    value=values["cg_exclusion"],
+                    format="%.0f",
+                ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                ui.label("Primary residence exclusion (MFJ default $500k).").classes(
+                    "hb-page-meta"
+                )
+                salt_in = ui.number(
+                    "SALT cap",
+                    value=values["salt_cap"],
+                    format="%.0f",
+                ).props("prefix=$ dense outlined stack-label").classes("w-full")
+                ui.label("Federal SALT cap on property-tax deduction (default $10k).").classes(
+                    "hb-page-meta"
+                )
 
         charts = ui.column().classes("w-full q-mt-lg gap-2")
 
@@ -321,6 +392,14 @@ def render(prop: Property, container: ui.element) -> None:
                 "rent_control": bool(growth_state["control"]),
                 "rent_growth_pct": float(growth_state["pct"] or 0),
                 "appreciation_pct": float(appr_in.value or 0),
+                "invest_return_pct": float(invest_in.value or 0),
+                "selling_cost_pct": float(sell_in.value or 0),
+                "monthly_maintenance": float(maint_in.value or 0),
+                "monthly_budget": float(budget_in.value or 0),
+                "marginal_tax_pct": float(tax_rate_in.value or 0),
+                "cg_tax_pct": float(cg_rate_in.value or 0),
+                "cg_exclusion": float(cg_excl_in.value or 0),
+                "salt_cap": float(salt_in.value or 0),
             }
 
         def mortgage_data(data: dict) -> dict:
@@ -333,6 +412,13 @@ def render(prop: Property, container: ui.element) -> None:
                     "rent_control",
                     "rent_growth_pct",
                     "appreciation_pct",
+                    "invest_return_pct",
+                    "selling_cost_pct",
+                    "monthly_budget",
+                    "marginal_tax_pct",
+                    "cg_tax_pct",
+                    "cg_exclusion",
+                    "salt_cap",
                 }
             }
 
@@ -358,7 +444,11 @@ def render(prop: Property, container: ui.element) -> None:
 
             hero.clear()
             with hero:
-                _summary_card("Monthly payment", _money_exact(result.monthly_total), accent=True)
+                _summary_card(
+                    "Monthly payment",
+                    _money_exact(result.monthly_owner_total),
+                    accent=True,
+                )
                 _summary_card("Cash to close", _money(result.cash_to_close))
                 _summary_card("Loan amount", _money(result.loan_amount))
                 delta = result.offer_price - result.list_price if result.offer_price else 0
@@ -378,6 +468,8 @@ def render(prop: Property, container: ui.element) -> None:
                 ]
                 if result.monthly_pmi > 0:
                     parts.append(("PMI", result.monthly_pmi))
+                if result.monthly_maintenance > 0:
+                    parts.append(("Maint", result.monthly_maintenance))
                 for label, val in parts:
                     with ui.column().classes("hb-metric px-3 py-2").style("min-width: 6.5rem"):
                         ui.label(label).classes("hb-page-meta")
@@ -397,6 +489,10 @@ def render(prop: Property, container: ui.element) -> None:
                     pie_labels.append("PMI")
                     pie_values.append(result.monthly_pmi)
                     pie_colors.append(_CHART["pmi"])
+                if result.monthly_maintenance > 0:
+                    pie_labels.append("Maintenance")
+                    pie_values.append(result.monthly_maintenance)
+                    pie_colors.append(_CHART["maint"])
 
                 # Drop zero slices so the mix stays readable
                 filtered = [
@@ -435,7 +531,7 @@ def render(prop: Property, container: ui.element) -> None:
                             margin=dict(t=48, b=24, l=24, r=24),
                             annotations=[
                                 dict(
-                                    text=_money(result.monthly_total),
+                                    text=_money(result.monthly_owner_total),
                                     x=0.5,
                                     y=0.5,
                                     font=dict(size=18, color="#00E5FF"),
@@ -446,101 +542,29 @@ def render(prop: Property, container: ui.element) -> None:
                     )
                     ui.plotly(pie).classes("w-full")
 
-                years: list[float] = []
-                balances: list[float] = []
-                for row in result.schedule:
-                    if int(row["month"]) % 12 == 0 or int(row["month"]) == 1:
-                        years.append(int(row["month"]) / 12)
-                        balances.append(float(row["balance"]))
-
-                cum_i = 0.0
-                cum_p = 0.0
-                year_labels: list[int] = []
-                cum_i_vals: list[float] = []
-                cum_p_vals: list[float] = []
-                for row in result.schedule:
-                    cum_i += float(row["interest"])
-                    cum_p += float(row["principal"])
-                    if int(row["month"]) % 12 == 0:
-                        year_labels.append(int(row["month"]) // 12)
-                        cum_i_vals.append(cum_i)
-                        cum_p_vals.append(cum_p)
-
-                if years:
-                    balance_fig = go.Figure()
-                    balance_fig.add_trace(
-                        go.Scatter(
-                            x=years,
-                            y=balances,
-                            mode="lines",
-                            name="Remaining balance",
-                            line=dict(color=_CHART["balance"], width=2.5),
-                            fill="tozeroy",
-                            fillcolor="rgba(0, 229, 255, 0.18)",
-                            hovertemplate="Year %{x:.0f}<br>$%{y:,.0f}<extra></extra>",
-                        )
-                    )
-                    balance_fig.update_layout(
-                        **_chart_layout(
-                            title=dict(
-                                text="Loan balance over time",
-                                x=0,
-                                xanchor="left",
-                                font=dict(color=_CHART["text"]),
-                            ),
-                            showlegend=False,
-                            height=320,
-                            xaxis=_axis_style(title="Year", showgrid=False),
-                            yaxis=_axis_style(title="", tickformat="$,.0s"),
-                        )
-                    )
-                    ui.plotly(balance_fig).classes("w-full")
-
-                if year_labels:
-                    stack = go.Figure()
-                    stack.add_trace(
-                        go.Scatter(
-                            x=year_labels,
-                            y=cum_p_vals,
-                            name="Principal",
-                            stackgroup="one",
-                            line=dict(width=0.5, color=_CHART["principal"]),
-                            fillcolor="rgba(0, 229, 255, 0.55)",
-                            hovertemplate="Year %{x}<br>Principal $%{y:,.0f}<extra></extra>",
-                        )
-                    )
-                    stack.add_trace(
-                        go.Scatter(
-                            x=year_labels,
-                            y=cum_i_vals,
-                            name="Interest",
-                            stackgroup="one",
-                            line=dict(width=0.5, color=_CHART["interest"]),
-                            fillcolor="rgba(255, 43, 214, 0.55)",
-                            hovertemplate="Year %{x}<br>Interest $%{y:,.0f}<extra></extra>",
-                        )
-                    )
-                    stack.update_layout(
-                        **_chart_layout(
-                            title=dict(
-                                text="Cumulative principal vs interest",
-                                x=0,
-                                xanchor="left",
-                                font=dict(color=_CHART["text"]),
-                            ),
-                            height=320,
-                            xaxis=_axis_style(title="Year", showgrid=False),
-                            yaxis=_axis_style(title="", tickformat="$,.0s"),
-                        )
-                    )
-                    ui.plotly(stack).classes("w-full")
-
                 if result.effective_price > 0:
+                    invest_pct = float(invest_in.value or 0)
+                    sell_pct = float(sell_in.value or 0)
+                    maint = float(maint_in.value or 0)
+                    budget = float(budget_in.value or 0)
+                    marg = float(tax_rate_in.value or 0)
+                    cg_pct = float(cg_rate_in.value or 0)
+                    cg_excl = float(cg_excl_in.value or 0)
+                    salt = float(salt_in.value or 0)
                     projection = buy_vs_rent_projection(
                         summary=result,
                         appreciation_pct=float(appr_in.value or 0),
                         monthly_rent=float(rent_in.value or 0),
                         rent_growth_pct=float(growth_state["pct"] or 0),
+                        invest_return_pct=invest_pct,
+                        selling_cost_pct=sell_pct,
+                        monthly_maintenance=maint,
+                        monthly_budget=budget,
+                        marginal_tax_pct=marg,
+                        cg_tax_pct=cg_pct,
+                        cg_exclusion=cg_excl,
+                        salt_cap=salt,
+                        annual_property_tax=float(tax.value or 0),
                     )
                     buy_vs_rent = go.Figure()
                     buy_vs_rent.add_trace(
@@ -558,7 +582,7 @@ def render(prop: Property, container: ui.element) -> None:
                         go.Scatter(
                             x=[row.year for row in projection],
                             y=[row.rent_invest_net_worth for row in projection],
-                            name="Rent + invest 10%",
+                            name=f"Rent + invest {invest_pct:.0f}%",
                             line=dict(color=_CHART["interest"], width=2.5),
                             hovertemplate=(
                                 "Year %{x}<br>Rent+invest $%{y:,.0f}<extra></extra>"
@@ -596,10 +620,24 @@ def render(prop: Property, container: ui.element) -> None:
                         projection_bits.append(
                             f"Zillow {fin.appreciation_zillow_pct:.2f}%"
                         )
-                    projection_bits.extend(["sell cost 6%", "invest return 10%"])
+                    projection_bits.extend(
+                        [
+                            f"sell cost {sell_pct:.1f}%",
+                            f"invest return {invest_pct:.1f}%",
+                            f"budget {_money(budget)}/mo",
+                            f"tax shield {marg:.0f}%",
+                            f"CG {cg_pct:.0f}% after {_money(cg_excl)} excl",
+                        ]
+                    )
+                    if maint > 0:
+                        projection_bits.append(f"maintenance {_money(maint)}/mo")
                     if float(rent_in.value or 0) <= 0:
                         projection_bits.append("set rent for a fair compare")
                     ui.label(" · ".join(projection_bits)).classes("hb-page-meta")
+                    ui.label(
+                        "Buy NW = sale proceeds − loan − CG tax + surplus portfolio; "
+                        "both paths invest leftover budget (simplified CA MFJ taxes)."
+                    ).classes("hb-page-meta")
                 else:
                     ui.label(
                         "Set a list or offer price to compare buying and renting."
@@ -652,6 +690,14 @@ def render(prop: Property, container: ui.element) -> None:
             hoa,
             rent_in,
             appr_in,
+            invest_in,
+            sell_in,
+            maint_in,
+            budget_in,
+            tax_rate_in,
+            cg_rate_in,
+            cg_excl_in,
+            salt_in,
         ):
             field.on("keydown.enter", lambda: redraw())
 

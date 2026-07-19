@@ -23,7 +23,8 @@ from app.core.gemini_neighborhood import (
 )
 from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.home_insurance import resolve_annual_insurance
-from app.core.models import FinancialAssumptions, Photo, Property
+from app.core.home_maintenance import resolve_monthly_maintenance
+from app.core.models import DEFAULT_MONTHLY_RENT, FinancialAssumptions, Photo, Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
 from app.core.nearby_signals import needs_refresh, refresh_property_signals
 from app.core.neighborhood import effective_neighborhood_name
@@ -322,10 +323,14 @@ class PropertyService:
             fin.annual_insurance = 0.0
             fin.insurance_source = ""
 
-        if details.rent_zestimate is not None and details.rent_zestimate > 0:
-            if (fin.rent_source or "").strip() in ("", "Zillow"):
+        rent_src = (fin.rent_source or "").strip()
+        if rent_src in ("", "Zillow", "Default"):
+            if details.rent_zestimate is not None and details.rent_zestimate > 0:
                 fin.monthly_rent = float(details.rent_zestimate)
                 fin.rent_source = "Zillow"
+            else:
+                fin.monthly_rent = float(DEFAULT_MONTHLY_RENT)
+                fin.rent_source = "Default"
         self.resolve_rent_growth(fin, prop)
 
         fhfa = None
@@ -349,6 +354,56 @@ class PropertyService:
             fin.appreciation_source = source
 
         self._apply_mortgage_rate_autofill(fin)
+        self._apply_maintenance_autofill(fin, prop, details)
+
+    def _apply_maintenance_autofill(
+        self, fin: FinancialAssumptions, prop: Property, details: ListingDetails
+    ) -> None:
+        """Fill monthly maintenance unless the buyer set Manual."""
+        if (fin.maintenance_source or "").strip() == "Manual":
+            return
+
+        price = None
+        if fin.list_price and fin.list_price > 0:
+            price = float(fin.list_price)
+        elif details.list_price and details.list_price > 0:
+            price = float(details.list_price)
+        elif prop.list_price and prop.list_price > 0:
+            price = float(prop.list_price)
+
+        offer = float(fin.offer_price or 0) or None
+        sqft = None
+        if prop.sqft and prop.sqft > 0:
+            sqft = float(prop.sqft)
+        elif details.sqft and details.sqft > 0:
+            sqft = float(details.sqft)
+
+        year_built = None
+        if prop.year_built:
+            try:
+                year_built = int(prop.year_built)
+            except (TypeError, ValueError):
+                year_built = None
+        if year_built is None and details.year_built:
+            try:
+                year_built = int(details.year_built)
+            except (TypeError, ValueError):
+                year_built = None
+
+        state = (details.state or prop.state or "").strip()
+        amt, src = resolve_monthly_maintenance(
+            list_price=price,
+            offer_price=offer,
+            sqft=sqft,
+            year_built=year_built,
+            state=state,
+        )
+        if amt is not None and amt > 0:
+            fin.monthly_maintenance = float(amt)
+            fin.maintenance_source = src
+        else:
+            fin.monthly_maintenance = 0.0
+            fin.maintenance_source = ""
 
     def _apply_mortgage_rate_autofill(self, fin: FinancialAssumptions) -> None:
         """Fill interest rate from Freddie Mac PMMS for the current loan term."""
@@ -764,6 +819,7 @@ class PropertyService:
             self.session.commit()
             self.session.refresh(prop)
         assert prop.financial is not None
+        dirty = False
         if created or should_autofill_interest_rate(prop.financial.interest_rate_source):
             before = float(prop.financial.interest_rate_pct or 0)
             before_src = (prop.financial.interest_rate_source or "").strip()
@@ -771,8 +827,21 @@ class PropertyService:
             after = float(prop.financial.interest_rate_pct or 0)
             after_src = (prop.financial.interest_rate_source or "").strip()
             if after != before or after_src != before_src:
-                self.session.commit()
-                self.session.refresh(prop.financial)
+                dirty = True
+
+        # Backfill maintenance for homes synced before the feature (or never Manual).
+        if (prop.financial.maintenance_source or "").strip() != "Manual":
+            before_m = float(prop.financial.monthly_maintenance or 0)
+            before_ms = (prop.financial.maintenance_source or "").strip()
+            self._apply_maintenance_autofill(prop.financial, prop, ListingDetails())
+            after_m = float(prop.financial.monthly_maintenance or 0)
+            after_ms = (prop.financial.maintenance_source or "").strip()
+            if after_m != before_m or after_ms != before_ms:
+                dirty = True
+
+        if dirty:
+            self.session.commit()
+            self.session.refresh(prop.financial)
         return prop.financial
 
     def ensure_gemini_financial(
@@ -924,6 +993,7 @@ class PropertyService:
         prev_rate = float(fin.interest_rate_pct or 0)
         prev_term = int(fin.loan_term_years or 30)
         prev_rate_src = (fin.interest_rate_source or "").strip()
+        prev_maint = float(fin.monthly_maintenance or 0)
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
@@ -933,6 +1003,11 @@ class PropertyService:
             fin.insurance_source = ""
         if "monthly_rent" in fields and float(fields["monthly_rent"]) != prev_rent:
             fin.rent_source = "Manual"
+        if (
+            "monthly_maintenance" in fields
+            and float(fields["monthly_maintenance"]) != prev_maint
+        ):
+            fin.maintenance_source = "Manual"
         if "rent_control" in fields and bool(fields["rent_control"]):
             fin.rent_control = True
             fin.rent_growth_pct = 2.0

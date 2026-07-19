@@ -20,6 +20,12 @@ class MortgageSummary:
     cash_to_close: float
     total_interest: float
     schedule: list[dict[str, float | int]]
+    monthly_maintenance: float = 0.0
+
+    @property
+    def monthly_owner_total(self) -> float:
+        """PITI + maintenance (ownership cash cost for display)."""
+        return float(self.monthly_total) + float(self.monthly_maintenance or 0)
 
 
 def effective_price(list_price: float, offer_price: float = 0.0) -> float:
@@ -103,11 +109,14 @@ def summarize(
     closing_cost_pct: float = 0.0,
     *,
     purchase_price: float | None = None,
+    monthly_maintenance: float = 0.0,
 ) -> MortgageSummary:
     """Build a mortgage / PITI summary.
 
     ``purchase_price`` is a legacy alias: when provided and list/offer are unset,
     both are treated as that price (tests and older callers).
+    ``monthly_maintenance`` is tracked for ownership display; ``monthly_total``
+    remains PITI-only so buy-vs-rent can add maintenance once.
     """
     if purchase_price is not None and not list_price and not offer_price:
         list_price = purchase_price
@@ -139,6 +148,7 @@ def summarize(
         cash_to_close=down + closing,
         total_interest=total_interest,
         schedule=schedule,
+        monthly_maintenance=float(monthly_maintenance or 0),
     )
 
 
@@ -187,6 +197,33 @@ def rent_cagr_pct(
     return ((end / start) ** (1.0 / years) - 1.0) * 100.0
 
 
+def interest_in_loan_year(
+    schedule: list[dict[str, float | int]], year_index: int
+) -> float:
+    """Sum mortgage interest for loan year ``year_index`` (0 → months 1–12)."""
+    start = int(year_index) * 12 + 1
+    end = start + 12
+    total = 0.0
+    for row in schedule:
+        month = int(row["month"])
+        if start <= month < end:
+            total += float(row["interest"])
+    return total
+
+
+def capital_gains_tax(
+    *,
+    amount_realized: float,
+    cost_basis: float,
+    exclusion: float,
+    cg_rate_pct: float,
+) -> float:
+    """Tax on primary-residence gain after exclusion (0 if loss or fully excluded)."""
+    gain = float(amount_realized) - float(cost_basis)
+    taxable = max(0.0, gain - max(0.0, float(exclusion)))
+    return taxable * (float(cg_rate_pct) / 100.0)
+
+
 def buy_vs_rent_projection(
     *,
     summary: MortgageSummary,
@@ -195,8 +232,21 @@ def buy_vs_rent_projection(
     invest_return_pct: float = 10.0,
     selling_cost_pct: float = 6.0,
     rent_growth_pct: float = 0.0,
+    monthly_maintenance: float = 0.0,
+    monthly_budget: float = 13_000.0,
+    marginal_tax_pct: float = 41.0,
+    cg_tax_pct: float = 24.0,
+    cg_exclusion: float = 500_000.0,
+    salt_cap: float = 10_000.0,
+    annual_property_tax: float | None = None,
 ) -> list[BuyVsRentYear]:
-    # Infer horizon from amortization length (cash / empty schedule → year 0 only)
+    """Project buy vs rent net worth with two-way budget surplus and tax effects.
+
+    Both paths invest ``max(0, budget − housing_cost)``. Buyer housing cost is
+    PITI + maintenance minus a simplified interest + SALT-capped property-tax
+    shield. Buy NW includes the buyer investment portfolio and CG tax on a
+    hypothetical sale each year (primary-residence exclusion applied).
+    """
     term_years = max(len(summary.schedule) // 12, 0)
 
     price0 = float(summary.effective_price)
@@ -205,13 +255,22 @@ def buy_vs_rent_projection(
     appr = float(appreciation_pct) / 100.0
     r_month = (float(invest_return_pct) / 100.0) / 12.0
     piti = float(summary.monthly_total)
+    maint = float(monthly_maintenance or 0)
     g = float(rent_growth_pct or 0) / 100.0
     rent0 = float(monthly_rent or 0)
+    budget = float(monthly_budget or 0)
+    marg = float(marginal_tax_pct or 0) / 100.0
+    prop_tax = (
+        float(annual_property_tax)
+        if annual_property_tax is not None
+        else float(summary.monthly_tax) * 12.0
+    )
+    prop_deduct = min(max(0.0, prop_tax), max(0.0, float(salt_cap)))
 
-    # Balance lookup by month (1-indexed in schedule)
     bal_by_month = {int(row["month"]): float(row["balance"]) for row in summary.schedule}
 
-    portfolio = float(summary.cash_to_close)
+    rent_portfolio = float(summary.cash_to_close)
+    buy_portfolio = 0.0
     rows: list[BuyVsRentYear] = []
 
     for year in range(0, term_years + 1):
@@ -220,22 +279,36 @@ def buy_vs_rent_projection(
             bal = loan0
         else:
             bal = bal_by_month.get(year * 12, 0.0)
-        buy_nw = home - bal - sell * home
+        amount_realized = home * (1.0 - sell)
+        cg_tax = capital_gains_tax(
+            amount_realized=amount_realized,
+            cost_basis=price0,
+            exclusion=float(cg_exclusion),
+            cg_rate_pct=float(cg_tax_pct),
+        )
+        buy_nw = amount_realized - bal - cg_tax + buy_portfolio
         rows.append(
             BuyVsRentYear(
                 year=year,
                 buy_net_worth=round(buy_nw, 2),
-                rent_invest_net_worth=round(portfolio, 2),
+                rent_invest_net_worth=round(rent_portfolio, 2),
                 home_value=round(home, 2),
                 loan_balance=round(bal, 2),
             )
         )
         if year == term_years:
             break
-        # Advance 12 months of rent-path contributions + compounding
+
+        interest_y = interest_in_loan_year(summary.schedule, year)
+        shield_y = marg * (interest_y + prop_deduct)
+        owner_after_tax = piti + maint - shield_y / 12.0
+        # Rent for contributions after snapshot ``year`` (matches prior growth timing)
         rent_year = rent0 * ((1.0 + g) ** (year + 1))
-        contrib = max(0.0, piti - rent_year)
+
+        buy_contrib = max(0.0, budget - owner_after_tax)
+        rent_contrib = max(0.0, budget - rent_year)
         for _ in range(12):
-            portfolio = portfolio * (1.0 + r_month) + contrib
+            buy_portfolio = buy_portfolio * (1.0 + r_month) + buy_contrib
+            rent_portfolio = rent_portfolio * (1.0 + r_month) + rent_contrib
 
     return rows

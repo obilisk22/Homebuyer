@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from datetime import datetime, timezone
 from typing import Any, TypedDict
+
+import requests
+
+from app.core import overlay_cache
 
 HIGHWAY_RADIUS_FT = 800.0
 TRANSIT_RADIUS_MI = 0.5
@@ -11,6 +16,12 @@ PLAYGROUND_RADIUS_MI = 0.5
 GROCERY_RADIUS_MI = 0.5
 SHELTER_RADIUS_MI = 0.25
 STALE_MAX_AGE_DAYS = 30.0
+
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+CACHE_NAMESPACE = "nearby"
+RAW_CACHE_MAX_AGE_S = 7 * 24 * 3600
+REQUEST_TIMEOUT_S = 45
 
 SIGNAL_ORDER = ("highway", "transit", "playground", "grocery", "shelter")
 ICON_BY_KEY = {
@@ -245,6 +256,191 @@ def build_overpass_query(lat: float, lng: float) -> str:
         )
     body = "\n  ".join(clauses)
     return f"[out:json][timeout:45];\n(\n  {body}\n);\nout center tags;"
+
+
+def _raw_cache_key(lat: float, lng: float) -> str:
+    return f"overpass_{float(lat):.5f}_{float(lng):.5f}"
+
+
+def fetch_overpass(
+    lat: float,
+    lng: float,
+    *,
+    session: Any | None = None,
+) -> dict:
+    key = _raw_cache_key(lat, lng)
+    cached = overlay_cache.read_json(
+        CACHE_NAMESPACE, key, max_age_s=RAW_CACHE_MAX_AGE_S
+    )
+    if isinstance(cached, dict):
+        return cached
+
+    client = session or requests
+    response = client.post(
+        OVERPASS_URL,
+        data=build_overpass_query(lat, lng),
+        timeout=REQUEST_TIMEOUT_S,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Overpass returned an invalid response")
+    overlay_cache.write_json(CACHE_NAMESPACE, key, payload)
+    return payload
+
+
+def fetch_places_nearby(
+    lat: float,
+    lng: float,
+    *,
+    api_key: str,
+    place_type: str,
+    keyword: str | None,
+    radius_m: int,
+) -> list[dict]:
+    params: dict[str, Any] = {
+        "location": f"{lat},{lng}",
+        "radius": int(radius_m),
+        "key": api_key,
+    }
+    if place_type:
+        params["type"] = place_type
+    if keyword:
+        params["keyword"] = keyword
+    response = requests.get(
+        PLACES_NEARBY_URL,
+        params=params,
+        timeout=REQUEST_TIMEOUT_S,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Places returned an invalid response")
+    status = str(payload.get("status") or "")
+    if status not in {"OK", "ZERO_RESULTS"}:
+        message = str(payload.get("error_message") or status or "unknown error")
+        raise ValueError(f"Places request failed: {message}")
+    results = payload.get("results")
+    return [result for result in results or [] if isinstance(result, dict)]
+
+
+def parse_places_results(
+    results: list[dict],
+    *,
+    pin_lat: float,
+    pin_lng: float,
+    radius_mi: float,
+) -> list[NearestHit]:
+    hits: list[NearestHit] = []
+    for result in results:
+        types = {
+            str(value)
+            for value in result.get("types", [])
+            if isinstance(value, str)
+        }
+        if "convenience_store" in types and not (
+            {"supermarket", "grocery_or_supermarket"} & types
+        ):
+            continue
+        try:
+            location = result["geometry"]["location"]
+            lat = float(location["lat"])
+            lng = float(location["lng"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        distance_mi = haversine_miles(pin_lat, pin_lng, lat, lng)
+        if distance_mi > radius_mi:
+            continue
+        name = str(result.get("name") or "Nearby place").strip() or "Nearby place"
+        hits.append(
+            {
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "distance_mi": distance_mi,
+            }
+        )
+    return sorted(hits, key=lambda hit: hit["distance_mi"])
+
+
+def google_key() -> str:
+    return (os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()
+
+
+def _error_message(exc: Exception) -> str:
+    return str(exc).strip() or exc.__class__.__name__
+
+
+def compute_signals(
+    lat: float,
+    lng: float,
+    *,
+    api_key: str | None = None,
+) -> dict[str, dict]:
+    try:
+        overpass = fetch_overpass(lat, lng)
+        elements = overpass.get("elements", [])
+        if not isinstance(elements, list):
+            elements = []
+        osm_hits = classify_overpass_nearest(elements, pin_lat=lat, pin_lng=lng)
+        overpass_error: str | None = None
+    except Exception as exc:
+        osm_hits = {key: None for key in SIGNAL_ORDER}
+        overpass_error = _error_message(exc)
+
+    payload = {
+        key: signal_entry_from_hit(key, osm_hits[key], error=overpass_error)
+        for key in SIGNAL_ORDER
+    }
+    key = google_key() if api_key is None else api_key.strip()
+    if not key:
+        return payload
+
+    places_specs = {
+        "grocery": [("supermarket", None, math.ceil(GROCERY_RADIUS_MI * 1609.344))],
+        "shelter": [
+            (
+                "establishment",
+                "homeless shelter",
+                math.ceil(SHELTER_RADIUS_MI * 1609.344),
+            ),
+            (
+                "establishment",
+                "drug rehabilitation|transitional housing",
+                math.ceil(SHELTER_RADIUS_MI * 1609.344),
+            ),
+        ],
+    }
+    for signal_key, searches in places_specs.items():
+        try:
+            results: list[dict] = []
+            for place_type, keyword, radius_m in searches:
+                results.extend(
+                    fetch_places_nearby(
+                        lat,
+                        lng,
+                        api_key=key,
+                        place_type=place_type,
+                        keyword=keyword,
+                        radius_m=radius_m,
+                    )
+                )
+            hits = parse_places_results(
+                results,
+                pin_lat=lat,
+                pin_lng=lng,
+                radius_mi=_signal_radius_mi(signal_key),
+            )
+            payload[signal_key] = signal_entry_from_hit(
+                signal_key, nearest_within(hits, _signal_radius_mi(signal_key))
+            )
+        except Exception as exc:
+            payload[signal_key] = signal_entry_from_hit(
+                signal_key,
+                osm_hits[signal_key],
+                error=None if osm_hits[signal_key] is not None else _error_message(exc),
+            )
+    return payload
 
 
 def parse_signals_json(raw: str | None) -> dict[str, dict[str, Any]]:

@@ -171,3 +171,199 @@ def test_build_overpass_query_contains_exact_signal_tags():
     assert '["social_facility:for"="homeless"]' in query
     assert '["amenity"="shelter"]["shelter_type"="homeless"]' in query
     assert query.rstrip().endswith("out center tags;")
+
+
+def test_fetch_overpass_posts_query_and_caches(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    writes = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": [{"id": 1}]}
+
+    class Session:
+        def post(self, url, **kwargs):
+            assert url == ns.OVERPASS_URL
+            assert kwargs["data"] == ns.build_overpass_query(34.05, -118.25)
+            assert kwargs["timeout"] == ns.REQUEST_TIMEOUT_S
+            return Response()
+
+    monkeypatch.setattr(ns.overlay_cache, "read_json", lambda *a, **k: None)
+    monkeypatch.setattr(
+        ns.overlay_cache, "write_json", lambda namespace, key, payload: writes.append(
+            (namespace, key, payload)
+        )
+    )
+
+    payload = ns.fetch_overpass(34.05, -118.25, session=Session())
+
+    assert payload == {"elements": [{"id": 1}]}
+    assert writes[0][0] == ns.CACHE_NAMESPACE
+    assert writes[0][2] == payload
+
+
+def test_fetch_overpass_uses_cache(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    cached = {"elements": [{"id": 2}]}
+    monkeypatch.setattr(ns.overlay_cache, "read_json", lambda *a, **k: cached)
+
+    class Session:
+        def post(self, *args, **kwargs):
+            raise AssertionError("network should not be called for a cache hit")
+
+    assert ns.fetch_overpass(34.05, -118.25, session=Session()) is cached
+
+
+def test_parse_places_results_filters_convenience_and_radius():
+    from app.core.nearby_signals import parse_places_results
+
+    results = [
+        {
+            "name": "Corner Store",
+            "geometry": {"location": {"lat": 34.05, "lng": -118.25}},
+            "types": ["convenience_store", "store"],
+        },
+        {
+            "name": "Market",
+            "geometry": {"location": {"lat": 34.0502, "lng": -118.25}},
+            "types": ["supermarket", "store"],
+        },
+        {
+            "name": "Far Market",
+            "geometry": {"location": {"lat": 35.0, "lng": -118.25}},
+            "types": ["supermarket"],
+        },
+    ]
+
+    hits = parse_places_results(
+        results, pin_lat=34.05, pin_lng=-118.25, radius_mi=0.5
+    )
+
+    assert [hit["name"] for hit in hits] == ["Market"]
+
+
+def test_compute_signals_osm_only(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    def fake_overpass(lat, lng, **kwargs):
+        return {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 9,
+                    "center": {"lat": lat, "lon": lng},
+                    "tags": {
+                        "highway": "motorway",
+                        "ref": "I-10",
+                        "name": "Santa Monica Fwy",
+                    },
+                },
+                {
+                    "type": "node",
+                    "id": 10,
+                    "lat": lat,
+                    "lon": lng,
+                    "tags": {
+                        "railway": "station",
+                        "station": "light_rail",
+                        "name": "Expo/Bundy",
+                    },
+                },
+            ]
+        }
+
+    monkeypatch.setattr(ns, "fetch_overpass", fake_overpass)
+    monkeypatch.setattr(ns, "google_key", lambda: "")
+    payload = ns.compute_signals(34.05, -118.25)
+    assert payload["highway"]["hit"] is True
+    assert payload["transit"]["hit"] is True
+    assert payload["playground"]["hit"] is False
+
+
+def test_compute_signals_uses_places_when_key(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    monkeypatch.setattr(ns, "fetch_overpass", lambda *a, **k: {"elements": []})
+    monkeypatch.setattr(ns, "google_key", lambda: "fake-key")
+
+    def fake_places(lat, lng, *, api_key, place_type, keyword, radius_m):
+        if place_type == "supermarket":
+            return [
+                {
+                    "name": "Trader Joe's",
+                    "geometry": {"location": {"lat": lat, "lng": lng}},
+                    "types": ["supermarket", "grocery_or_supermarket", "store"],
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(ns, "fetch_places_nearby", fake_places)
+    payload = ns.compute_signals(34.05, -118.25, api_key="fake-key")
+    assert payload["grocery"]["hit"] is True
+    assert payload["grocery"]["name"] == "Trader Joe's"
+
+
+def test_compute_signals_shelter_searches_use_403_meters(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    calls = []
+    monkeypatch.setattr(ns, "fetch_overpass", lambda *a, **k: {"elements": []})
+
+    def fake_places(lat, lng, *, api_key, place_type, keyword, radius_m):
+        calls.append((place_type, keyword, radius_m))
+        return []
+
+    monkeypatch.setattr(ns, "fetch_places_nearby", fake_places)
+    ns.compute_signals(34.05, -118.25, api_key="fake-key")
+
+    shelter_calls = [call for call in calls if call[1] is not None]
+    assert [call[1] for call in shelter_calls] == [
+        "homeless shelter",
+        "drug rehabilitation|transitional housing",
+    ]
+    assert all(call[2] == 403 for call in shelter_calls)
+
+
+def test_compute_signals_places_failure_falls_back_per_key(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    monkeypatch.setattr(
+        ns,
+        "fetch_overpass",
+        lambda lat, lng: {
+            "elements": [
+                {
+                    "type": "node",
+                    "lat": lat,
+                    "lon": lng,
+                    "tags": {"shop": "supermarket", "name": "OSM Market"},
+                }
+            ]
+        },
+    )
+
+    def failing_places(*args, **kwargs):
+        raise RuntimeError("Places unavailable")
+
+    monkeypatch.setattr(ns, "fetch_places_nearby", failing_places)
+    payload = ns.compute_signals(34.05, -118.25, api_key="fake-key")
+
+    assert payload["grocery"]["name"] == "OSM Market"
+    assert payload["shelter"] == {"hit": False, "error": "Places unavailable"}
+
+
+def test_compute_signals_overpass_failure_returns_all_keys(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    monkeypatch.setattr(
+        ns, "fetch_overpass", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+    )
+    payload = ns.compute_signals(34.05, -118.25, api_key="")
+
+    assert set(payload) == set(ns.SIGNAL_ORDER)
+    assert all(entry == {"hit": False, "error": "down"} for entry in payload.values())

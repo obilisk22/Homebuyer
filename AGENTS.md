@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (Wave 3: TODO-039/042/043 library risk chips — AC, broadband, permits)
+> Last updated: 2026-07-19 (filed TODO-044: Growth label on library cards)
 
 
 
@@ -236,6 +236,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-041` | **Done** | Map overlay — BTS National Transportation Noise Map |
 | `TODO-042` | **Done** | Missing broadband chip (FCC BDC credentials + Living Atlas block) |
 | `TODO-043` | **Done** | High permit activity amber chip (LA / Seattle / Austin) |
+| `TODO-044` | **Open** | Library card — rename “Appr.” → “Growth” |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

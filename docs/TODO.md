@@ -45,6 +45,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-041 | Done | Map overlay: National Transportation Noise Map (BTS) |
 | TODO-042 | Done | Library icon when location lacks broadband (FCC BDC; chip when env set) |
 | TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
+| TODO-044 | Open | Library card: rename appreciation label “Appr.” → “Growth” |
 
 ---
 
@@ -628,3 +629,13 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Full permit browser UI; Map overlay of every permit; national coverage day one.
 
 **Touch:** `permits_nearby.py`, models/db, property_service, ui_jobs, pages, theme, tests, docs.
+
+---
+
+## TODO-044 — Library card: “Growth” instead of “Appr.”
+
+**Status:** Open
+
+**Rename** the library-card appreciation caption from `Appr. N%/yr` to **`Growth N%/yr`** (same value, amber when &lt; 3% unchanged).
+
+**Touch:** `app/ui/pages.py` (`_library_appreciation_caption`), docs/AGENTS wording if they say “Appr.”.

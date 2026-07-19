@@ -114,7 +114,7 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
                     ).classes("hb-page-hint")
                     if address:
                         ui.button("Open in Google Maps").props(
-                            f'outline color=primary dense icon=map '
+                            f'unelevated dense color=dark icon=map '
                             f'href="{maps_search_url(address)}" target=_blank'
                         )
                 return
@@ -127,12 +127,12 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
 
             with ui.row().classes("w-full justify-start items-center gap-2 q-mt-sm flex-wrap"):
                 ui.button("Open in Google Maps").props(
-                    f'outline dense color=primary icon=map href="{maps_search_url(query)}" target=_blank'
+                    f'unelevated dense color=dark icon=map href="{maps_search_url(query)}" target=_blank'
                 )
                 ui.button("Open Street View").props(
-                    f'unelevated dense color=primary icon=streetview '
+                    f'unelevated dense color=dark icon=streetview '
                     f'href="{street_view_open_url(lat, lng)}" target=_blank'
-                )
+                ).classes("hb-btn-cta")
 
     if container is None:
         body()

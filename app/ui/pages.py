@@ -7,13 +7,17 @@ from app.core.module_registry import get_modules
 from app.core.property_service import PropertyService, resolve_library_thumbnail
 from app.ui.theme import apply_theme
 
+# Property header library photo: "bleed" (full-bleed + scrim) or "beside" (card-style).
+# Flip to "beside" to roll back without other code changes.
+PROPERTY_HEADER_PHOTO_MODE = "bleed"  # "bleed" | "beside"
+
 
 def page_header(title: str) -> None:
     apply_theme()
     with ui.header().classes("hb-header items-center justify-between"):
         with ui.row().classes("items-center gap-3"):
             ui.button(icon="home", on_click=lambda: ui.navigate.to("/")).props(
-                "flat round color=primary"
+                "unelevated round dense color=dark"
             )
             brand = ui.label("Homebuy").classes("hb-brand").style("cursor: pointer")
             brand.on("click", lambda: ui.navigate.to("/"))
@@ -235,8 +239,8 @@ def library_page() -> None:
                         ui.notify(f"Failed: {exc}", type="negative")
 
                 ui.button("Add home", on_click=add_home).props(
-                    "color=primary unelevated"
-                )
+                    "unelevated dense color=dark"
+                ).classes("hb-btn-cta")
 
         with ui.row().classes("w-full hb-toolbar-row flex-wrap"):
             sort_select = ui.select(
@@ -263,7 +267,7 @@ def library_page() -> None:
                         "Min beds", placeholder="e.g. 3"
                     ).classes("w-28").props("dense outlined stack-label")
                     ui.button("Apply", on_click=lambda: refresh()).props(
-                        "outline color=primary dense"
+                        "unelevated dense color=dark"
                     )
                     ui.button(
                         "Clear",
@@ -274,7 +278,7 @@ def library_page() -> None:
                             min_beds_input.set_value(""),
                             refresh(),
                         ),
-                    ).props("flat dense")
+                    ).props("flat dense color=dark")
 
         list_box = ui.column().classes("w-full gap-3")
         filter_debounce = None
@@ -290,7 +294,7 @@ def library_page() -> None:
                 ui.label("Delete this home?").classes("hb-page-title")
                 ui.label(address).classes("hb-page-meta")
                 with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
-                    ui.button("Cancel", on_click=dialog.close).props("flat")
+                    ui.button("Cancel", on_click=dialog.close).props("flat color=dark")
                     ui.button(
                         "Delete",
                         on_click=lambda: (dialog.close(), delete_home(property_id)),
@@ -433,7 +437,7 @@ def library_page() -> None:
 
                             with ui.element("div").classes("flex-shrink-0 self-start"):
                                 menu_btn = ui.button(icon="more_vert").props(
-                                    "flat round dense"
+                                    "unelevated round dense color=dark"
                                 )
                                 menu_btn.on(
                                     "click",
@@ -485,7 +489,7 @@ def property_page(property_id: int) -> None:
             with ui.column().classes("hb-property-shell q-pa-md gap-3"):
                 ui.label("Property not found.").classes("hb-empty-state w-full")
                 ui.button("Back to library", on_click=lambda: ui.navigate.to("/")).props(
-                    "outline color=primary dense"
+                    "unelevated dense color=dark"
                 )
             return
         # Capture fields while session is open
@@ -503,6 +507,10 @@ def property_page(property_id: int) -> None:
         state = prop.state
         zip_code = prop.zip_code
         prop_id = prop.id
+        thumb_photo = resolve_library_thumbnail(prop)
+        thumb_url = (
+            f"/uploads/{thumb_photo.path}" if thumb_photo is not None else None
+        )
         # `get_property` eager-loads module relationships; detach the fully loaded
         # object so all module first paints can share it after this session closes.
         session.expunge(prop)
@@ -521,95 +529,138 @@ def property_page(property_id: int) -> None:
     secondary_chips = _library_secondary_chips(
         home_type=home_type, year_built=year_built, hoa_fee=hoa_fee
     )
+    place = ", ".join(p for p in (city_s, state_s) if p)
+    mode = PROPERTY_HEADER_PHOTO_MODE if PROPERTY_HEADER_PHOTO_MODE in ("bleed", "beside") else "bleed"
+    hero_mod = f"hb-property-hero--{mode}"
+    if thumb_url and mode == "bleed":
+        hero_mod += " hb-property-hero--has-photo"
 
     with ui.column().classes("w-full hb-property-shell q-pa-md gap-3"):
-        with ui.row().classes("w-full items-start justify-between flex-wrap gap-3"):
-            with ui.column().classes("gap-1 flex-grow").style("min-width: 0"):
-                ui.label(street or address).classes("hb-library-address")
-                place = ", ".join(p for p in (city_s, state_s) if p)
-                if place:
-                    ui.label(place).classes("hb-library-place")
-                if list_price is not None:
-                    ui.label(_format_price(list_price)).classes("hb-library-price")
-                if primary_chips:
-                    with ui.row().classes("gap-1 flex-wrap"):
-                        for chip in primary_chips:
-                            ui.label(chip).classes("hb-meta-chip")
-                if secondary_chips:
-                    with ui.row().classes("gap-1 flex-wrap"):
-                        for label, classes in secondary_chips:
-                            ui.label(label).classes(classes)
-                ui.link("View on Zillow", zillow_url, new_tab=True).classes(
-                    "hb-page-meta"
+        with ui.element("div").classes(f"hb-property-hero {hero_mod}"):
+            if thumb_url and mode == "bleed":
+                ui.element("div").classes("hb-property-hero__bg").style(
+                    f"background-image: url('{thumb_url}')"
                 )
-            with ui.row().classes("gap-2 flex-wrap"):
-                def refresh_details() -> None:
-                    try:
-                        ui.notify("Refreshing listing details…", type="ongoing", timeout=0)
-                        with get_session() as session:
-                            PropertyService(session).refresh_listing_details(prop_id)
-                        ui.notify("Listing details updated", type="positive")
-                        ui.navigate.to(f"/property/{prop_id}")
-                    except Exception as exc:  # noqa: BLE001
-                        ui.notify(f"Refresh failed: {exc}", type="negative")
+                ui.element("div").classes("hb-property-hero__scrim")
 
-                def run_gemini_insights() -> None:
-                    try:
-                        ui.notify(
-                            "Generating Gemini insights… (neighborhood + finances)",
-                            type="ongoing",
-                            timeout=0,
-                        )
-                        with get_session() as session:
-                            results = PropertyService(session).ensure_gemini_insights(
-                                prop_id, force=True
-                            )
-                        ok_bits = [
-                            label
-                            for key, label in (
-                                ("overview", "assessment"),
-                                ("things_to_do", "things to do"),
-                                ("financial", "financials"),
-                            )
-                            if results.get(key) in {"ok", "cached"}
-                        ]
-                        fail_bits = [
-                            f"{label}: {results[key]}"
-                            for key, label in (
-                                ("overview", "assessment"),
-                                ("things_to_do", "things to do"),
-                                ("financial", "financials"),
-                            )
-                            if results.get(key) not in {"ok", "cached", None}
-                        ]
-                        if ok_bits and not fail_bits:
-                            ui.notify(
-                                "Gemini insights ready — see Neighborhood & Financials tabs",
-                                type="positive",
-                            )
-                        elif ok_bits and fail_bits:
-                            ui.notify(
-                                "Partial Gemini insights: "
-                                + "; ".join(fail_bits[:2]),
-                                type="warning",
-                            )
-                        else:
-                            ui.notify(
-                                fail_bits[0] if fail_bits else "Gemini insights failed",
-                                type="negative",
-                            )
-                        ui.navigate.to(f"/property/{prop_id}")
-                    except Exception as exc:  # noqa: BLE001
-                        ui.notify(f"Gemini insights failed: {exc}", type="negative")
+            with ui.element("div").classes("hb-property-hero__content"):
+                with ui.row().classes(
+                    "w-full items-start justify-between flex-wrap gap-3"
+                ):
+                    with ui.row().classes(
+                        "items-stretch gap-3 flex-grow hb-property-hero__listing"
+                    ).style("min-width: 0"):
+                        if mode == "beside":
+                            if thumb_url:
+                                with ui.element("div").classes(
+                                    "hb-library-thumb-wrap"
+                                ):
+                                    ui.image(thumb_url).classes("hb-library-thumb")
+                            else:
+                                with ui.element("div").classes(
+                                    "hb-library-thumb-wrap hb-library-thumb-wrap--empty"
+                                ):
+                                    ui.icon("home", size="2rem")
+                        with ui.column().classes("gap-1 flex-grow").style(
+                            "min-width: 0"
+                        ):
+                            ui.label(street or address).classes("hb-library-address")
+                            if place:
+                                ui.label(place).classes("hb-library-place")
+                            if list_price is not None:
+                                ui.label(_format_price(list_price)).classes(
+                                    "hb-library-price"
+                                )
+                            if primary_chips:
+                                with ui.row().classes("gap-1 flex-wrap"):
+                                    for chip in primary_chips:
+                                        ui.label(chip).classes("hb-meta-chip")
+                            if secondary_chips:
+                                with ui.row().classes("gap-1 flex-wrap"):
+                                    for label, classes in secondary_chips:
+                                        ui.label(label).classes(classes)
+                            ui.link(
+                                "View on Zillow", zillow_url, new_tab=True
+                            ).classes("hb-page-meta")
 
-                ui.button("Refresh listing details", on_click=refresh_details).props(
-                    "outline color=primary dense"
-                )
-                ui.button(
-                    "Gemini insights",
-                    on_click=run_gemini_insights,
-                    icon="auto_awesome",
-                ).props("outline color=primary dense")
+                    with ui.row().classes("gap-2 flex-wrap"):
+                        def refresh_details() -> None:
+                            try:
+                                ui.notify(
+                                    "Refreshing listing details…",
+                                    type="ongoing",
+                                    timeout=0,
+                                )
+                                with get_session() as session:
+                                    PropertyService(session).refresh_listing_details(
+                                        prop_id
+                                    )
+                                ui.notify("Listing details updated", type="positive")
+                                ui.navigate.to(f"/property/{prop_id}")
+                            except Exception as exc:  # noqa: BLE001
+                                ui.notify(f"Refresh failed: {exc}", type="negative")
+
+                        def run_gemini_insights() -> None:
+                            try:
+                                ui.notify(
+                                    "Generating Gemini insights… (neighborhood + finances)",
+                                    type="ongoing",
+                                    timeout=0,
+                                )
+                                with get_session() as session:
+                                    results = PropertyService(
+                                        session
+                                    ).ensure_gemini_insights(prop_id, force=True)
+                                ok_bits = [
+                                    label
+                                    for key, label in (
+                                        ("overview", "assessment"),
+                                        ("things_to_do", "things to do"),
+                                        ("financial", "financials"),
+                                    )
+                                    if results.get(key) in {"ok", "cached"}
+                                ]
+                                fail_bits = [
+                                    f"{label}: {results[key]}"
+                                    for key, label in (
+                                        ("overview", "assessment"),
+                                        ("things_to_do", "things to do"),
+                                        ("financial", "financials"),
+                                    )
+                                    if results.get(key) not in {"ok", "cached", None}
+                                ]
+                                if ok_bits and not fail_bits:
+                                    ui.notify(
+                                        "Gemini insights ready — see Neighborhood & Financials tabs",
+                                        type="positive",
+                                    )
+                                elif ok_bits and fail_bits:
+                                    ui.notify(
+                                        "Partial Gemini insights: "
+                                        + "; ".join(fail_bits[:2]),
+                                        type="warning",
+                                    )
+                                else:
+                                    ui.notify(
+                                        fail_bits[0]
+                                        if fail_bits
+                                        else "Gemini insights failed",
+                                        type="negative",
+                                    )
+                                ui.navigate.to(f"/property/{prop_id}")
+                            except Exception as exc:  # noqa: BLE001
+                                ui.notify(
+                                    f"Gemini insights failed: {exc}", type="negative"
+                                )
+
+                        ui.button(
+                            "Refresh listing details", on_click=refresh_details
+                        ).props("unelevated dense color=dark")
+                        ui.button(
+                            "Gemini insights",
+                            on_click=run_gemini_insights,
+                            icon="auto_awesome",
+                        ).props("unelevated dense color=dark")
 
         with ui.expansion("Edit listing details", icon="edit").classes("w-full"):
             edit_url = (
@@ -728,8 +779,8 @@ def property_page(property_id: int) -> None:
                     ui.notify(str(exc), type="negative")
 
             ui.button("Save", on_click=save_meta).props(
-                "unelevated color=primary dense"
-            )
+                "unelevated dense color=dark"
+            ).classes("hb-btn-cta")
 
         modules = get_modules()
         if not modules:

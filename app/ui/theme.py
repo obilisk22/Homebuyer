@@ -312,6 +312,74 @@ body.body--dark,
   margin-right: auto;
 }}
 
+/* Property header photo — modes: bleed (default) | beside (rollback) */
+.hb-property-hero {{
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}}
+
+.hb-property-hero__bg {{
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}}
+
+.hb-property-hero__scrim {{
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    105deg,
+    rgba(8, 10, 13, 0.88) 0%,
+    rgba(8, 10, 13, 0.72) 45%,
+    rgba(8, 10, 13, 0.55) 100%
+  );
+}}
+
+.hb-property-hero__content {{
+  position: relative;
+  z-index: 2;
+  padding: 1rem 1.1rem;
+}}
+
+.hb-property-hero--bleed:not(.hb-property-hero--has-photo) .hb-property-hero__content {{
+  padding: 0;
+}}
+
+.hb-property-hero--bleed.hb-property-hero--has-photo {{
+  min-height: 11rem;
+  border: 1px solid var(--hb-border);
+  box-shadow: var(--hb-neo-out-sm);
+}}
+
+.hb-property-hero--bleed.hb-property-hero--has-photo .hb-library-address {{
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85);
+}}
+
+.hb-property-hero--bleed.hb-property-hero--has-photo .hb-library-place,
+.hb-property-hero--bleed.hb-property-hero--has-photo .hb-page-meta {{
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+}}
+
+.hb-property-hero--beside .hb-property-hero__content {{
+  padding: 0;
+}}
+
+.hb-property-hero--beside .hb-property-hero__listing {{
+  align-items: stretch;
+}}
+
+@media (max-width: 800px) {{
+  .hb-property-hero--beside .hb-property-hero__listing {{
+    flex-wrap: wrap;
+  }}
+}}
+
 /* Financials form: 2×2 for four sections (Your deal / Loan / Ownership / Buy vs rent) */
 .hb-financial-form {{
   display: grid;
@@ -532,7 +600,7 @@ a:focus-visible {{
   line-height: 40px !important;
 }}
 
-/* Buttons — dark neumorphism (raised face; neon only for hierarchy) */
+/* Buttons — unified dark neumorphism (no Quasar cyan fill / cyan outline) */
 .q-btn {{
   font-family: var(--hb-font-body) !important;
   border-radius: 10px !important;
@@ -547,75 +615,65 @@ a:focus-visible {{
   min-height: 2.35rem;
 }}
 
-/* Default / unelevated — extruded soft face */
-.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline),
-.q-btn--standard:not(.bg-primary),
+/* Filled / unelevated / primary / secondary → soft extruded neo face */
+.q-btn--unelevated,
+.q-btn--standard,
+.q-btn.bg-primary,
+.q-btn.bg-secondary,
+.q-btn.bg-accent,
+.q-btn.bg-dark,
 .q-btn.bg-grey-9,
-.q-btn.bg-dark {{
+.q-btn.bg-grey-8 {{
   background: var(--hb-neo-face) !important;
-  color: var(--hb-text) !important;
+  color: var(--hb-text-muted) !important;
+  border: none !important;
   box-shadow: var(--hb-neo-out-sm) !important;
+  text-shadow: none !important;
 }}
 
-.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline):hover,
-.q-btn--standard:not(.bg-primary):hover,
+.q-btn--unelevated:hover,
+.q-btn--standard:hover,
+.q-btn.bg-primary:hover,
+.q-btn.bg-secondary:hover,
+.q-btn.bg-accent:hover,
+.q-btn.bg-dark:hover,
 .q-btn.bg-grey-9:hover,
-.q-btn.bg-dark:hover {{
+.q-btn.bg-grey-8:hover {{
   background: #171c25 !important;
+  color: var(--hb-text) !important;
   box-shadow: var(--hb-neo-out) !important;
+  text-shadow: none !important;
 }}
 
-.q-btn--unelevated:not(.bg-primary):not(.q-btn--outline):active,
-.q-btn--standard:not(.bg-primary):active,
-.q-btn.bg-grey-9:active,
+.q-btn--unelevated:active,
+.q-btn--standard:active,
+.q-btn.bg-primary:active,
+.q-btn.bg-secondary:active,
 .q-btn.bg-dark:active {{
   box-shadow: var(--hb-neo-in-sm) !important;
   transform: translateY(1px);
 }}
 
-/* Primary CTA — raised neo + cyan emission (L2) */
-.q-btn--unelevated.bg-primary,
-.q-btn.bg-primary {{
-  background: linear-gradient(160deg, #1a2430 0%, #121820 100%) !important;
-  color: var(--hb-neon) !important;
-  border: 1px solid rgba(0, 229, 255, 0.28) !important;
-  box-shadow:
-    var(--hb-neo-out-sm),
-    0 0 14px rgba(0, 229, 255, 0.22) !important;
-  text-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
-}}
-
-.q-btn--unelevated.bg-primary:hover,
-.q-btn.bg-primary:hover {{
-  background: linear-gradient(160deg, #1e2a38 0%, #151c26 100%) !important;
-  border-color: rgba(0, 229, 255, 0.45) !important;
-  box-shadow:
-    var(--hb-neo-out),
-    0 0 18px rgba(0, 229, 255, 0.32) !important;
-}}
-
-.q-btn--unelevated.bg-primary:active,
-.q-btn.bg-primary:active {{
-  box-shadow:
-    var(--hb-neo-in-sm),
-    0 0 10px rgba(0, 229, 255, 0.18) !important;
-  transform: translateY(1px);
-}}
-
-/* Outline — extruded ring, cyan stroke */
-.q-btn--outline {{
+/* Outline — neo face, no cyan ring (was “black + blue outline”) */
+.q-btn--outline,
+.q-btn--outline.text-primary,
+.q-btn--outline.text-secondary,
+.q-btn--outline.text-accent,
+.q-btn--outline.text-dark {{
   background: var(--hb-neo-face) !important;
-  border-color: rgba(0, 229, 255, 0.45) !important;
-  color: var(--hb-neon) !important;
+  border: 1px solid transparent !important;
+  color: var(--hb-text-muted) !important;
   box-shadow: var(--hb-neo-out-sm) !important;
+  text-shadow: none !important;
 }}
 
-.q-btn--outline:hover {{
+.q-btn--outline:hover,
+.q-btn--outline.text-primary:hover,
+.q-btn--outline.text-secondary:hover {{
   background: #171c25 !important;
-  border-color: var(--hb-neon) !important;
-  box-shadow:
-    var(--hb-neo-out),
-    0 0 12px rgba(0, 229, 255, 0.18) !important;
+  border-color: transparent !important;
+  color: var(--hb-text) !important;
+  box-shadow: var(--hb-neo-out) !important;
 }}
 
 .q-btn--outline:active {{
@@ -623,10 +681,25 @@ a:focus-visible {{
   transform: translateY(1px);
 }}
 
-/* Flat — quieter; light neo on hover only */
+/* Optional CTA — same neo face; cyan label only on hover (hierarchy without fill) */
+.q-btn.hb-btn-cta {{
+  color: var(--hb-text) !important;
+}}
+
+.q-btn.hb-btn-cta:hover {{
+  color: var(--hb-neon) !important;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.28);
+}}
+
+/* Flat — quiet; neo on hover */
 .q-btn--flat {{
   background: transparent !important;
   box-shadow: none !important;
+  color: var(--hb-text-muted) !important;
+}}
+
+.q-btn--flat.text-primary,
+.q-btn--flat.text-secondary {{
   color: var(--hb-text-muted) !important;
 }}
 
@@ -640,14 +713,18 @@ a:focus-visible {{
   box-shadow: var(--hb-neo-in-sm) !important;
 }}
 
-/* Round icon buttons — circular extrusion */
-.q-btn--round {{
+/* Round icon buttons — circular extrusion (not cyan flat) */
+.q-btn--round,
+.q-btn--round.bg-primary,
+.q-btn--round.text-primary {{
   background: var(--hb-neo-face) !important;
   color: var(--hb-text-muted) !important;
   box-shadow: var(--hb-neo-out-sm) !important;
+  text-shadow: none !important;
 }}
 
-.q-btn--round:hover {{
+.q-btn--round:hover,
+.q-btn--round.text-primary:hover {{
   color: var(--hb-neon) !important;
   box-shadow:
     var(--hb-neo-out),
@@ -656,6 +733,21 @@ a:focus-visible {{
 
 .q-btn--round:active {{
   box-shadow: var(--hb-neo-in-sm) !important;
+}}
+
+/* Destructive — neo face, danger label (keep readable) */
+.q-btn.bg-negative,
+.q-btn--unelevated.bg-negative {{
+  background: var(--hb-neo-face) !important;
+  color: #ff6b85 !important;
+  border: none !important;
+  box-shadow: var(--hb-neo-out-sm) !important;
+  text-shadow: none !important;
+}}
+
+.q-btn.bg-negative:hover {{
+  color: #ff8a9e !important;
+  box-shadow: var(--hb-neo-out) !important;
 }}
 
 /* Number-field spinners stay flat (too small for neo) */
@@ -963,34 +1055,46 @@ a:hover {{
   top: 0.35rem !important;
   right: 0.35rem !important;
   z-index: 2;
-  min-height: 1.5rem !important;
-  min-width: 1.5rem !important;
+  min-height: 1.35rem !important;
+  min-width: 1.35rem !important;
   padding: 0 !important;
-  opacity: 0.35;
+  opacity: 0.28;
   color: #fff !important;
   background: transparent !important;
+  background-color: transparent !important;
   box-shadow: none !important;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  border: none !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
   transition: opacity 0.15s ease;
 }}
 
 .hb-photo-pin::before,
 .hb-photo-pin::after {{
+  display: none !important;
   box-shadow: none !important;
 }}
 
 .hb-photo-pin .q-icon {{
   color: #fff !important;
-  font-size: 1rem !important;
+  font-size: 1.05rem !important;
+  opacity: 1;
 }}
 
-.hb-photo-card:hover .hb-photo-pin,
+.hb-photo-card:hover .hb-photo-pin {{
+  opacity: 0.55;
+}}
+
 .hb-photo-pin--active {{
-  opacity: 0.75;
+  opacity: 0.7;
+  color: var(--hb-neon) !important;
+}}
+
+.hb-photo-pin--active .q-icon {{
+  color: var(--hb-neon) !important;
 }}
 
 .hb-photo-pin:hover {{
-  opacity: 1 !important;
+  opacity: 0.95 !important;
 }}
 
 .hb-photo-card .q-card__section {{
@@ -1215,6 +1319,125 @@ a:hover {{
 }}
 ::-webkit-scrollbar-thumb:hover {{
   background: var(--hb-neon);
+}}
+
+/* ── FINAL button hammer (must stay last) ───────────────────────────
+   Quasar paints .bg-primary with --q-primary (cyan). Force black neo
+   faces + grey labels; CTAs use cyan text only. */
+html body.body--dark .q-btn,
+html body.body--dark .q-btn.bg-primary,
+html body.body--dark .q-btn.bg-secondary,
+html body.body--dark .q-btn.bg-accent,
+html body.body--dark .q-btn.bg-dark,
+html body.body--dark .q-btn.bg-grey-9,
+html body.body--dark .q-btn.bg-grey-8,
+html body.body--dark .q-btn.text-primary,
+html body.body--dark .q-btn--unelevated,
+html body.body--dark .q-btn--standard,
+html body.body--dark .q-btn--outline {{
+  background: #14181f !important;
+  background-color: #14181f !important;
+  color: #8B96A8 !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow:
+    3px 3px 7px #080a0d,
+    -2px -2px 6px #1e2530 !important;
+  text-shadow: none !important;
+}}
+
+html body.body--dark .q-btn .q-btn__content,
+html body.body--dark .q-btn .q-icon {{
+  color: inherit !important;
+}}
+
+html body.body--dark .q-btn:hover {{
+  background: #171c25 !important;
+  background-color: #171c25 !important;
+  color: #E8EDF4 !important;
+}}
+
+html body.body--dark .q-btn.hb-btn-cta,
+html body.body--dark .q-btn.hb-btn-cta.bg-primary,
+html body.body--dark .q-btn.hb-btn-cta.bg-dark {{
+  background: #14181f !important;
+  background-color: #14181f !important;
+  color: #00E5FF !important;
+}}
+
+html body.body--dark .q-btn.hb-btn-cta:hover {{
+  color: #00E5FF !important;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.28);
+}}
+
+html body.body--dark .q-btn.q-btn--flat:not(.q-btn--round) {{
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: #8B96A8 !important;
+}}
+
+html body.body--dark .q-btn.q-btn--flat:not(.q-btn--round):hover {{
+  background: #14181f !important;
+  background-color: #14181f !important;
+  color: #E8EDF4 !important;
+  box-shadow:
+    3px 3px 7px #080a0d,
+    -2px -2px 6px #1e2530 !important;
+}}
+
+html body.body--dark .q-btn.bg-negative {{
+  background: #14181f !important;
+  background-color: #14181f !important;
+  color: #ff6b85 !important;
+}}
+
+html body.body--dark .q-field__append .q-btn,
+html body.body--dark .q-field__prepend .q-btn {{
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}}
+
+/* Map layer toggles — keep cyan label when enabled (after button hammer) */
+html body.body--dark .hb-map-layers .hb-map-layer-btn--on,
+html body.body--dark .hb-map-layers .hb-map-layer-btn--on.bg-dark {{
+  background: #12161d !important;
+  background-color: #12161d !important;
+  color: #00E5FF !important;
+  box-shadow:
+    inset 2px 2px 5px #080a0d,
+    inset -2px -2px 4px #1e2530,
+    0 0 12px rgba(0, 229, 255, 0.28) !important;
+}}
+
+/* Photo pin — icon only, no neo button face (after button hammer) */
+html body.body--dark .q-btn.hb-photo-pin,
+html body.body--dark .q-btn.hb-photo-pin.bg-dark,
+html body.body--dark .q-btn.hb-photo-pin.q-btn--round,
+html body.body--dark .q-btn.hb-photo-pin.q-btn--flat,
+html body.body--dark .q-btn.hb-photo-pin:hover {{
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: #fff !important;
+}}
+
+html body.body--dark .q-btn.hb-photo-pin .q-icon {{
+  color: #fff !important;
+}}
+
+html body.body--dark .q-btn.hb-photo-pin--active,
+html body.body--dark .q-btn.hb-photo-pin--active:hover {{
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: #00E5FF !important;
+}}
+
+html body.body--dark .q-btn.hb-photo-pin--active .q-icon {{
+  color: #00E5FF !important;
 }}
 """
 

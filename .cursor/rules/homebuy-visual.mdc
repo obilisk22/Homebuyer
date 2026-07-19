@@ -15,6 +15,6 @@ alwaysApply: false
 - Library: street is the hero; price is quieter Creato under it; thumb stretches to match text column height; address clamps and cards stack under ~800px.
 - Density: tighter gaps; dense outlined fields on Add/Filter; never hide listing chips to save space.
 - Page chrome: `.hb-page-title` / `.hb-page-meta` / `.hb-empty-state` — don’t leave Quasar `text-h5` / grey helpers on library shell.
-- Controls: **dark neumorphism** on buttons, tabs, and map layer chips (`.hb-map-layer-btn` / `--on`). Photos lightbox: `.hb-lightbox*`. Financials form: 2×2 `.hb-financial-form`.
+- Controls: **black neo faces** on all buttons (never cyan/primary fill). Default label = muted grey; `.hb-btn-cta` = cyan text. Tabs + map chips same language. Props use `color=dark` so Quasar doesn’t paint `--q-primary`.
 - Focus: one cyan focus ring on buttons/fields — don’t invent a second glow system.
 - Do not introduce purple-on-white or cream-terracotta defaults; stay on the existing token set in `theme.py`.

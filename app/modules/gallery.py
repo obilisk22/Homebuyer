@@ -28,7 +28,7 @@ def render(prop: Property, container: ui.element) -> None:
                 lightbox_caption = ui.label("").classes("hb-lightbox-caption")
                 ui.button(icon="close", on_click=lightbox.close).classes(
                     "hb-lightbox-close"
-                ).props("flat round dense")
+                ).props("unelevated round dense color=dark")
             lightbox_image = (
                 ui.image()
                 .classes("w-full")
@@ -38,12 +38,12 @@ def render(prop: Property, container: ui.element) -> None:
                 prev_btn = (
                     ui.button(icon="chevron_left")
                     .classes("hb-lightbox-nav")
-                    .props("flat round dense")
+                    .props("unelevated round dense color=dark")
                 )
                 next_btn = (
                     ui.button(icon="chevron_right")
                     .classes("hb-lightbox-nav")
-                    .props("flat round dense")
+                    .props("unelevated round dense color=dark")
                 )
 
         photo_urls: list[str] = []
@@ -116,7 +116,7 @@ def render(prop: Property, container: ui.element) -> None:
                             pin_btn = (
                                 ui.button(icon="push_pin")
                                 .classes(pin_classes)
-                                .props("flat unelevated round dense size=sm")
+                                .props("flat round dense size=sm")
                                 .tooltip("Use as library thumbnail")
                             )
 
@@ -179,17 +179,17 @@ def render(prop: Property, container: ui.element) -> None:
                 "Import from Zillow",
                 on_click=lambda: import_from_zillow(False),
                 icon="cloud_download",
-            ).props("unelevated color=primary dense")
+            ).props("unelevated dense color=dark").classes("hb-btn-cta")
             ui.button(
                 "Re-import (replace)",
                 on_click=lambda: import_from_zillow(True),
                 icon="refresh",
-            ).props("outline color=primary dense")
+            ).props("unelevated dense color=dark")
             ui.button(
                 "Auto-pick again",
                 on_click=auto_pick_again,
                 icon="auto_awesome",
-            ).props("outline color=primary dense")
+            ).props("unelevated dense color=dark")
 
         ui.upload(
             label="Or upload photos",

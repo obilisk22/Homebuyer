@@ -126,8 +126,8 @@ def render(prop: Property, container: ui.element) -> None:
                     redraw()
 
                 ui.button("Save pin", on_click=save_coords).props(
-                    "unelevated color=primary dense"
-                )
+                    "unelevated dense color=dark"
+                ).classes("hb-btn-cta")
 
                 def regeocode() -> None:
                     try:
@@ -141,7 +141,7 @@ def render(prop: Property, container: ui.element) -> None:
                         ui.notify(str(exc), type="negative")
 
                 ui.button("Re-geocode from address", on_click=regeocode).props(
-                    "outline dense"
+                    "unelevated dense color=dark"
                 )
 
         sv_box = ui.column().classes("w-full")

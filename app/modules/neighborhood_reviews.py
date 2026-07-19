@@ -32,7 +32,7 @@ def _source_label(source: str, *, has_override: bool) -> str:
 
 def _link_chip(label: str, url: str, *, icon: str = "open_in_new") -> None:
     ui.button(label).props(
-        f'outline dense color=primary icon={icon} href="{url}" target=_blank'
+        f'unelevated dense color=dark icon={icon} href="{url}" target=_blank'
     ).classes("q-mr-xs q-mb-xs")
 
 
@@ -145,10 +145,10 @@ def render(prop: Property, container: ui.element) -> None:
                         redraw()
 
                     ui.button("Save name", on_click=save_override).props(
-                        "unelevated color=primary dense"
-                    )
+                        "unelevated dense color=dark"
+                    ).classes("hb-btn-cta")
                     ui.button("Refresh from Zillow", on_click=refresh_zillow).props(
-                        "outline dense"
+                        "unelevated dense color=dark"
                     )
 
                 ui.separator().style("border-color: var(--hb-border);")
@@ -175,13 +175,13 @@ def render(prop: Property, container: ui.element) -> None:
                             "Ask Gemini about this neighborhood",
                             on_click=lambda: ask_overview(force=False),
                             icon="auto_awesome",
-                        ).props("unelevated color=secondary dense")
+                        ).props("unelevated dense color=dark").classes("hb-btn-cta")
                         if text:
                             ui.button(
                                 "Regenerate",
                                 on_click=lambda: ask_overview(force=True),
                                 icon="refresh",
-                            ).props("outline dense")
+                            ).props("unelevated dense color=dark")
 
                 def ask_overview(*, force: bool) -> None:
                     status.set_text("Asking Gemini for a neighborhood overview…")
@@ -234,13 +234,13 @@ def render(prop: Property, container: ui.element) -> None:
                             "Ask Gemini: things to do",
                             on_click=lambda: ask_things(force=False),
                             icon="auto_awesome",
-                        ).props("unelevated color=secondary dense")
+                        ).props("unelevated dense color=dark").classes("hb-btn-cta")
                         if text:
                             ui.button(
                                 "Regenerate",
                                 on_click=lambda: ask_things(force=True),
                                 icon="refresh",
-                            ).props("outline dense")
+                            ).props("unelevated dense color=dark")
 
                 def ask_things(*, force: bool) -> None:
                     status.set_text("Asking Gemini for things to do…")
@@ -307,8 +307,8 @@ def render(prop: Property, container: ui.element) -> None:
                         ui.notify("Notes saved", type="positive")
 
                     ui.button("Save notes", on_click=save_notes).props(
-                        "unelevated dense color=primary"
-                    ).classes("q-mt-sm")
+                        "unelevated dense color=dark"
+                    ).classes("hb-btn-cta").classes("q-mt-sm")
 
                 ui.label(
                     "Gemini output is AI-generated and may be wrong — verify before deciding. "

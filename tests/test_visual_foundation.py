@@ -61,6 +61,18 @@ def test_library_page_uses_address_and_price_classes():
     assert "hb-library-shell" in src
 
 
+def test_property_header_photo_modes():
+    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    assert 'PROPERTY_HEADER_PHOTO_MODE = "bleed"' in src
+    assert "hb-property-hero" in src
+    assert "hb-property-hero__scrim" in src
+    assert 'mode == "beside"' in src
+    css = theme._CSS
+    assert ".hb-property-hero--bleed" in css
+    assert ".hb-property-hero--beside" in css
+    assert ".hb-property-hero__bg" in css
+
+
 def test_library_nav_and_filter_ux():
     src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
     assert 'classes("hb-brand")' in src

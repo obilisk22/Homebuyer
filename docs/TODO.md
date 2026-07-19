@@ -48,6 +48,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-044 | Open | Library card: rename appreciation label “Appr.” → “Growth” |
 | TODO-045 | Open | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
 | TODO-046 | Open | Library appreciation caption: lime/green when &gt; 6%/yr |
+| TODO-047 | Open | Library nearby icons: click opens source URL in browser |
 
 ---
 
@@ -685,3 +686,25 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Change appreciation math or FHFA/Zillow sources; rename “Appr.” → “Growth” (that’s TODO-044).
 
 **Touch:** `app/ui/pages.py` (`_library_appreciation_caption` or similar), `app/ui/theme.py` (caption class), docs.
+
+---
+
+## TODO-047 — Library nearby icons: click → source in browser
+
+**Status:** Open
+
+**Problem:** Library (and header) nearby-signal chips stop propagation so they do not open the property card, but a click does nothing useful — only hover shows distance + name. Users want a way to inspect the hit.
+
+**Goals**
+1. Clicking a nearby-signal chip (highway / transit / playground / grocery / shelter) opens an **external browser tab/window** to a **source URL** for that hit — not the property page.
+2. Chip click must still **not** navigate the library card underneath (keep `stopPropagation`).
+3. Pick a sensible deep link per signal / provider when implementing (e.g. Google Maps place or lat/lng query; OSM node/way page; Places URL when `place_id` exists). Prefer the provider that produced the hit.
+4. Tooltip / title can stay; **v1 is click → source URL**.
+
+**Likely approach**
+- Enrich cached `nearby_signals` JSON with enough fields to build links (`lat`/`lng`, `name`, `osm_id` / OSM type, `place_id`, etc.) if not already present.
+- Wire chip click in `pages.py` (`_render_nearby_signal_chips` / library + header) to `ui.navigate.to(url, new_tab=True)` or equivalent.
+
+**Non-goals:** In-app detail panel/modal; Map markers for the hit; changing distance thresholds or chip styling.
+
+**Touch:** `app/ui/pages.py` (chip click), possibly `app/core/nearby_signals.py` + cached JSON shape, tests, docs.

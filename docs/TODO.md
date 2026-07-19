@@ -38,6 +38,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-034 | Open | Map Street View: negative-space polish and layout tweaks |
 | TODO-035 | Open | Map / Street View: “Open in Google Earth” button |
 | TODO-036 | Open | Library nearby icons: verify all five work; fix playground + shelter |
+| TODO-037 | Open | Library card: remove unclear “Cash” from financial caption |
 
 ---
 
@@ -537,3 +538,15 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Map markers; library filters by signal; redesign chip UI.
 
 **Touch:** `app/core/nearby_signals.py`, tests, property refresh path, `AGENTS.md` / `README` thresholds if changed.
+
+---
+
+## TODO-037 — Library card: drop “Cash” caption
+
+**Status:** Open
+
+**Remove “Cash $…” from the library card financial line.** Label is unclear (cash-to-close vs cash left / reserves). Keep **PITI $…/mo** (and other card chrome).
+
+**Keep:** `cash_to_close` in Financials tab, CSV/JSON export, and Compare (until TODO-027 removes Compare).
+
+**Touch:** `app/ui/pages.py` (`_library_financial_caption` or equivalent), `AGENTS.md` / `README` library checklist wording.

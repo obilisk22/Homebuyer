@@ -31,19 +31,44 @@ def test_radius_constants():
     assert abs(ft_to_miles(800.0) - (800.0 / 5280.0)) < 1e-9
 
 
-def test_source_url_for_prefers_lat_lng():
+def test_source_url_for_prefers_place_id_over_bare_coords():
+    """TODO-049: bare lat,lng search expands to category; prefer place_id."""
     from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, unquote, urlparse
 
     url = source_url_for(
         {
             "hit": True,
-            "name": "Near Play",
+            "name": "Trader Joe's",
             "lat": 34.0502,
             "lng": -118.25,
-            "place_id": "ChIJ_ignored",
+            "place_id": "ChIJabc123",
         }
     )
-    assert url == "https://www.google.com/maps/search/?api=1&query=34.0502,-118.25"
+    assert url is not None
+    parsed = urlparse(url)
+    assert parsed.path.startswith("/maps/search")
+    qs = parse_qs(parsed.query)
+    assert qs.get("query_place_id") == ["ChIJabc123"]
+    assert "Trader Joe's" in unquote((qs.get("query") or [""])[0])
+    assert (qs.get("query") or [""])[0] != "34.0502,-118.25"
+
+
+def test_source_url_for_name_plus_coords_not_bare_coords():
+    """TODO-049: without place_id, pin via name@lat,lng — not coords-only."""
+    from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    url = source_url_for(
+        {"hit": True, "name": "Near Play", "lat": 34.0502, "lng": -118.25}
+    )
+    assert url is not None
+    qs = parse_qs(urlparse(url).query)
+    query = unquote((qs.get("query") or [""])[0])
+    assert "Near Play" in query
+    assert "34.0502" in query
+    assert "-118.25" in query
+    assert query != "34.0502,-118.25"
 
 
 def test_source_url_for_uses_place_id_when_no_coords():
@@ -64,6 +89,53 @@ def test_source_url_for_uses_place_id_when_no_coords():
     )[0]
 
 
+def test_source_url_for_directions_with_home_and_place_id():
+    """TODO-049: home ↔ place via directions when home coords are known."""
+    from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    url = source_url_for(
+        {
+            "hit": True,
+            "name": "Trader Joe's",
+            "lat": 34.0502,
+            "lng": -118.25,
+            "place_id": "ChIJabc123",
+        },
+        home_lat=34.04,
+        home_lng=-118.26,
+    )
+    assert url is not None
+    parsed = urlparse(url)
+    assert "/maps/dir" in parsed.path
+    qs = parse_qs(parsed.query)
+    assert qs.get("api") == ["1"]
+    assert qs.get("origin") == ["34.04,-118.26"]
+    assert qs.get("destination_place_id") == ["ChIJabc123"]
+    assert "Trader Joe's" in unquote((qs.get("destination") or [""])[0])
+
+
+def test_source_url_for_directions_with_home_name_and_coords():
+    from app.core.nearby_signals import source_url_for
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    url = source_url_for(
+        {"hit": True, "name": "Expo/Bundy Station", "lat": 34.001, "lng": -118.45},
+        home_lat=34.01,
+        home_lng=-118.46,
+    )
+    assert url is not None
+    parsed = urlparse(url)
+    assert "/maps/dir" in parsed.path
+    qs = parse_qs(parsed.query)
+    assert qs.get("origin") == ["34.01,-118.46"]
+    dest = unquote((qs.get("destination") or [""])[0])
+    assert "Expo/Bundy Station" in dest
+    assert "34.001" in dest
+    assert "-118.45" in dest
+    assert "destination_place_id" not in qs
+
+
 def test_source_url_for_falls_back_to_name_search():
     from app.core.nearby_signals import source_url_for
     from urllib.parse import parse_qs, unquote, urlparse
@@ -80,6 +152,14 @@ def test_source_url_for_miss_or_empty_returns_none():
     assert source_url_for({"hit": False}) is None
     assert source_url_for({}) is None
     assert source_url_for({"hit": True, "name": ""}) is None
+    assert (
+        source_url_for(
+            {"hit": True, "name": "X", "lat": 1, "lng": 2},
+            home_lat=None,
+            home_lng=None,
+        )
+        is not None
+    )
 
 
 def test_parse_and_hits_order():

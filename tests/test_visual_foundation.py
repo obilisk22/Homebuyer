@@ -91,6 +91,8 @@ def test_library_cards_render_nearby_signal_chips():
     assert "hits_in_order" in src
     assert "tooltip_for" in src
     assert "source_url_for" in src
+    assert "home_lat=" in src
+    assert "home_lng=" in src
     assert "ICON_BY_KEY" in src
     assert "RISK_KEYS" in src
     assert "hb-nearby-icons" in src

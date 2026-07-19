@@ -90,6 +90,8 @@ def _library_appreciation_tone_class(pct: float | None) -> str:
 def _render_nearby_signal_chips(
     nearby_signals: str,
     *,
+    home_lat: float | None = None,
+    home_lng: float | None = None,
     stop_card_nav: bool = False,
     listing_chips: list | None = None,
 ) -> None:
@@ -121,7 +123,7 @@ def _render_nearby_signal_chips(
                 f"hb-nearby-chip hb-nearby-chip--{kind}"
             )
             chip._props["title"] = tooltip_for(key, entry)
-            url = source_url_for(entry)
+            url = source_url_for(entry, home_lat=home_lat, home_lng=home_lng)
 
             def _open_source(_e=None, *, u: str = url or "") -> None:
                 if u:
@@ -572,6 +574,8 @@ def library_page() -> None:
                             "appr_pct": snap.appreciation_pct,
                             "appr_source": snap.appreciation_source or "",
                             "nearby_signals": prop.nearby_signals or "",
+                            "latitude": prop.latitude,
+                            "longitude": prop.longitude,
                             "cooling": prop.cooling or "",
                             "has_central_ac": prop.has_central_ac,
                             "broadband_status": prop.broadband_status or "",
@@ -725,6 +729,8 @@ def library_page() -> None:
 
                         _render_nearby_signal_chips(
                             row["nearby_signals"],
+                            home_lat=row.get("latitude"),
+                            home_lng=row.get("longitude"),
                             stop_card_nav=True,
                             listing_chips=_extra_signal_chips(
                                 has_central_ac=row.get("has_central_ac"),
@@ -1074,6 +1080,8 @@ def property_page(property_id: int) -> None:
 
             _render_nearby_signal_chips(
                 nearby_signals,
+                home_lat=getattr(prop, "latitude", None),
+                home_lng=getattr(prop, "longitude", None),
                 listing_chips=_extra_signal_chips(
                     has_central_ac=getattr(prop, "has_central_ac", None),
                     cooling=getattr(prop, "cooling", "") or "",

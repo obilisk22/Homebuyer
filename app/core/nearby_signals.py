@@ -285,32 +285,79 @@ def signal_entry_from_hit(
     return out
 
 
-def source_url_for(entry: dict[str, Any] | None) -> str | None:
-    """Google Maps deep link for a nearby-signal chip click (TODO-047)."""
-    if not entry or not entry.get("hit"):
-        return None
+def _entry_coords(entry: dict[str, Any]) -> tuple[float, float] | None:
     try:
         lat = entry.get("lat")
         lng = entry.get("lng")
-        if lat is not None and lng is not None:
-            # Keep comma unescaped — standard Maps search query form.
-            return (
-                f"https://www.google.com/maps/search/?api=1"
-                f"&query={float(lat)},{float(lng)}"
-            )
+        if lat is None or lng is None:
+            return None
+        return float(lat), float(lng)
     except (TypeError, ValueError):
-        pass
+        return None
+
+
+def _place_label(entry: dict[str, Any]) -> str:
+    return str(entry.get("name") or "").strip()
+
+
+def _destination_query(entry: dict[str, Any]) -> str | None:
+    """Specific place query: name@lat,lng when possible (not bare coords)."""
+    name = _place_label(entry)
+    coords = _entry_coords(entry)
+    if name and coords:
+        lat, lng = coords
+        return f"{name}@{lat},{lng}"
+    if coords:
+        lat, lng = coords
+        return f"{lat},{lng}"
+    if name:
+        return name
+    return None
+
+
+def source_url_for(
+    entry: dict[str, Any] | None,
+    *,
+    home_lat: float | None = None,
+    home_lng: float | None = None,
+) -> str | None:
+    """Google Maps deep link for a nearby-signal chip (TODO-049).
+
+    Prefer a specific place (place_id, else name@lat,lng) over bare coords search.
+    When home coords are known, open directions (home → place) so the relation is clear.
+    """
+    if not entry or not entry.get("hit"):
+        return None
+
     place_id = str(entry.get("place_id") or "").strip()
+    name = _place_label(entry) or "place"
+    dest = _destination_query(entry)
+
+    try:
+        h_lat = float(home_lat) if home_lat is not None else None
+        h_lng = float(home_lng) if home_lng is not None else None
+    except (TypeError, ValueError):
+        h_lat, h_lng = None, None
+
+    if h_lat is not None and h_lng is not None and dest:
+        # Keep origin comma unescaped — standard Maps lat,lng form.
+        params: dict[str, str] = {
+            "api": "1",
+            "origin": f"{h_lat},{h_lng}",
+            "destination": dest if not place_id else name,
+        }
+        if place_id:
+            params["destination_place_id"] = place_id
+        return "https://www.google.com/maps/dir/?" + urlencode(params)
+
     if place_id:
-        name = str(entry.get("name") or "").strip() or "place"
         return (
             "https://www.google.com/maps/search/?api=1&"
             + urlencode({"query": name, "query_place_id": place_id})
         )
-    name = str(entry.get("name") or "").strip()
-    if name:
+    if dest:
         return (
-            "https://www.google.com/maps/search/?api=1&" + urlencode({"query": name})
+            "https://www.google.com/maps/search/?api=1&" + urlencode({"query": dest})
         )
     return None
 

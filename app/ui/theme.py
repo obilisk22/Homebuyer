@@ -881,11 +881,14 @@ a:hover {{
   align-items: stretch;
 }}
 
-/* Thumb stretches to match the text column height beside it */
+/* Thumb stretches to match the text column height beside it.
+   min-height floors the box — stretch + height:100% on the image can
+   otherwise resolve to 0px and hide library photos entirely. */
 .hb-library-thumb-wrap {{
   position: relative;
   width: clamp(168px, 20vw, 220px);
   min-width: 168px;
+  min-height: 135px;
   flex-shrink: 0;
   align-self: stretch;
   border-radius: 8px;
@@ -941,10 +944,20 @@ a:hover {{
 .hb-library-thumb {{
   width: 100%;
   height: 100%;
+  min-height: 135px;
   object-fit: cover;
   display: block;
   border: none;
   border-radius: 0;
+}}
+
+/* NiceGUI wraps ui.image in a custom element — force it to fill the wrap */
+.hb-library-thumb-wrap > .hb-library-thumb,
+.hb-library-thumb-wrap nicegui-image.hb-library-thumb {{
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 135px;
+  display: block;
 }}
 
 .hb-library-address {{

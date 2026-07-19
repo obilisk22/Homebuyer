@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.db import get_session
 from app.core.module_registry import ModuleSpec
@@ -12,6 +12,11 @@ from app.core.neighborhood import (
     effective_neighborhood_name,
 )
 from app.core.property_service import PropertyService
+from app.core.ui_jobs import (
+    ensure_gemini_overview_job,
+    ensure_gemini_things_to_do_job,
+    ensure_neighborhood_job,
+)
 
 _SOURCE_LABELS = {
     "zillow": "From Zillow listing",
@@ -133,15 +138,24 @@ def render(prop: Property, container: ui.element) -> None:
                         ui.notify("Neighborhood saved", type="positive")
                         redraw()
 
-                    def refresh_zillow() -> None:
-                        live2 = resolve_name()
-                        if live2 and (live2.neighborhood_name or "").strip():
-                            ui.notify("Neighborhood updated from Zillow", type="positive")
-                        else:
-                            ui.notify(
-                                "Zillow did not return a neighborhood name",
-                                type="warning",
+                    async def refresh_zillow() -> None:
+                        status.set_text("Pulling neighborhood from Zillow…")
+                        try:
+                            data = await run.io_bound(
+                                ensure_neighborhood_job, property_id, force=True
                             )
+                            if (data.get("neighborhood_name") or "").strip():
+                                ui.notify(
+                                    "Neighborhood updated from Zillow", type="positive"
+                                )
+                            else:
+                                ui.notify(
+                                    "Zillow did not return a neighborhood name",
+                                    type="warning",
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            status.set_text(str(exc))
+                            ui.notify(str(exc), type="negative")
                         redraw()
 
                     ui.button("Save name", on_click=save_override).props(
@@ -183,14 +197,12 @@ def render(prop: Property, container: ui.element) -> None:
                                 icon="refresh",
                             ).props("unelevated dense color=dark")
 
-                def ask_overview(*, force: bool) -> None:
+                async def ask_overview(*, force: bool) -> None:
                     status.set_text("Asking Gemini for a neighborhood overview…")
                     try:
-                        with get_session() as session:
-                            updated = PropertyService(session).ensure_gemini_overview(
-                                property_id, force=force
-                            )
-                        text = (updated.neighborhood_gemini or "").strip()
+                        text = await run.io_bound(
+                            ensure_gemini_overview_job, property_id, force=force
+                        )
                         render_overview(text)
                         status.set_text("")
                         ui.notify(
@@ -242,14 +254,12 @@ def render(prop: Property, container: ui.element) -> None:
                                 icon="refresh",
                             ).props("unelevated dense color=dark")
 
-                def ask_things(*, force: bool) -> None:
+                async def ask_things(*, force: bool) -> None:
                     status.set_text("Asking Gemini for things to do…")
                     try:
-                        with get_session() as session:
-                            updated = PropertyService(
-                                session
-                            ).ensure_gemini_things_to_do(property_id, force=force)
-                        text = (updated.neighborhood_things_to_do or "").strip()
+                        text = await run.io_bound(
+                            ensure_gemini_things_to_do_job, property_id, force=force
+                        )
                         render_things(text)
                         status.set_text("")
                         ui.notify(

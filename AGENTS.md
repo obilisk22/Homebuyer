@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (Buy vs rent: two-way $13k surplus + tax/CG)
+> Last updated: 2026-07-18 (TODO-026: run.io_bound for long UI work)
 
 
 
@@ -119,6 +119,7 @@ Restart the app — the tab appears automatically.
 | Theme | `app/ui/theme.py` |
 | Models / migrate | `app/core/models.py`, `app/core/db.py` |
 | CRUD / Zillow add | `app/core/property_service.py` |
+| Long UI I/O workers (`run.io_bound`) | `app/core/ui_jobs.py` |
 | Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
 | Photo import | `app/core/zillow_photos.py` |
 | Listing fields extract | `app/core/zillow_listing.py` |
@@ -182,6 +183,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Financials deal UX (2026-07-18): Your deal = offer + down in dollars with &lt;20% amber PMI warning; Assumptions quieter below
 - [x] Financials buy vs rent + invest chart (2026-07-18): Plotly dual-line (buy net worth vs rent + invest) + monthly mix pie only (loan balance / cumulative P&I charts removed); FHFA ZIP5 ~10y CAGR + Zillow decade % blended (default 3% if both missing); rentZestimate prefill (default **$5300**/mo / `Default` when missing); editable invest return / sell cost / monthly maintenance; loan terms never overwritten
 - [x] TODO-017 Buy-vs-rent editable what-ifs (2026-07-18): invest return %/yr, sell cost %, optional monthly maintenance persisted on `FinancialAssumptions`; charts use live values
+- [x] TODO-026 Connection lost fix (2026-07-18): long UI I/O via `run.io_bound` + `app/core/ui_jobs.py` (add-home, Map overlays, Gemini)
 - [x] Buy vs rent two-way $13k surplus + tax/CG (2026-07-18): shared budget invest on both paths; interest+SALT shield @41%; MFJ $500k CG exclusion @24%; editable assumptions
 - [x] Financials rent growth + rent control (2026-07-18): **Rent control** checkbox beside comparable rent → **2%/yr**; unchecked → ACS county **B25064** ~5y CAGR via `county_median_rent_cagr` (needs `CENSUS_API_KEY`, county from pin); **3%** / `Default` on miss; rent rises in projection (`rent_growth_pct`); owner **PITI flat**; captions under rent + chart; Manual override clears control
 - [x] FHFA ZIP5 parser header fix (2026-07-18): scans past workbook title/notes for ZIP + year + HPI-level headers; exact `HPI` is preferred over Annual Change (%); regression test covers the real workbook layout
@@ -201,6 +203,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-013` / `020` / `021` | **Done** | Schools, wildfire/AQI, Redfin ZIP sales |
 | `TODO-016` / `018` | **Done** | Library snapshots/export + Compare view |
 | `TODO-017` | **Done** | Buy-vs-rent editable invest return / sell cost / maintenance |
+| `TODO-026` | **Done** | Connection lost — `run.io_bound` + `ui_jobs.py` |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.
@@ -231,6 +234,7 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 - **After completing any user-facing feature or meaningful fix, update both `AGENTS.md` and `README.md`** in the same turn (status, how-to-use, decisions). Do not leave continuity docs stale.
 - Prefer **parallel Task subagents** for independent features; declare file ownership to avoid merge fights (`models.py` / `property_service.py` / `pages.py` are hotspots).
 - After UI/backend changes, **restart** `python -m app.main` (reload is off).
+- Long UI work (Zillow scrape, geocode, nearby, Gemini, map overlay fetches) must use `await run.io_bound(...)` with workers in `app/core/ui_jobs.py` (own `get_session()`; never pass ORM/UI objects into threads) — otherwise NiceGUI shows “Connection lost”.
 - Don’t commit unless the user asks.
 - Don’t scrape in ways that need exploit kits; prefer official APIs where ToS matters (esp. Reddit).
 - Keep modules thin; put shared logic in `app/core/`.

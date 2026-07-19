@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.air_quality import AQI_LEGEND, build_aqi_geojson
 from app.core.census_acs import (
@@ -28,6 +29,7 @@ from app.core.schools_nces import (
     fetch_schools_near_pin,
     nearest_schools_list,
 )
+from app.core.ui_jobs import ensure_coordinates_job
 from app.core.wildfire_whp import WHP_LEGEND, wildfire_wms_layer_args
 from app.core.zoning_gis import ZONING_LEGEND, build_zoning_geojson, zoning_supported
 from app.modules.street_view import render_street_view
@@ -141,12 +143,13 @@ def render(prop: Property, container: ui.element) -> None:
                     "unelevated dense color=dark"
                 ).classes("hb-btn-cta")
 
-                def regeocode() -> None:
+                async def regeocode() -> None:
                     try:
-                        with get_session() as session:
-                            fresh = PropertyService(session).ensure_coordinates(prop.id, force=True)
-                        lat_input.value = fresh.latitude
-                        lng_input.value = fresh.longitude
+                        lat, lng = await run.io_bound(
+                            ensure_coordinates_job, prop.id, force=True
+                        )
+                        lat_input.value = lat
+                        lng_input.value = lng
                         ui.notify("Re-geocoded from address", type="positive")
                         redraw()
                     except ValueError as exc:
@@ -272,7 +275,7 @@ def render(prop: Property, container: ui.element) -> None:
                     ).classes("hb-page-hint")
                     list_box = ui.column().classes("w-full gap-1")
 
-                    def load_list() -> None:
+                    async def load_list() -> None:
                         list_box.clear()
                         fresh, plat, plng = _fresh_pin()
                         if plat is None or plng is None:
@@ -284,7 +287,9 @@ def render(prop: Property, container: ui.element) -> None:
                                 rows = schools[:8]
                                 meta_msg = f"{len(schools)} within {DEFAULT_RADIUS_MI:g} mi"
                             else:
-                                result = nearest_schools_list(plat, plng)
+                                result = await run.io_bound(
+                                    nearest_schools_list, plat, plng
+                                )
                                 rows = list(result.get("schools") or [])
                                 meta_msg = str(
                                     (result.get("meta") or {}).get("message") or ""
@@ -328,7 +333,7 @@ def render(prop: Property, container: ui.element) -> None:
                         "unelevated dense color=dark"
                     ).classes("hb-btn-cta q-mb-sm")
                     if schools is not None:
-                        load_list()
+                        ui.timer(0, load_list, once=True)
 
         def toggle_flood(enabled: bool) -> None:
             if state["suppress_toggle"]:
@@ -377,7 +382,7 @@ def render(prop: Property, container: ui.element) -> None:
                 status.set_text(f"Wildfire layer failed: {exc}")
                 ui.notify(f"Wildfire layer failed: {exc}", type="negative")
 
-        def toggle_zoning(enabled: bool) -> None:
+        async def toggle_zoning(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
@@ -416,7 +421,7 @@ def render(prop: Property, container: ui.element) -> None:
 
             status.set_text("Loading…")
             try:
-                geo = build_zoning_geojson(city, plat, plng)
+                geo = await run.io_bound(build_zoning_geojson, city, plat, plng)
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
                 set_layer_on("zoning", False)
@@ -434,7 +439,7 @@ def render(prop: Property, container: ui.element) -> None:
             _render_legends()
             status.set_text(str((geo.get("meta") or {}).get("message") or "Zoning loaded"))
 
-        def toggle_aqi(enabled: bool) -> None:
+        async def toggle_aqi(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
@@ -461,7 +466,7 @@ def render(prop: Property, container: ui.element) -> None:
 
             status.set_text("Loading…")
             try:
-                geo = build_aqi_geojson(plat, plng)
+                geo = await run.io_bound(build_aqi_geojson, plat, plng)
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
                 set_layer_on("aqi", False)
@@ -478,7 +483,7 @@ def render(prop: Property, container: ui.element) -> None:
             _render_legends()
             status.set_text(str((geo.get("meta") or {}).get("message") or "AQI loaded"))
 
-        def toggle_schools(enabled: bool) -> None:
+        async def toggle_schools(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
@@ -501,7 +506,7 @@ def render(prop: Property, container: ui.element) -> None:
 
             status.set_text("Loading…")
             try:
-                result = fetch_schools_near_pin(plat, plng)
+                result = await run.io_bound(fetch_schools_near_pin, plat, plng)
                 schools = list(result.get("schools") or [])
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
@@ -527,7 +532,7 @@ def render(prop: Property, container: ui.element) -> None:
                 str((result.get("meta") or {}).get("message") or "Schools loaded")
             )
 
-        def toggle_sales(enabled: bool) -> None:
+        async def toggle_sales(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
@@ -554,7 +559,7 @@ def render(prop: Property, container: ui.element) -> None:
 
             status.set_text("Loading Redfin ZIP medians (first run may take a minute)…")
             try:
-                geo = build_redfin_sales_geojson(plat, plng)
+                geo = await run.io_bound(build_redfin_sales_geojson, plat, plng)
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
                 set_layer_on("sales", False)
@@ -576,7 +581,7 @@ def render(prop: Property, container: ui.element) -> None:
         def make_toggle_acs(layer_id: str):
             cfg = ACS_LAYERS[layer_id]
 
-            def toggle_acs(enabled: bool) -> None:
+            async def toggle_acs(enabled: bool) -> None:
                 if state["suppress_toggle"]:
                     return
                 m = state.get("map")
@@ -605,7 +610,7 @@ def render(prop: Property, container: ui.element) -> None:
                     return
                 status.set_text("Loading…")
                 try:
-                    geo = build_acs_geojson(layer_id, plat, plng)
+                    geo = await run.io_bound(build_acs_geojson, layer_id, plat, plng)
                 except CensusKeyMissing as exc:
                     state["suppress_toggle"] = True
                     set_layer_on(layer_id, False)
@@ -636,7 +641,15 @@ def render(prop: Property, container: ui.element) -> None:
 
             return toggle_acs
 
-        def toggle_crime(enabled: bool) -> None:
+        def _crime_layer_payload(
+            city: str, plat: float, plng: float
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            result = fetch_crime_near_pin(city, plat, plng)
+            points = result.get("points") or []
+            geo = build_crime_density_geojson(points, days=CRIME_DAYS)
+            return result, geo
+
+        async def toggle_crime(enabled: bool) -> None:
             if state["suppress_toggle"]:
                 return
             m = state.get("map")
@@ -675,7 +688,7 @@ def render(prop: Property, container: ui.element) -> None:
 
             status.set_text("Loading…")
             try:
-                result = fetch_crime_near_pin(city, plat, plng)
+                result, geo = await run.io_bound(_crime_layer_payload, city, plat, plng)
             except Exception as exc:  # noqa: BLE001
                 state["suppress_toggle"] = True
                 set_layer_on("crime", False)
@@ -684,8 +697,6 @@ def render(prop: Property, container: ui.element) -> None:
                 ui.notify(f"Crime layer failed: {exc}", type="negative")
                 return
 
-            points = result.get("points") or []
-            geo = build_crime_density_geojson(points, days=CRIME_DAYS)
             fc = {"type": "FeatureCollection", "features": geo.get("features") or []}
             layer = m.generic_layer(name="geoJSON", args=[fc, {}])
             state["crime"] = layer
@@ -707,7 +718,7 @@ def render(prop: Property, container: ui.element) -> None:
         def wire_layer(key: str, handler: Any) -> None:
             handlers[key] = handler
 
-            def _click() -> None:
+            async def _click() -> None:
                 if state["suppress_toggle"]:
                     return
                 turning_on = not layer_on[key]
@@ -717,12 +728,18 @@ def render(prop: Property, container: ui.element) -> None:
                         if other == key or not layer_on[other]:
                             continue
                         set_layer_on(other, False)
-                        other_handler(False)
+                        result = other_handler(False)
+                        if inspect.isawaitable(result):
+                            await result
                     set_layer_on(key, True)
-                    handler(True)
+                    result = handler(True)
+                    if inspect.isawaitable(result):
+                        await result
                 else:
                     set_layer_on(key, False)
-                    handler(False)
+                    result = handler(False)
+                    if inspect.isawaitable(result):
+                        await result
 
             layer_btns[key].on_click(_click)
 
@@ -807,21 +824,18 @@ def render(prop: Property, container: ui.element) -> None:
             sv_box.clear()
             render_street_view(fresh or prop, sv_box)
 
-        def auto_geocode_if_needed() -> None:
+        async def auto_geocode_if_needed() -> None:
             fresh = prop
             if fresh.latitude is not None and fresh.longitude is not None:
                 status.set_text("")
-                redraw(fresh)
                 return
             if not (fresh.address or "").strip():
                 status.set_text("No address on file — add one to auto-pin the map.")
-                redraw(fresh)
                 return
 
             status.set_text("Looking up coordinates from address…")
             try:
-                with get_session() as session:
-                    PropertyService(session).ensure_coordinates(prop.id)
+                await run.io_bound(ensure_coordinates_job, prop.id)
                 status.set_text("")
                 ui.notify("Pinned from address", type="positive")
             except ValueError as exc:
@@ -829,6 +843,7 @@ def render(prop: Property, container: ui.element) -> None:
                 ui.notify(str(exc), type="warning")
             redraw()
 
-        auto_geocode_if_needed()
+        redraw(prop)
+        ui.timer(0.05, auto_geocode_if_needed, once=True)
 
 MODULE = ModuleSpec(id="map_view", title="Map", order=20, render=render)

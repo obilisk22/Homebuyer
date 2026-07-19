@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.db import get_session
 from app.core.finance import (
@@ -15,6 +15,7 @@ from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
 from app.core.property_service import PropertyService
+from app.core.ui_jobs import ensure_gemini_financial_job
 
 # Neon cyberpunk chart palette (cyan / magenta / lime / amber)
 _CHART = {
@@ -717,7 +718,7 @@ def render(prop: Property, container: ui.element) -> None:
         gemini_controls = ui.row().classes("w-full gap-2 q-mt-sm flex-wrap items-center")
         gemini_box = ui.column().classes("w-full gap-2 q-mt-sm")
 
-        def run_gemini(*, force: bool) -> None:
+        async def run_gemini(*, force: bool) -> None:
             """ensure_gemini_financial → refresh panel in place (no remount)."""
             try:
                 ui.notify(
@@ -725,21 +726,20 @@ def render(prop: Property, container: ui.element) -> None:
                     type="ongoing",
                     timeout=0,
                 )
-                with get_session() as session:
-                    svc = PropertyService(session)
-                    # Persist current form so buy/rent UI stays in sync; Gemini
-                    # itself reads Zillow URLs, not these calculator fields.
-                    svc.update_financial(property_id, **collect())
-                    prop = svc.ensure_gemini_financial(property_id, force=force)
-                    gemini_state["text"] = (prop.financial_gemini or "").strip()
-                    gemini_state["for"] = (prop.financial_gemini_for or "").strip()
-                    nonlocal gemini_fp, subject_zillow_url, peer_refs
-                    subject_zillow_url = (prop.zillow_url or "").strip()
-                    peer_refs = svc._library_zillow_refs(property_id)
-                    gemini_fp = build_financial_fingerprint(
-                        subject_zillow_url=subject_zillow_url,
-                        peer_refs=peer_refs,
-                    )
+                # Collect on UI thread; Gemini job opens its own DB session.
+                fields = collect()
+                result = await run.io_bound(
+                    ensure_gemini_financial_job, property_id, fields, force=force
+                )
+                gemini_state["text"] = result["text"]
+                gemini_state["for"] = result["for"]
+                nonlocal gemini_fp, subject_zillow_url, peer_refs
+                subject_zillow_url = result["subject_zillow_url"]
+                peer_refs = result["peer_refs"]
+                gemini_fp = build_financial_fingerprint(
+                    subject_zillow_url=subject_zillow_url,
+                    peer_refs=peer_refs,
+                )
                 refresh_gemini_panel()
                 ui.notify("Financial take ready", type="positive")
             except Exception as exc:  # noqa: BLE001

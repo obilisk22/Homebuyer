@@ -27,6 +27,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-023 | Won't fix | Document attachments per property (offers, inspection, disclosures) |
 | TODO-024 | Done | Zoning overlay: coverage (1102/bbox/pagination) + WS-safe slim/merge (~16 MB → &lt;1 MB) |
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
+| TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
 
 ---
 
@@ -338,3 +339,18 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals (v1):** Map markers, property Nearby panel, manual refresh, library filters by signal.
 
 **Touch:** `nearby_signals.py`, `models.py`, `db.py`, `property_service.py`, `pages.py`, `theme.py`, `tests/test_nearby_signals.py`
+
+---
+
+## TODO-026 — NiceGUI “Connection lost” during long work
+
+**Status:** Done (2026-07-18)
+
+**Problem:** Sync blocking I/O (Zillow scrape, geocode, nearby, Gemini, map overlay fetches) ran on the event loop inside button handlers, freezing WebSocket heartbeats → “Connection lost”.
+
+**Fix**
+- `app/core/ui_jobs.py` — session-safe workers (`get_session()` inside the thread; plain values in/out; never pass ORM/UI objects).
+- Long UI handlers use `await run.io_bound(job, …)`: library add / refresh / Gemini insights / stale nearby; Map heavy overlays + re-geocode; Financials Gemini; Neighborhood Ask / Refresh.
+- Flood/wildfire stay sync (instant WMS); `wire_layer` awaits awaitable handlers.
+
+**Touch:** `ui_jobs.py`, `pages.py`, `map_view.py`, `financial.py`, `neighborhood_reviews.py`, docs.

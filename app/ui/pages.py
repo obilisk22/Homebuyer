@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.compare import build_compare_rows, parse_compare_ids
 from app.core.db import get_session
@@ -19,6 +19,12 @@ from app.core.nearby_signals import (
     tooltip_for,
 )
 from app.core.property_service import PropertyService, resolve_library_thumbnail
+from app.core.ui_jobs import (
+    add_from_zillow_job,
+    ensure_gemini_insights_job,
+    refresh_listing_details_job,
+    refresh_stale_nearby_signals_job,
+)
 from app.ui.theme import apply_theme
 
 # Property header library photo: "bleed" (full-bleed + scrim) or "beside" (card-style).
@@ -218,15 +224,17 @@ def library_page() -> None:
                     placeholder="https://www.zillow.com/homedetails/...",
                 ).classes("flex-grow min-w-64").props("dense outlined stack-label")
 
-                def add_home() -> None:
+                async def add_home() -> None:
+                    add_btn.disable()
                     try:
-                        ui.notify("Saving home and importing listing…", type="ongoing", timeout=0)
-                        with get_session() as session:
-                            prop, imported = PropertyService(session).add_from_zillow(
-                                url_input.value or "",
-                                import_photos=True,
-                            )
-                            new_id = prop.id
+                        ui.notify(
+                            "Saving home and importing listing…",
+                            type="ongoing",
+                            timeout=0,
+                        )
+                        new_id, imported = await run.io_bound(
+                            add_from_zillow_job, url_input.value or ""
+                        )
                         ui.notify(
                             f"Home saved — imported {imported} photos",
                             type="positive",
@@ -236,10 +244,14 @@ def library_page() -> None:
                         ui.notify(str(exc), type="negative")
                     except Exception as exc:  # noqa: BLE001
                         ui.notify(f"Failed: {exc}", type="negative")
+                    finally:
+                        add_btn.enable()
 
-                ui.button("Add home", on_click=add_home).props(
-                    "unelevated dense color=dark"
-                ).classes("hb-btn-cta")
+                add_btn = (
+                    ui.button("Add home", on_click=add_home)
+                    .props("unelevated dense color=dark")
+                    .classes("hb-btn-cta")
+                )
 
         with ui.row().classes("w-full hb-toolbar-row flex-wrap"):
             sort_select = ui.select(
@@ -590,12 +602,11 @@ def library_page() -> None:
                                     with chip:
                                         ui.icon(ICON_BY_KEY[key], size="xs")
 
-        def _refresh_stale_nearby_after_paint() -> None:
+        async def _refresh_stale_nearby_after_paint() -> None:
             try:
-                with get_session() as session:
-                    refreshed = PropertyService(
-                        session
-                    ).refresh_stale_nearby_signals(limit=3)
+                refreshed = await run.io_bound(
+                    refresh_stale_nearby_signals_job, limit=3
+                )
                 if refreshed:
                     refresh()
             except Exception:  # noqa: BLE001 - background signals never break library
@@ -724,33 +735,31 @@ def property_page(property_id: int) -> None:
                             ).classes("hb-page-meta")
 
                     with ui.row().classes("gap-2 flex-wrap"):
-                        def refresh_details() -> None:
+                        async def refresh_details() -> None:
                             try:
                                 ui.notify(
                                     "Refreshing listing details…",
                                     type="ongoing",
                                     timeout=0,
                                 )
-                                with get_session() as session:
-                                    PropertyService(session).refresh_listing_details(
-                                        prop_id
-                                    )
+                                await run.io_bound(
+                                    refresh_listing_details_job, prop_id
+                                )
                                 ui.notify("Listing details updated", type="positive")
                                 ui.navigate.to(f"/property/{prop_id}")
                             except Exception as exc:  # noqa: BLE001
                                 ui.notify(f"Refresh failed: {exc}", type="negative")
 
-                        def run_gemini_insights() -> None:
+                        async def run_gemini_insights() -> None:
                             try:
                                 ui.notify(
                                     "Generating Gemini insights… (neighborhood + finances)",
                                     type="ongoing",
                                     timeout=0,
                                 )
-                                with get_session() as session:
-                                    results = PropertyService(
-                                        session
-                                    ).ensure_gemini_insights(prop_id, force=False)
+                                results = await run.io_bound(
+                                    ensure_gemini_insights_job, prop_id, force=False
+                                )
                                 ok_bits = [
                                     label
                                     for key, label in (

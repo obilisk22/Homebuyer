@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-18 (filed TODO-034: Street View polish)
+> Last updated: 2026-07-18 (filed TODO-035: Open in Google Earth)
 
 
 
@@ -214,6 +214,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-032` | **Open** | Library card appreciation % (amber if &lt; 3%) |
 | `TODO-033` | **Open** | Financials — ? help for default/autofill explainers |
 | `TODO-034` | **Open** | Street View negative-space polish on Map tab |
+| `TODO-035` | **Open** | Open in Google Earth button |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

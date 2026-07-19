@@ -36,6 +36,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-032 | Open | Library card: show calculated appreciation %; amber if under 3% |
 | TODO-033 | Open | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
 | TODO-034 | Open | Map Street View: negative-space polish and layout tweaks |
+| TODO-035 | Open | Map / Street View: “Open in Google Earth” button |
 
 ---
 
@@ -500,3 +501,20 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Paid Street View / Maps Embed API; move SV off the Map tab.
 
 **Touch:** `app/modules/street_view.py`, `map_view.py` / `theme.py` if spacing shared, docs.
+
+---
+
+## TODO-035 — Open in Google Earth
+
+**Status:** Open
+
+**Add an “Open in Google Earth” action** next to the existing Map-tab links (Open in Google Maps / Open Street View) so you can jump to the pin in Earth (web or app deep link).
+
+**Goals**
+- Button on the Street View / Map chrome when lat/lng exist (same row as Maps/SV opens is fine).
+- Deep link to Google Earth for the property coordinates (and/or address fallback if useful). Prefer a stable public URL scheme; open in new tab.
+- Neo dense button styling consistent with siblings; no API key / Embed billing.
+
+**Non-goals:** Embed Earth inside Homebuy; replace free Street View.
+
+**Touch:** `app/modules/street_view.py` (and/or `map_view.py`), docs.

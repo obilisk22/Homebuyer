@@ -70,8 +70,23 @@ def test_status_from_block_attrs_missing_vs_ok():
 def test_lookup_never_raises_and_empty_status():
     empty = bb.lookup_broadband()
     assert empty["status"] == "unknown"
+    assert empty["reason"] == "no_input"
     assert empty["has_fixed"] is None
-    assert empty.get("error")
+    assert bb.chip_spec_for(empty) is None
+
+
+def test_needs_refresh_when_stale():
+    assert bb.needs_refresh(None, None) is True
+    now = datetime(2026, 7, 19, tzinfo=timezone.utc)
+    fresh = (now - timedelta(days=5)).isoformat()
+    assert (
+        bb.needs_refresh(
+            fresh,
+            json.dumps({"status": "ok", "has_fixed": True}),
+            now=now,
+        )
+        is False
+    )
 
 
 def test_parse_status_json_roundtrip():
@@ -147,6 +162,7 @@ def test_compute_broadband_mocked_http(monkeypatch):
         calls.append(url)
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
+        resp.status_code = 200
         if "block/find" in url:
             resp.json.return_value = {
                 "Block": {"FIPS": "060372074001024"},

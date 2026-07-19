@@ -5,29 +5,31 @@ reports **no fixed broadband** (copper/DSL, cable, fiber, or terrestrial fixed
 wireless). Cable or DSL without fiber is **not** flagged — only total absence
 of fixed service. Satellite-only does not clear the risk.
 
-API (no key required):
+Point lookup (no API key):
 1. ``geo.fcc.gov`` census block FIPS from lat/lng (2020 blocks).
 2. Esri Living Atlas FeatureServer ``FCC_Broadband_Data_Collection_December_2024_View``
    layer 4 (Blocks) — BDC-derived ``UniqueProviders*`` by tech.
 
-The official BDC Public Data API (``broadbandmap.fcc.gov/api/public/map``) is
-bulk-download only and needs free ``username`` + ``hash_value`` headers — not
-used for per-home lookups. Optional env vars are documented in ``.env.example``
-for future bulk ingest only. See docs/RESEARCH.md.
+Optional ``FCC_BDC_USERNAME`` + ``FCC_BDC_HASH`` soft-ping the bulk Public Data
+API only (not required for library chips). See docs/RESEARCH.md.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import requests
+from dotenv import load_dotenv
 
 from app.core import overlay_cache
 
 if TYPE_CHECKING:
     from app.core.models import Property
+
+load_dotenv()
 
 STALE_MAX_AGE_DAYS = 30.0
 CACHE_NAMESPACE = "fcc_broadband"
@@ -35,12 +37,12 @@ RAW_CACHE_MAX_AGE_S = 7 * 24 * 3600
 REQUEST_TIMEOUT_S = 30
 USER_AGENT = "Homebuy/0.1 (local research app)"
 
-# Documented for RESEARCH / tests — bulk Public Data API (auth required).
+# Bulk Public Data API (auth required) — credential ping only.
 BDC_PUBLIC_MAP_BASE = "https://broadbandmap.fcc.gov/api/public/map"
+BDC_LIST_AS_OF_DATES = f"{BDC_PUBLIC_MAP_BASE}/listAsOfDates"
 GEO_BLOCK_URL = "https://geo.fcc.gov/api/census/block/find"
 
-# Living Atlas "FCC Broadband Data Collection December 2025 (Latest)" view —
-# BDC block summaries (UniqueProviders by tech). No API key.
+# Living Atlas BDC block summaries (UniqueProviders by tech) — point path.
 BDC_BLOCKS_URL = (
     "https://services8.arcgis.com/peDZJliSvYims39Q/arcgis/rest/services/"
     "FCC_Broadband_Data_Collection_December_2024_View/FeatureServer/4/query"
@@ -81,6 +83,21 @@ class BroadbandStatus(TypedDict, total=False):
     error: str
 
 
+def get_credentials() -> tuple[str, str] | None:
+    """Return (username, hash_value) when both env vars are set."""
+    user = (os.getenv("FCC_BDC_USERNAME") or "").strip()
+    token = (
+        os.getenv("FCC_BDC_HASH") or os.getenv("FCC_BDC_HASH_VALUE") or ""
+    ).strip()
+    if user and token:
+        return user, token
+    return None
+
+
+def credentials_configured() -> bool:
+    return get_credentials() is not None
+
+
 def empty_status(
     *,
     status: str = "unknown",
@@ -109,6 +126,35 @@ def empty_status(
     if error:
         out["error"] = error
     return out
+
+
+def verify_bdc_credentials(username: str, hash_value: str) -> bool:
+    """Best-effort ping of BDC listAsOfDates (cached). Failure does not raise."""
+    cache_key = overlay_cache.cache_key("bdc_creds", username[:32])
+    cached = overlay_cache.read_json(
+        CACHE_NAMESPACE, cache_key, max_age_s=RAW_CACHE_MAX_AGE_S
+    )
+    if isinstance(cached, dict) and cached.get("ok") is True:
+        return True
+    try:
+        resp = requests.get(
+            BDC_LIST_AS_OF_DATES,
+            headers={
+                "username": username,
+                "hash_value": hash_value,
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+            },
+            timeout=REQUEST_TIMEOUT_S,
+        )
+        ok = resp.status_code == 200
+        if ok:
+            overlay_cache.write_json(
+                CACHE_NAMESPACE, cache_key, {"ok": True, "status": resp.status_code}
+            )
+        return ok
+    except requests.RequestException:
+        return False
 
 
 def _error_message(exc: BaseException) -> str:

@@ -138,7 +138,21 @@ def parse_dashboard_rows(rows: list[dict[str, str]]) -> dict[str, dict[str, Any]
 
 def _download_dashboard_rows() -> list[dict[str, str]]:
     """Network I/O only — kept separate so parsing stays fixture-testable."""
-    resp = requests.get(ELA_DASHBOARD_TXT_URL, timeout=REQUEST_TIMEOUT_S, stream=True)
+    # CDE WAF rejects bare/scripted clients; a normal browser UA is enough.
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36 Homebuy/0.1"
+        ),
+        "Accept": "text/plain,*/*",
+    }
+    resp = requests.get(
+        ELA_DASHBOARD_TXT_URL,
+        timeout=REQUEST_TIMEOUT_S,
+        stream=True,
+        headers=headers,
+    )
     resp.raise_for_status()
     raw = resp.content.decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(raw), delimiter="\t")

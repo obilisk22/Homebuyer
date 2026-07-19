@@ -2,10 +2,10 @@ Homebuy stores your library database, photo uploads, and map caches in:
 
   %LOCALAPPDATA%\Homebuy\
 
-Optional API keys go in:
+Optional API keys: open Homebuy → Library → key icon (API keys), or edit:
 
   %LOCALAPPDATA%\Homebuy\.env
 
-Copy keys from the project .env.example (GOOGLE_MAPS_API_KEY, CENSUS_API_KEY, GEMINI_API_KEY, etc.).
+Do not copy someone else's private keys into a shared installer. Get free Census / Gemini keys from the links shown in the dialog.
 
 WebView2 (Edge) is required for the desktop window. Windows 10/11 usually already include it; if the window fails to open, install the Evergreen Runtime from Microsoft.

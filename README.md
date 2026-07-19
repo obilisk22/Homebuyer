@@ -54,7 +54,7 @@ See [`docs/PACKAGING.md`](docs/PACKAGING.md). Short version:
 .\packaging\build_windows.ps1 -Installer # → dist\installer\Homebuy-Setup-0.1.0.exe (needs Inno Setup 6)
 ```
 
-Installed builds write DB/uploads/cache to `%LOCALAPPDATA%\Homebuy\` and load optional keys from `%LOCALAPPDATA%\Homebuy\.env`.
+Installed builds write DB/uploads/cache to `%LOCALAPPDATA%\Homebuy\` and load optional keys from `%LOCALAPPDATA%\Homebuy\.env`. Enter keys in the app via the **key icon** on the Library header (API keys dialog) — leave a field blank to keep the current value, or Clear to remove it. Do not ship your personal `.env` with the installer.
 
 ## Add a home
 

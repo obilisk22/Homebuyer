@@ -16,7 +16,7 @@ The native window uses a dark frame (`#0B0D10` background + Windows immersive da
 ## Data & secrets (installed app)
 
 Writable data lives in `%LOCALAPPDATA%\Homebuy\` (DB, uploads, caches).  
-Optional keys: `%LOCALAPPDATA%\Homebuy\.env` (see `.env.example`).
+Optional keys: `%LOCALAPPDATA%\Homebuy\.env` (see `.env.example`), or use the in-app **API keys** dialog (Library header key icon).
 
 Override data root anytime with `HOMEBUY_DATA_DIR`.
 

@@ -921,6 +921,11 @@ a:focus-visible {{
   background: var(--hb-surface) !important;
 }}
 
+.hb-api-keys-dialog {{
+  min-width: min(36rem, 92vw);
+  max-width: 40rem;
+}}
+
 /* Links */
 a {{
   color: var(--hb-neon);

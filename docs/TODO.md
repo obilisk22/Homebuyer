@@ -46,6 +46,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-042 | Done | Library icon when location lacks broadband (FCC BDC; chip when env set) |
 | TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
 | TODO-044 | Open | Library card: rename appreciation label “Appr.” → “Growth” |
+| TODO-045 | Open | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
 
 ---
 
@@ -639,3 +640,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Rename** the library-card appreciation caption from `Appr. N%/yr` to **`Growth N%/yr`** (same value, amber when &lt; 3% unchanged).
 
 **Touch:** `app/ui/pages.py` (`_library_appreciation_caption`), docs/AGENTS wording if they say “Appr.”.
+
+---
+
+## TODO-045 — Compact street + unit on library / header
+
+**Status:** Open
+
+**Problem:** Long Akira street lines (with `APT` / `UNIT` / Suite condo markers) overflow or crowd library cards at narrower widths.
+
+**Goals**
+1. Shrink library/header street type by **~10%** (e.g. `--hb-library-address-size` clamp).
+2. Normalize unit markers (`APT`, `APARTMENT`, `UNIT`, `STE`/`SUITE`, `#`, etc.) to a compact **`#…`** suffix (e.g. `123 Main St #4B`) via `_street_address_line` or a small formatter.
+3. Render the unit/`#` segment in a **~25% smaller** font than the street (separate span/class, e.g. `.hb-library-unit`), so the street stays hero and the unit saves space.
+4. Apply on **library cards** and **property header** (same street helper).
+
+**Non-goals:** Change stored `Property.address`; geocode query stripping already exists separately.
+
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, tests for unit abbreviation, docs.

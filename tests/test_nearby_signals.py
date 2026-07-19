@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from app.core.nearby_signals import (
     HIGHWAY_RADIUS_FT,
@@ -48,6 +50,142 @@ def test_is_stale():
     assert is_stale(fresh, now=now) is False
     old = (now - timedelta(days=31)).isoformat()
     assert is_stale(old, now=now) is True
+
+
+def test_refresh_property_signals_writes_json_and_timestamp(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    expected = {key: {"hit": False} for key in ns.SIGNAL_ORDER}
+    monkeypatch.setattr(ns, "compute_signals", lambda lat, lng: expected)
+    prop = SimpleNamespace(
+        latitude=34.0,
+        longitude=-118.0,
+        nearby_signals="",
+        nearby_signals_at="",
+    )
+
+    out = ns.refresh_property_signals(prop)
+
+    assert out == expected
+    assert json.loads(prop.nearby_signals) == expected
+    assert datetime.fromisoformat(prop.nearby_signals_at).tzinfo is not None
+
+
+def test_refresh_property_signals_without_coordinates_keeps_cached_payload(monkeypatch):
+    from app.core import nearby_signals as ns
+
+    cached = {"highway": {"hit": True, "distance_ft": 400}}
+    prop = SimpleNamespace(
+        latitude=None,
+        longitude=None,
+        nearby_signals=json.dumps(cached),
+        nearby_signals_at="existing",
+    )
+    monkeypatch.setattr(
+        ns,
+        "compute_signals",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not compute")),
+    )
+
+    assert ns.refresh_property_signals(prop) == cached
+    assert prop.nearby_signals_at == "existing"
+
+
+def test_property_maps_nearby_signal_columns():
+    from app.core.models import Property
+
+    assert Property.__table__.c.nearby_signals.type.__class__.__name__ == "Text"
+    assert Property.__table__.c.nearby_signals_at.type.length == 64
+
+
+def test_property_service_refresh_nearby_signals_commits(monkeypatch):
+    from app.core import property_service as ps
+
+    prop = SimpleNamespace(id=7, latitude=34.0, longitude=-118.0)
+
+    class FakeSession:
+        commits = 0
+        refreshes = 0
+
+        def commit(self):
+            self.commits += 1
+
+        def refresh(self, value):
+            assert value is prop
+            self.refreshes += 1
+
+    session = FakeSession()
+    service = ps.PropertyService(session)
+    monkeypatch.setattr(service, "get_property", lambda property_id: prop)
+    calls = []
+    monkeypatch.setattr(ps, "refresh_property_signals", lambda value: calls.append(value))
+
+    assert service.refresh_nearby_signals(7) is prop
+    assert calls == [prop]
+    assert session.commits == 1
+    assert session.refreshes == 1
+
+
+def test_property_service_refresh_nearby_signals_swallows_errors(monkeypatch):
+    from app.core import property_service as ps
+
+    prop = SimpleNamespace(id=8, latitude=34.0, longitude=-118.0)
+
+    class FakeSession:
+        commits = 0
+
+        def commit(self):
+            self.commits += 1
+
+        def refresh(self, value):
+            return None
+
+        def rollback(self):
+            return None
+
+    service = ps.PropertyService(FakeSession())
+    monkeypatch.setattr(service, "get_property", lambda property_id: prop)
+    monkeypatch.setattr(
+        ps,
+        "refresh_property_signals",
+        lambda value: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+
+    assert service.refresh_nearby_signals(8) is prop
+    assert service.session.commits == 0
+
+
+def test_property_service_refreshes_only_stale_signals_up_to_limit(monkeypatch):
+    from app.core import property_service as ps
+
+    now = datetime.now(timezone.utc)
+    props = [
+        SimpleNamespace(id=1, nearby_signals_at=""),
+        SimpleNamespace(
+            id=2,
+            nearby_signals_at=(now - timedelta(days=2)).isoformat(),
+        ),
+        SimpleNamespace(
+            id=3,
+            nearby_signals_at=(now - timedelta(days=40)).isoformat(),
+        ),
+        SimpleNamespace(id=4, nearby_signals_at=""),
+    ]
+
+    class FakeSession:
+        def scalars(self, stmt):
+            return props
+
+    service = ps.PropertyService(FakeSession())
+    refreshed = []
+    monkeypatch.setattr(
+        service,
+        "refresh_nearby_signals",
+        lambda property_id: refreshed.append(property_id),
+    )
+
+    assert service.refresh_stale_nearby_signals(limit=2) == 2
+    assert refreshed == [1, 3]
 
 
 def test_parse_overpass_picks_nearest_playground():

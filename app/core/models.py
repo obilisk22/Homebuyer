@@ -31,6 +31,8 @@ class Property(Base):
     zip_code: Mapped[str] = mapped_column(String(16), default="", nullable=False)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nearby_signals: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    nearby_signals_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     # Soft reference to photos.id (avoid circular FK with SQLite).
     thumbnail_photo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

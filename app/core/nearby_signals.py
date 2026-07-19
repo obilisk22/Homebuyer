@@ -4,11 +4,14 @@ import json
 import math
 import os
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import requests
 
 from app.core import overlay_cache
+
+if TYPE_CHECKING:
+    from app.core.models import Property
 
 HIGHWAY_RADIUS_FT = 800.0
 TRANSIT_RADIUS_MI = 0.5
@@ -457,6 +460,22 @@ def parse_signals_json(raw: str | None) -> dict[str, dict[str, Any]]:
         if isinstance(val, dict):
             out[str(key)] = val
     return out
+
+
+def refresh_property_signals(prop: Property) -> dict[str, Any]:
+    """Compute and cache nearby signals on a property without committing."""
+    if prop.latitude is None or prop.longitude is None:
+        return parse_signals_json(prop.nearby_signals)
+    try:
+        payload = compute_signals(float(prop.latitude), float(prop.longitude))
+    except Exception as exc:  # noqa: BLE001 - never break add-home
+        payload = {
+            key: {"hit": False, "error": _error_message(exc)}
+            for key in SIGNAL_ORDER
+        }
+    prop.nearby_signals = json.dumps(payload)
+    prop.nearby_signals_at = datetime.now(timezone.utc).isoformat()
+    return payload
 
 
 def hits_in_order(payload: dict[str, dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:

@@ -25,6 +25,7 @@ from app.core.geocode import geocode_address, reverse_geocode_neighborhood
 from app.core.home_insurance import resolve_annual_insurance
 from app.core.models import FinancialAssumptions, Photo, Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
+from app.core.nearby_signals import is_stale, refresh_property_signals
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
 from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
@@ -196,6 +197,41 @@ class PropertyService:
             )
         )
         return self.session.scalars(stmt).unique().first()
+
+    def refresh_nearby_signals(self, property_id: int) -> Property:
+        """Refresh and persist nearby signals without surfacing provider failures."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        try:
+            refresh_property_signals(prop)
+            self.session.commit()
+            self.session.refresh(prop)
+        except Exception:  # noqa: BLE001 - nearby providers never block property flows
+            self.session.rollback()
+        return prop
+
+    def refresh_stale_nearby_signals(self, *, limit: int = 3) -> int:
+        """Refresh up to ``limit`` stale properties that have map coordinates."""
+        if limit <= 0:
+            return 0
+        stmt = (
+            select(Property)
+            .where(
+                Property.latitude.is_not(None),
+                Property.longitude.is_not(None),
+            )
+            .order_by(Property.updated_at.desc())
+        )
+        refreshed = 0
+        for prop in self.session.scalars(stmt):
+            if not is_stale(prop.nearby_signals_at):
+                continue
+            self.refresh_nearby_signals(prop.id)
+            refreshed += 1
+            if refreshed >= limit:
+                break
+        return refreshed
 
     def _apply_listing_details(
         self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
@@ -465,6 +501,11 @@ class PropertyService:
             except Exception:
                 # Keep the home even if Zillow photo fetch fails; user can re-import later.
                 imported = 0
+        try:
+            prop = self.refresh_nearby_signals(prop.id)
+        except Exception:
+            # Nearby providers must never prevent saving a home.
+            pass
         return prop, imported
 
     def ensure_coordinates(self, property_id: int, *, force: bool = False) -> Property:
@@ -481,6 +522,11 @@ class PropertyService:
         prop.longitude = lng
         self.session.commit()
         self.session.refresh(prop)
+        try:
+            prop = self.refresh_nearby_signals(prop.id)
+        except Exception:
+            # Nearby providers must never prevent saving coordinates.
+            pass
         return prop
 
     def ensure_neighborhood(self, property_id: int, *, force: bool = False) -> Property:

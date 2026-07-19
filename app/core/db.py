@@ -133,6 +133,14 @@ def _migrate_sqlite() -> None:
             ("latitude", "ALTER TABLE properties ADD COLUMN latitude FLOAT"),
             ("longitude", "ALTER TABLE properties ADD COLUMN longitude FLOAT"),
             (
+                "nearby_signals",
+                "ALTER TABLE properties ADD COLUMN nearby_signals TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "nearby_signals_at",
+                "ALTER TABLE properties ADD COLUMN nearby_signals_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
                 "thumbnail_photo_id",
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),

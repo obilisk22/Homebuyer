@@ -50,6 +50,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-046 | Done | Library appreciation caption: lime/green when &gt; 6%/yr |
 | TODO-047 | Done | Library nearby icons: click opens Google Maps (lat/lng / place_id / name) |
 | TODO-048 | Done | Playground library icon: radius 0.75 → 0.9375 mi (×1.25); tags unchanged |
+| TODO-049 | Open | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
 
 ---
 
@@ -715,3 +716,23 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** `app/core/nearby_signals.py`, tests, `AGENTS.md` §8a, docs.
 
 **Related:** TODO-025 (shipped), TODO-036 (shipped — radius/geom/tag fixes), TODO-047 (shipped — chip → Maps).
+
+---
+
+## TODO-049 — Nearby chip Maps: specific place + home context
+
+**Status:** Open
+
+**Problem:** Clicking a library nearby icon (esp. **grocery**) opens Google Maps via `query=lat,lng` (TODO-047). That often looks like a generic area / “all grocery stores” search instead of the **one store named on the chip**, and there is **no home pin / route**, so the user can’t see where the house sits relative to the amenity.
+
+**Goals**
+1. Deep-link to the **specific hit** on the chip (prefer `query_place_id` when Places; else place search with **name + lat/lng**, not bare coords-only search that expands to a category).
+2. Show **home ↔ place** context — e.g. Maps **directions** URL with `origin=` property lat/lng and `destination=` place (or two markers / “search nearby from home”). Pass home coords into `source_url_for` (or a sibling helper) from the chip renderer.
+3. Apply to **all** nearby-signal chips that open Maps (grocery is the reported pain; same pattern for transit/playground/shelter/highway).
+4. Keep `stopPropagation` (don’t open the property card).
+
+**Non-goals:** In-app map modal; changing distance thresholds; OSM.org links.
+
+**Touch:** `app/core/nearby_signals.py` (`source_url_for`), `app/ui/pages.py` (`_render_nearby_signal_chips`), tests, docs / AGENTS §8a.
+
+**Related:** TODO-047 (shipped).

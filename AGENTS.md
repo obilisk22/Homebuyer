@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (TODO-047/048: nearby chip → Google Maps; playground ≤0.9375 mi)
+> Last updated: 2026-07-19 (filed TODO-049: Maps chip → specific place + home)
 
 
 
@@ -244,6 +244,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-046` | **Done** | Appreciation caption — lime when &gt; 6%/yr (amber &lt; 3% kept) |
 | `TODO-047` | **Done** | Nearby chips — click opens Google Maps (lat/lng / place_id / name); stopPropagation kept |
 | `TODO-048` | **Done** | Playground radius 0.75 → 0.9375 mi (×1.25); tags unchanged; Overpass cache `overpass_v3_*` |
+| `TODO-049` | **Open** | Nearby chip Maps link — specific place pin + home relation (not category search) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

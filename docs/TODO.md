@@ -42,6 +42,8 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
 | TODO-039 | Open | Library icon when home has no Central AC |
 | TODO-040 | Open | Estimate utilities from provider + sqft + age |
+| TODO-041 | Open | Map overlay: National Transportation Noise Map (BTS) |
+| TODO-042 | Open | Library icon when location lacks broadband (FCC BDC) |
 
 ---
 
@@ -609,3 +611,45 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Live utility-account login; bill PDF upload; perfect tariff modeling.
 
 **Touch:** new `app/core/utilities.py` (+ data tables), `models.py` / `db.py`, `property_service.py`, `financial.py`, tests, docs.
+
+---
+
+## TODO-041 — National Transportation Noise Map (BTS) overlay
+
+**Status:** Open
+
+**Add a Map overlay** for the USDOT / **Bureau of Transportation Statistics National Transportation Noise Map** (aviation + highway + rail LAeq potential exposure) so buyers can see transportation noise context around the pin.
+
+**Goals**
+- Exclusive Map toggle (e.g. **Noise**) alongside Flood / Zoning / Wildfire / … — neo layer button + status + legend.
+- Prefer live **DOT/BTS web services** (`geo.dot.gov` Hosted services named `Noise*`, or documented WMS) near the pin; fall back to cached tiles/GeoJSON if needed. Cache under `data/cache/`.
+- Long fetch via `run.io_bound` (TODO-026 pattern). No API key if public services allow.
+- Caption: BTS notes this is for **national trend / screening**, not precise parcel-level impact assessment — show a short honest status/legend note.
+- Optional: start with combined multimodal CONUS layer; mode-split (road / aviation / rail) only if UX stays simple.
+
+**Research first:** skim BTS docs + `docs/RESEARCH.md`; record chosen endpoint before coding (do not re-research from scratch later).
+
+**Non-goals:** Replace highway nearby-signal chip; custom noise modeling; Embed Earth.
+
+**Touch:** new `app/core/bts_noise.py` (or similar), `map_view.py`, `overlay_cache.py` if shared, tests, `docs/RESEARCH.md`, `AGENTS.md` §7.
+
+---
+
+## TODO-042 — Library icon: missing broadband (FCC BDC)
+
+**Status:** Open
+
+**Show a library-card risk icon** when the home’s precise location appears to **lack adequate broadband**, using the **FCC Broadband Data Collection (BDC)** location / availability APIs (challenge fabric — providers and tech at that address).
+
+**Goals**
+- Query FCC BDC by **address or lat/lng** for availability at that location; distinguish **fiber (symmetric)** vs asymmetric coax/DSL vs none / unknown.
+- Persist a compact signal on `Property` (or extend `nearby_signals`-style JSON) + timestamp; compute on add / post-geocode; stale refresh best-effort like other library icons.
+- Soft neo **risk chip** (magenta) when missing or clearly inadequate (thresholds decided at implement — e.g. no fixed broadband, or no fiber if we only flag “no fiber”; document chosen rule). Tooltip: tech + max advertised down/up or “No fixed broadband reported”.
+- Cache raw responses under `data/cache/`; never fail add-home on FCC errors. Note any API key / registration requirements in `.env.example`.
+- Optional: same chip on property header with TODO-029.
+
+**Research first:** confirm current BDC public endpoints, auth, and ToS; jot notes in `docs/RESEARCH.md`.
+
+**Non-goals:** Full ISP comparison UI; Map choropleth of broadband; speed-test measurement.
+
+**Touch:** new `app/core/fcc_broadband.py` (or similar), models/db if needed, library card UI / `nearby_signals` pattern, tests, docs.

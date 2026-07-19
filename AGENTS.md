@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (filed TODO-047: nearby chip click → source URL)
+> Last updated: 2026-07-19 (filed TODO-048: playground icon hit rate)
 
 
 
@@ -240,6 +240,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-045` | **Open** | Street address −10%; APT/UNIT as smaller “#” suffix |
 | `TODO-046` | **Open** | Appreciation caption — lime when &gt; 6%/yr (amber &lt; 3% kept) |
 | `TODO-047` | **Open** | Nearby chips — click opens source URL in browser (not property page) |
+| `TODO-048` | **Open** | Playground library icon — investigate low hit rate; widen radius and/or match criteria |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

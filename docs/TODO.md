@@ -49,6 +49,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-045 | Open | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
 | TODO-046 | Open | Library appreciation caption: lime/green when &gt; 6%/yr |
 | TODO-047 | Open | Library nearby icons: click opens source URL in browser |
+| TODO-048 | Open | Playground library icon: investigate low hit rate; widen radius and/or match criteria |
 
 ---
 
@@ -708,3 +709,26 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** In-app detail panel/modal; Map markers for the hit; changing distance thresholds or chip styling.
 
 **Touch:** `app/ui/pages.py` (chip click), possibly `app/core/nearby_signals.py` + cached JSON shape, tests, docs.
+
+---
+
+## TODO-048 — Playground library icon: low hit rate (investigate then tune)
+
+**Status:** Open
+
+**Problem:** Library playground proximity chips still feel sparse after TODO-036 (radius raised to **0.75 mi**; Overpass center/geom + `leisure=park`+`playground=yes`). Users expect the icon more often.
+
+**Goals**
+1. **Investigate first** (not a blind radius bump): sample homes where a playground is nearby in Maps/OSM but the chip is missing; compare Overpass tags (`leisure=playground` vs parks with play equipment / other common tags), whether Places fallback exists for playground (today Places only refines grocery + shelter), and whether **0.75 mi** is below user expectation.
+2. Ship a **measured** change: increase distance and/or widen what counts as a playground (OSM tags and/or optional Places), with tests covering the new match rules.
+3. Update AGENTS §8a thresholds / match criteria when done.
+
+**Likely approach**
+- Audit `app/core/nearby_signals.py` playground query + thresholds vs real OSM coverage around existing library pins.
+- Decide: larger radius, broader tags (e.g. more park/play-equipment patterns), and/or Places Nearby Search for playground — prefer evidence over guesswork.
+
+**Non-goals:** Changing other nearby signals’ thresholds in the same pass unless investigation proves a shared bug; Map markers for playgrounds; TODO-047 click-to-source.
+
+**Touch:** `app/core/nearby_signals.py`, tests, `AGENTS.md` §8a, docs.
+
+**Related:** TODO-025 (shipped), TODO-036 (shipped — radius/geom/tag fixes; hit rate still low).

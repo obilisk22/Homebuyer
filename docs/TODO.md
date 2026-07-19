@@ -34,6 +34,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-030 | Open | Gemini neighborhood prompts: pass exact home address (not only hood name) |
 | TODO-031 | Open | Property page: lower visual weight of Edit listing details |
 | TODO-032 | Open | Library card: show calculated appreciation %; amber if under 3% |
+| TODO-033 | Open | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
 
 ---
 
@@ -462,3 +463,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals:** Change blend math; add appreciation filters/sort (unless trivial later).
 
 **Touch:** `app/ui/pages.py` (library cards), `app/ui/theme.py`, maybe `library_export.snapshot_from_property` if snapshot is the clean path, docs.
+
+---
+
+## TODO-033 — Financials: ? help instead of inline descriptions
+
+**Status:** Open
+
+**Problem:** Financials fields carry a lot of always-visible helper copy (source captions, “default 10%”, tax/CG/SALT explainers). That adds noise next to the numbers.
+
+**Goals**
+- Replace (or heavily demote) those blurbs with **low-opacity question-mark** controls beside each relevant field/label.
+- Click/`ui.tooltip` / small popover shows **how the default or autofill was calculated** (e.g. Freddie Mac PMMS by term, Zillow→ACS tax chain, age-blend maintenance, rent $5300/`Default`, FHFA/Zillow appreciation blend, rent-control 2% vs ACS CAGR, budget surplus + tax shield assumptions).
+- Keep short **live source captions** only when they change with the value (optional: move those into the ? body too and show a one-word source chip). Prefer quiet neo styling — not competing with deal inputs.
+- Coordinates with **TODO-028** (collapse rare fields / hierarchy); implement either together or so help survives the cleanup.
+
+**Non-goals:** Change calculation math; remove Gemini panel.
+
+**Touch:** `app/modules/financial.py`, `app/ui/theme.py`, docs.

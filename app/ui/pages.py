@@ -33,13 +33,17 @@ from app.core.nearby_signals import (
     tooltip_for,
 )
 from app.core.listing_signals import listing_risk_chips
+from app.core.market_activity import (
+    chip_spec_for as market_chip_spec_for,
+    parse_activity_json as parse_market_activity_json,
+)
 from app.core.permits_nearby import chip_spec_for, parse_activity_json
 from app.core.property_service import PropertyService, resolve_library_thumbnail
 from app.core.ui_jobs import (
     add_from_zillow_job,
-    ensure_gemini_insights_job,
     refresh_listing_details_job,
     refresh_stale_broadband_status_job,
+    refresh_stale_market_activity_job,
     refresh_stale_nearby_signals_job,
     refresh_stale_permits_activity_job,
 )
@@ -254,14 +258,19 @@ def _extra_signal_chips(
     cooling: str = "",
     broadband_status: str = "",
     permits_activity: str = "",
+    market_activity: str = "",
+    home_type: str = "",
+    townhome_position: str = "",
 ) -> list[dict]:
-    """Listing risk + permit amber chips for library / header rows."""
+    """Listing risk + permit amber + active-market chips for library / header."""
     chips: list[dict] = list(
         listing_risk_chips(
             SimpleNamespace(
                 has_central_ac=has_central_ac,
                 cooling=cooling or "",
                 broadband_status=broadband_status or "",
+                home_type=home_type or "",
+                townhome_position=townhome_position or "",
             )
         )
     )
@@ -274,6 +283,17 @@ def _extra_signal_chips(
                 "tone": permit.get("tone") or "amber",
                 "icon": permit.get("icon") or "construction",
                 "tooltip": permit.get("tooltip") or "",
+            }
+        )
+    market = market_chip_spec_for(parse_market_activity_json(market_activity or ""))
+    if market:
+        chips.append(
+            {
+                "key": market["key"],
+                "kind": market.get("tone") or "amenity",
+                "tone": market.get("tone") or "amenity",
+                "icon": market.get("icon") or "local_fire_department",
+                "tooltip": market.get("tooltip") or "",
             }
         )
     return chips
@@ -676,6 +696,8 @@ def library_page() -> None:
                             "has_central_ac": prop.has_central_ac,
                             "broadband_status": prop.broadband_status or "",
                             "permits_activity": prop.permits_activity or "",
+                            "market_activity": prop.market_activity or "",
+                            "townhome_position": prop.townhome_position or "",
                         }
                     )
             hint_label.set_visibility(not has_any)
@@ -833,6 +855,9 @@ def library_page() -> None:
                                 cooling=row.get("cooling") or "",
                                 broadband_status=row.get("broadband_status") or "",
                                 permits_activity=row.get("permits_activity") or "",
+                                market_activity=row.get("market_activity") or "",
+                                home_type=row.get("home_type") or "",
+                                townhome_position=row.get("townhome_position") or "",
                             ),
                         )
 
@@ -847,7 +872,15 @@ def library_page() -> None:
                 refreshed_bb = await run.io_bound(
                     refresh_stale_broadband_status_job, limit=3
                 )
-                if refreshed or refreshed_permits or refreshed_bb:
+                refreshed_market = await run.io_bound(
+                    refresh_stale_market_activity_job, limit=3
+                )
+                if (
+                    refreshed
+                    or refreshed_permits
+                    or refreshed_bb
+                    or refreshed_market
+                ):
                     refresh()
             except Exception:  # noqa: BLE001 - background signals never break library
                 pass
@@ -991,65 +1024,8 @@ def property_page(property_id: int) -> None:
                             except Exception as exc:  # noqa: BLE001
                                 ui.notify(f"Refresh failed: {exc}", type="negative")
 
-                        async def run_gemini_insights() -> None:
-                            try:
-                                ui.notify(
-                                    "Generating Gemini insights… (neighborhood + finances)",
-                                    type="ongoing",
-                                    timeout=0,
-                                )
-                                results = await run.io_bound(
-                                    ensure_gemini_insights_job, prop_id, force=False
-                                )
-                                ok_bits = [
-                                    label
-                                    for key, label in (
-                                        ("overview", "assessment"),
-                                        ("things_to_do", "things to do"),
-                                        ("financial", "financials"),
-                                    )
-                                    if results.get(key) in {"ok", "cached"}
-                                ]
-                                fail_bits = [
-                                    f"{label}: {results[key]}"
-                                    for key, label in (
-                                        ("overview", "assessment"),
-                                        ("things_to_do", "things to do"),
-                                        ("financial", "financials"),
-                                    )
-                                    if results.get(key) not in {"ok", "cached", None}
-                                ]
-                                if ok_bits and not fail_bits:
-                                    ui.notify(
-                                        "Gemini insights ready — see Neighborhood & Financials tabs",
-                                        type="positive",
-                                    )
-                                elif ok_bits and fail_bits:
-                                    ui.notify(
-                                        "Partial Gemini insights: "
-                                        + "; ".join(fail_bits[:2]),
-                                        type="warning",
-                                    )
-                                else:
-                                    ui.notify(
-                                        fail_bits[0]
-                                        if fail_bits
-                                        else "Gemini insights failed",
-                                        type="negative",
-                                    )
-                                ui.navigate.to(f"/property/{prop_id}")
-                            except Exception as exc:  # noqa: BLE001
-                                ui.notify(
-                                    f"Gemini insights failed: {exc}", type="negative"
-                                )
-
                         ui.button(
                             "Refresh listing details", on_click=refresh_details
-                        ).props("unelevated dense color=dark")
-                        ui.button(
-                            "Gemini insights",
-                            on_click=run_gemini_insights,
-                            icon="auto_awesome",
                         ).props("unelevated dense color=dark")
 
                 with ui.expansion("Edit listing details", icon="edit").classes(
@@ -1183,6 +1159,9 @@ def property_page(property_id: int) -> None:
                     cooling=getattr(prop, "cooling", "") or "",
                     broadband_status=getattr(prop, "broadband_status", "") or "",
                     permits_activity=getattr(prop, "permits_activity", "") or "",
+                    market_activity=getattr(prop, "market_activity", "") or "",
+                    home_type=getattr(prop, "home_type", "") or "",
+                    townhome_position=getattr(prop, "townhome_position", "") or "",
                 ),
             )
 

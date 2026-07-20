@@ -275,6 +275,8 @@ class ListingDetails:
     appreciation_decade_pct: float | None = None
     cooling: str = ""
     has_central_ac: bool | None = None
+    # TODO-052: "center" | "end" | "" when listing text is clear.
+    townhome_position: str = ""
 
     def any_present(self) -> bool:
         return bool(
@@ -298,6 +300,7 @@ class ListingDetails:
             or self.appreciation_decade_pct is not None
             or self.cooling
             or self.has_central_ac is not None
+            or self.townhome_position
         )
 
 
@@ -588,6 +591,58 @@ def normalize_home_type(raw: object) -> str:
     if "_" in text or text.isupper():
         return text.replace("_", " ").title()
     return text
+
+
+# Explicit mid-row / end language only — never guess from unit letters alone.
+_CENTER_TOWNHOME_RE = re.compile(
+    r"\b(?:"
+    r"interior\s+unit|"
+    r"middle\s+unit|"
+    r"mid[\s\-]?row(?:\s+unit)?|"
+    r"mid[\s\-]?unit|"
+    r"center\s+unit|"
+    r"centre\s+unit|"
+    r"inner\s+unit"
+    r")\b",
+    re.IGNORECASE,
+)
+_END_TOWNHOME_RE = re.compile(
+    r"\b(?:"
+    r"end\s+unit|"
+    r"end[\s\-]?unit|"
+    r"corner\s+unit|"
+    r"end\s+townhome|"
+    r"end\s+townhouse"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def classify_townhome_position(
+    html_or_text: str, *, home_type: str = ""
+) -> str:
+    """Return ``center`` / ``end`` / ``\"\"`` from listing copy.
+
+    Requires Townhouse home type (or townhouse language in text). Prefer
+    end-unit matches when both appear. No chip when uncertain.
+    """
+    text = html_or_text or ""
+    if not text.strip():
+        return ""
+    ht = (home_type or "").strip().casefold()
+    looks_townhouse = ht == "townhouse" or bool(
+        re.search(r"\btown\s*h(?:ouse|ome)s?\b", text, re.IGNORECASE)
+    )
+    if not looks_townhouse:
+        return ""
+    end_hit = bool(_END_TOWNHOME_RE.search(text))
+    center_hit = bool(_CENTER_TOWNHOME_RE.search(text))
+    if end_hit and not center_hit:
+        return "end"
+    if center_hit and not end_hit:
+        return "center"
+    # Both or neither → uncertain
+    return ""
 
 
 def parse_address_parts(address: str) -> tuple[str, str, str]:
@@ -1091,6 +1146,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
     annual_tax = annual_insurance = tax_assessed_value = property_tax_rate = None
     rent_zestimate = appreciation_decade_pct = None
     city = state = zip_code = address = neighborhood = home_type = cooling = ""
+    townhome_position = ""
     has_central_ac: bool | None = None
     for part in parts:
         price = _coalesce(price, part.list_price)
@@ -1113,6 +1169,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         zip_code = _coalesce_str(zip_code, part.zip_code)
         address = _coalesce_str(address, part.address)
         neighborhood = _coalesce_str(neighborhood, part.neighborhood)
+        townhome_position = _coalesce_str(townhome_position, part.townhome_position)
         if not cooling and part.cooling:
             cooling = part.cooling
             has_central_ac = part.has_central_ac
@@ -1139,6 +1196,7 @@ def merge_listing_details(*parts: ListingDetails) -> ListingDetails:
         appreciation_decade_pct=appreciation_decade_pct,
         cooling=cooling,
         has_central_ac=has_central_ac,
+        townhome_position=townhome_position,
     )
 
 
@@ -1156,6 +1214,7 @@ def extract_listing_details(html: str) -> ListingDetails:
         or embedded.neighborhood
         or merged.neighborhood
     )
+    position = classify_townhome_position(html, home_type=merged.home_type)
     if neighborhood and neighborhood != merged.neighborhood:
         return ListingDetails(
             list_price=merged.list_price,
@@ -1178,6 +1237,31 @@ def extract_listing_details(html: str) -> ListingDetails:
             appreciation_decade_pct=merged.appreciation_decade_pct,
             cooling=merged.cooling,
             has_central_ac=merged.has_central_ac,
+            townhome_position=position or merged.townhome_position,
+        )
+    if position and position != merged.townhome_position:
+        return ListingDetails(
+            list_price=merged.list_price,
+            beds=merged.beds,
+            baths=merged.baths,
+            sqft=merged.sqft,
+            hoa_fee=merged.hoa_fee,
+            year_built=merged.year_built,
+            home_type=merged.home_type,
+            city=merged.city,
+            state=merged.state,
+            zip_code=merged.zip_code,
+            address=merged.address,
+            neighborhood=merged.neighborhood,
+            annual_tax=merged.annual_tax,
+            annual_insurance=merged.annual_insurance,
+            tax_assessed_value=merged.tax_assessed_value,
+            property_tax_rate=merged.property_tax_rate,
+            rent_zestimate=merged.rent_zestimate,
+            appreciation_decade_pct=merged.appreciation_decade_pct,
+            cooling=merged.cooling,
+            has_central_ac=merged.has_central_ac,
+            townhome_position=position,
         )
     return merged
 

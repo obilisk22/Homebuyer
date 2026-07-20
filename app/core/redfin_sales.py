@@ -82,13 +82,72 @@ def _parse_price(raw: object) -> float | None:
     return val
 
 
+def _parse_count(raw: object) -> int | None:
+    """Parse Redfin count columns (homes_sold, inventory); 0 is valid."""
+    if raw is None or raw == "":
+        return None
+    try:
+        val = float(str(raw).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    if val < 0:
+        return None
+    return int(val)
+
+
+def _row_market_fields(row: dict[str, str]) -> dict[str, Any]:
+    """Extra market-tracker fields used by Active-market chip (TODO-051)."""
+    homes = _parse_count(row.get("homes_sold"))
+    inventory = _parse_count(row.get("inventory"))
+    mos = None
+    raw_mos = row.get("months_of_supply")
+    if raw_mos not in (None, ""):
+        try:
+            mos = float(str(raw_mos).replace(",", "").strip())
+        except (TypeError, ValueError):
+            mos = None
+    out: dict[str, Any] = {}
+    if homes is not None:
+        out["homes_sold"] = homes
+    if inventory is not None:
+        out["inventory"] = inventory
+    if mos is not None and mos >= 0:
+        out["months_of_supply"] = mos
+    return out
+
+
+def percentile_nearest_rank(values: list[float], pct: float) -> float | None:
+    """Nearest-rank percentile (pct in 0–100). Empty → None."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    rank = max(1, min(len(ordered), int(round((pct / 100.0) * len(ordered)))))
+    return float(ordered[rank - 1])
+
+
+def homes_sold_p75(zips: dict[str, dict[str, Any]]) -> float | None:
+    """P75 of monthly ``homes_sold`` across ZIPs that report a count."""
+    vals: list[float] = []
+    for row in zips.values():
+        raw = row.get("homes_sold")
+        if raw is None:
+            continue
+        try:
+            vals.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    return percentile_nearest_rank(vals, 75.0)
+
+
 def parse_redfin_zip_rows(
     rows: list[dict[str, str]],
     *,
     property_type: str = "All Residential",
     period_duration: int | None = 30,
 ) -> dict[str, dict[str, Any]]:
-    """Build ``zip → {median_sale_price, period_end, ...}`` keeping newest period.
+    """Build ``zip → {median_sale_price, period_end, homes_sold?, ...}`` newest period.
 
     Prefers monthly rows (``period_duration == 30``) when that column exists.
     """
@@ -117,11 +176,13 @@ def parse_redfin_zip_rows(
         period_end = (row.get("period_end") or row.get("period_begin") or "").strip()
         prev = best.get(zip_code)
         if prev is None or period_end >= str(prev.get("period_end") or ""):
-            best[zip_code] = {
+            entry: dict[str, Any] = {
                 "median_sale_price": price,
                 "period_end": period_end,
                 "state_code": (row.get("state_code") or "").strip(),
             }
+            entry.update(_row_market_fields(row))
+            best[zip_code] = entry
     return best
 
 
@@ -149,18 +210,23 @@ def _ingest_redfin_reader(reader: csv.DictReader) -> dict[str, dict[str, Any]]:
         period_end = (row.get("period_end") or "").strip()
         prev = best.get(zip_code)
         if prev is None or period_end >= str(prev.get("period_end") or ""):
-            best[zip_code] = {
+            entry: dict[str, Any] = {
                 "median_sale_price": price,
                 "period_end": period_end,
                 "state_code": (row.get("state_code") or "").strip(),
             }
+            entry.update(_row_market_fields(row))
+            best[zip_code] = entry
     return best
+
+
+# v2 cache includes homes_sold / inventory for Active-market chip (TODO-051).
+_ZIP_MARKET_CACHE_KEY = "zip_market_all_residential_monthly_v2"
 
 
 def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
     """Download + stream-parse Redfin ZIP TSV → slim zip map (cached)."""
-    key = "zip_medians_all_residential_monthly"
-    cached = read_json("redfin", key, max_age_s=CACHE_MAX_AGE_S)
+    cached = read_json("redfin", _ZIP_MARKET_CACHE_KEY, max_age_s=CACHE_MAX_AGE_S)
     if isinstance(cached, dict) and isinstance(cached.get("zips"), dict) and cached["zips"]:
         return {str(k): dict(v) for k, v in cached["zips"].items()}
 
@@ -188,17 +254,38 @@ def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
     if not best:
         raise RuntimeError("Redfin ZIP market tracker returned no usable medians")
 
+    p75 = homes_sold_p75(best)
     write_json(
         "redfin",
-        key,
-        {"zips": best, "source": REDFIN_ZIP_TSV_URL, "count": len(best)},
+        _ZIP_MARKET_CACHE_KEY,
+        {
+            "zips": best,
+            "source": REDFIN_ZIP_TSV_URL,
+            "count": len(best),
+            "homes_sold_p75": p75,
+        },
     )
     return best
 
 
 def load_zip_medians() -> dict[str, dict[str, Any]]:
-    """Public entry: cached zip → median sale dict."""
+    """Public entry: cached zip → median sale (+ optional homes_sold) dict."""
     return _stream_redfin_zip_medians()
+
+
+def load_zip_market_bundle() -> dict[str, Any]:
+    """Cached ZIP map plus national ``homes_sold_p75`` for activity chips."""
+    zips = _stream_redfin_zip_medians()
+    cached = read_json("redfin", _ZIP_MARKET_CACHE_KEY, max_age_s=CACHE_MAX_AGE_S)
+    p75: float | None = None
+    if isinstance(cached, dict) and cached.get("homes_sold_p75") is not None:
+        try:
+            p75 = float(cached["homes_sold_p75"])
+        except (TypeError, ValueError):
+            p75 = None
+    if p75 is None:
+        p75 = homes_sold_p75(zips)
+    return {"zips": zips, "homes_sold_p75": p75}
 
 
 def _fetch_zcta_geojson(

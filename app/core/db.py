@@ -165,6 +165,18 @@ def _migrate_sqlite() -> None:
                 "ALTER TABLE properties ADD COLUMN broadband_at VARCHAR(64) NOT NULL DEFAULT ''",
             ),
             (
+                "market_activity",
+                "ALTER TABLE properties ADD COLUMN market_activity TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "market_activity_at",
+                "ALTER TABLE properties ADD COLUMN market_activity_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "townhome_position",
+                "ALTER TABLE properties ADD COLUMN townhome_position VARCHAR(32) NOT NULL DEFAULT ''",
+            ),
+            (
                 "thumbnail_photo_id",
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),
@@ -226,6 +238,14 @@ def _migrate_sqlite() -> None:
             (
                 "financial_gemini_for",
                 "ALTER TABLE properties ADD COLUMN financial_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "photos_gemini",
+                "ALTER TABLE properties ADD COLUMN photos_gemini TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "photos_gemini_for",
+                "ALTER TABLE properties ADD COLUMN photos_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
             ),
         ):
             if name not in prop_cols:

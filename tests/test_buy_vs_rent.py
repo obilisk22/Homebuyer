@@ -260,6 +260,96 @@ def test_buy_vs_rent_applies_rent_growth_year_one():
     assert abs(rows[1].rent_invest_net_worth - expected) < 1.0
 
 
+def test_buy_vs_rent_inflates_maint_and_utils_with_rent_growth():
+    """Maint/utils grow like rent: year-0→1 uses (1+g)^1; PITI stays flat."""
+    summary = summarize(
+        list_price=500_000,
+        offer_price=500_000,
+        down_payment_pct=20,
+        interest_rate_pct=0.0,
+        loan_term_years=30,
+        annual_property_tax=0,
+        annual_insurance=0,
+        monthly_hoa=0,
+        closing_cost_pct=0,
+    )
+    piti = float(summary.monthly_total)
+    maint0 = 100.0
+    utils0 = 50.0
+    g = 0.10
+    budget = 5_000.0
+    # Rent equals owner year-1 cash so rent surplus stays out of the buy NW check.
+    rent_y1 = piti + maint0 * (1.0 + g) + utils0 * (1.0 + g)
+    rows = buy_vs_rent_projection(
+        summary=summary,
+        appreciation_pct=0.0,
+        monthly_rent=rent_y1 / (1.0 + g),
+        invest_return_pct=0.0,
+        selling_cost_pct=6.0,
+        rent_growth_pct=10.0,
+        monthly_maintenance=maint0,
+        monthly_utilities=utils0,
+        monthly_budget=budget,
+        marginal_tax_pct=0,
+        cg_exclusion=500_000,
+    )
+    owner_y1 = piti + maint0 * (1.0 + g) + utils0 * (1.0 + g)
+    buy_contrib = budget - owner_y1
+    buy_portfolio = 12 * buy_contrib
+    # Year 1: home flat, sell 6%, loan after 12 zero-interest payments, + portfolio.
+    home = 500_000.0
+    bal = float(summary.schedule[11]["balance"])
+    amount_realized = home * 0.94
+    expected_buy_nw = amount_realized - bal + buy_portfolio
+    assert abs(rows[1].buy_net_worth - expected_buy_nw) < 1.0
+    # Flat maint/utils would leave a larger surplus → higher buy NW.
+    flat_owner = piti + maint0 + utils0
+    flat_portfolio = 12 * (budget - flat_owner)
+    flat_buy_nw = amount_realized - bal + flat_portfolio
+    assert rows[1].buy_net_worth < flat_buy_nw - 1.0
+
+
+def test_buy_vs_rent_maint_utils_inflate_year_two():
+    """Year-1→2 contributions use (1+g)^2 for maint/utils (same timing as rent)."""
+    summary = summarize(
+        list_price=500_000,
+        offer_price=500_000,
+        down_payment_pct=20,
+        interest_rate_pct=0.0,
+        loan_term_years=30,
+        annual_property_tax=0,
+        annual_insurance=0,
+        monthly_hoa=0,
+        closing_cost_pct=0,
+    )
+    piti = float(summary.monthly_total)
+    maint0 = 200.0
+    utils0 = 80.0
+    g = 0.05
+    budget = 8_000.0
+    rows = buy_vs_rent_projection(
+        summary=summary,
+        appreciation_pct=0.0,
+        monthly_rent=piti,
+        invest_return_pct=0.0,
+        selling_cost_pct=6.0,
+        rent_growth_pct=5.0,
+        monthly_maintenance=maint0,
+        monthly_utilities=utils0,
+        monthly_budget=budget,
+        marginal_tax_pct=0,
+        cg_exclusion=500_000,
+    )
+    buy_port = 0.0
+    for year in (0, 1):
+        opex = (maint0 + utils0) * ((1.0 + g) ** (year + 1))
+        buy_port += 12 * (budget - (piti + opex))
+    home = 500_000.0
+    bal = float(summary.schedule[23]["balance"])
+    expected = home * 0.94 - bal + buy_port
+    assert abs(rows[2].buy_net_worth - expected) < 1.0
+
+
 def test_buy_vs_rent_custom_selling_cost():
     summary = summarize(
         list_price=500_000,

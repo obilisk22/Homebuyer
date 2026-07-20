@@ -51,11 +51,11 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-047 | Done | Library nearby icons: click opens Google Maps (lat/lng / place_id / name) |
 | TODO-048 | Done | Playground library icon: radius 0.75 → 0.9375 mi (×1.25); tags unchanged |
 | TODO-049 | Done | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
-| TODO-050 | Open | Buy-vs-rent: scale utilities + maintenance with inflation |
-| TODO-051 | Open | Library icon: “Active market” — elevated recent sales nearby |
-| TODO-052 | Open | Library icon: “Center townhome” — mid-row unit (not an end unit) |
-| TODO-053 | Open | Photos tab: Gemini overall property blurb (Zillow URL context) |
-| TODO-054 | Open | Remove property-header “Gemini insights” bulk button (too many API calls) |
+| TODO-050 | Done | Buy-vs-rent: scale utilities + maintenance with inflation |
+| TODO-051 | Done | Library icon: “Active market” — elevated recent sales nearby |
+| TODO-052 | Done | Library icon: “Center townhome” — mid-row unit (not an end unit) |
+| TODO-053 | Done | Photos tab: Gemini overall property blurb (Zillow URL context) |
+| TODO-054 | Done | Remove property-header “Gemini insights” bulk button (too many API calls) |
 
 ---
 
@@ -378,7 +378,7 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 **Fix**
 - `app/core/ui_jobs.py` — session-safe workers (`get_session()` inside the thread; plain values in/out; never pass ORM/UI objects).
-- Long UI handlers use `await run.io_bound(job, …)`: library add / refresh / Gemini insights / stale nearby; Map heavy overlays + re-geocode; Financials Gemini; Neighborhood Ask / Refresh.
+- Long UI handlers use `await run.io_bound(job, …)`: library add / refresh / stale nearby; Map heavy overlays + re-geocode; Financials / Neighborhood / Photos Gemini Ask / Refresh.
 - Flood/wildfire stay sync (instant WMS); `wire_layer` awaits awaitable handlers.
 
 **Touch:** `ui_jobs.py`, `pages.py`, `map_view.py`, `financial.py`, `neighborhood_reviews.py`, docs.
@@ -744,19 +744,18 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-050 — Utilities + maintenance inflate in buy-vs-rent
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** In `buy_vs_rent_projection`, comparable **rent** rises with `rent_growth_pct`, but owner **monthly maintenance** and **monthly utilities** stay flat for the whole term. That understates long-run ownership cash costs vs renting.
 
-**Goals**
-1. Grow maintenance and utilities each projection year with an inflation rate (default: same as **`rent_growth_pct`** so one growth assumption drives housing OPEX; optional separate `opex_inflation_pct` only if UI already needs it — prefer reuse first).
-2. Year *t* owner housing cost uses `maint₀ × (1+g)^t` and `utils₀ × (1+g)^t` (or monthly compounding consistent with how rent is applied today).
-3. Charts / surplus math pick up the inflated amounts; captions note that maint/utils track inflation (same source as rent growth unless Manual).
-4. PITI / loan schedule remain flat as today (do not inflate principal & interest).
+**Shipped**
+1. Maintenance and utilities inflate each projection year at the same rate as rent (`rent_growth_pct`); timing matches rent (`(1+g)^(year+1)` for contributions after snapshot year).
+2. Charts / surplus math use the inflated owner cash cost; chart caption notes maint/utils inflate with rent growth.
+3. PITI / loan schedule remain flat.
 
-**Non-goals:** Inflating HOA/tax/insurance in v1 unless already easy; changing autofill formulas for current-year maint/utils.
+**Non-goals (kept):** Inflating HOA/tax/insurance; changing autofill formulas for current-year maint/utils; separate `opex_inflation_pct` knob.
 
-**Touch:** `app/core/finance.py` (`buy_vs_rent_projection`), Financials module/chart wiring, tests, docs / AGENTS §6d.
+**Touch:** `app/core/finance.py` (`buy_vs_rent_projection`), `app/modules/financial.py` (caption), `tests/test_buy_vs_rent.py`, docs / AGENTS §6d.
 
 **Related:** TODO-040 (utilities estimate), TODO-017 (buy-vs-rent what-ifs).
 
@@ -764,81 +763,59 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 ## TODO-051 — Library icon: Active market (recent sales)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
 **Problem:** Buyers care whether the micro-market is “hot” (many recent sales). Map already has a Redfin **ZIP median sale price** choropleth (TODO-021), but the library card has no chip for **sales activity / turnover**.
 
-**Goals**
-1. Soft neo library (+ header) chip **“Active market”** when the home’s area shows elevated recent sale activity vs a quiet baseline.
-2. Prefer extending existing Redfin Data Center ZIP market tracker ingest (`app/core/redfin_sales.py`) — e.g. `homes_sold`, inventory, or months-of-supply for the property’s ZIP — rather than a new paid MLS feed. Document the chosen metric + threshold after a quick column audit.
-3. Persist a small JSON snapshot on `Property` (like permits/broadband) + stale refresh on library load; no API key.
-4. Tooltip: e.g. “N sales last month in ZIP #####” / period end; lime or amber tone (amenity/hot — pick one and match existing chip language).
-5. Optional click → Redfin/Zillow ZIP search or Maps (nice-to-have; not required for v1).
+**Shipped**
+- Extended Redfin ZIP market tracker ingest (`redfin_sales.py` cache key `zip_market_all_residential_monthly_v2`) to keep monthly **`homes_sold`** (+ inventory / months_of_supply when present) and national **P75**.
+- **Active when** `homes_sold >= max(12, round(P75))` for the property ZIP’s latest All-Residential monthly row. Quiet / missing Redfin → no chip.
+- Persist `market_activity` / `market_activity_at` on `Property`; compute on add / refresh / post-geocode; stale refresh on library paint (`market_activity.py`).
+- Lime amenity chip (`local_fire_department`) via `_extra_signal_chips` on library + header; tooltip e.g. “N sales last month in ZIP #####”.
 
-**Non-goals:** Parcel-level sold comps map markers; replacing the Sale price choropleth; inventing fake activity when Redfin has no row.
-
-**Touch:** `redfin_sales.py` (or new `market_activity.py`), models/db, property_service / ui_jobs, `pages.py` chip row, theme, tests, docs / AGENTS §8.
-
-**Related:** TODO-021 (Redfin choropleth), TODO-025 / 043 (library chip patterns).
+**Touch:** `redfin_sales.py`, `market_activity.py`, models/db, property_service / ui_jobs, `pages.py`, tests, docs.
 
 ---
 
 ## TODO-052 — Library icon: Center townhome (mid-row, not end)
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Problem:** In row-style townhome / attached products, **interior (“center”) units** differ from **end units** (light, privacy, yard, noise, resale). Library cards don’t flag when a listing is a mid-row unit in a row complex.
+**Problem:** In row-style townhome / attached products, **interior (“center”) units** differ from **end units**. Library cards don’t flag mid-row units.
 
-**Goals**
-1. Soft neo library (+ header) chip **“Center townhome”** (or similar short label) when the property is part of a **row / attached townhome-style** complex **and is not an edge/end unit**.
-2. Detection — investigate then ship one reliable path (document chosen rule):
-   - Listing signals: `home_type` Townhouse / similar + address/unit heuristics; and/or
-   - Geometry: parcel / building footprint neighbors (e.g. OSM or local GIS) — unit has attached neighbors on **both** sides vs one side (end) or none (detached).
-3. False positives: skip true detached SFR, stacked mid-rise condos that aren’t “row,” and unknown when confidence is low (no chip better than wrong chip).
-4. Tooltip explains why (e.g. “Mid-row townhome — attached both sides”); tone quiet/neutral or magenta risk — pick to match product feel (interior often less desirable → soft risk is reasonable).
-5. Compute on add / refresh listing; optional stale refresh; wire through existing listing-risk / extra chip strip (`listing_signals` pattern).
+**Shipped**
+- **Rule:** `home_type == Townhouse` **and** listing HTML matches explicit mid-row language (`interior/middle/mid-row/center unit`) **without** end/corner-unit language. Ambiguous or non-townhouse → no chip.
+- Scrape via `classify_townhome_position` → `ListingDetails.townhome_position` → `Property.townhome_position`.
+- Magenta soft-risk chip (`view_column`) “Center townhome — mid-row…” via `listing_signals.center_townhome_chip`.
 
-**Non-goals:** Full HOA site plans; distinguishing every condo stack type; map overlay for the whole row.
-
-**Touch:** `listing_signals.py` and/or new helper, Zillow extract if needed, `pages.py` chips, tests, docs / AGENTS §8.
-
-**Related:** TODO-039 (no Central AC chip pattern), TODO-001 (home type scrape).
+**Touch:** `zillow_listing.py`, `listing_signals.py`, models/db, property_service, `pages.py`, tests, docs.
 
 ---
 
 ## TODO-053 — Photos tab: Gemini overall property blurb
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Problem:** Photos is view/pin only. There’s no quick AI read of the listing as a whole while browsing photos. Financials Gemini is deal/market-framed; Neighborhood Gemini is hood-framed — neither is a short “what do you think of this property?” blurb on Photos.
+**Problem:** Photos is view/pin only. No quick AI read of the listing as a whole while browsing photos.
 
-**Goals**
-1. On the **Photos** tab (`app/modules/gallery.py`), add a compact Gemini section (above or below the grid): short overall opinion paragraph.
-2. Prompt Gemini with the subject **`zillow_url` via URL context** (+ Search as needed) — same spirit as Financials Gemini (`fin_v4`); include exact address when known. Do **not** dump calculator fields or photo binaries in v1 (URL + address is enough; listing photos are on the Zillow page).
-3. Cache on `Property` (e.g. `photos_gemini` / `photos_gemini_for` with a versioned key like `photos_v1|<url-hash>`); **Ask** uses warm cache; **Regenerate** forces refresh.
-4. In-tab Ask / Regenerate buttons; require `GEMINI_API_KEY`; long call via `run.io_bound` + `ui_jobs` (no Connection lost).
-5. Match Photos/Financials cyberpunk chrome (titles/hints denser controls).
+**Shipped**
+- `app/core/gemini_photos.py`: Zillow URL context (+ Search); short overall paragraph; cache key `photos_v1|<url-hash>`.
+- Columns `photos_gemini` / `photos_gemini_for`; Ask uses warm cache; Regenerate forces refresh.
+- Photos tab Ask / Regenerate; `ensure_gemini_photos_job` via `run.io_bound`; needs `GEMINI_API_KEY`.
 
-**Non-goals:** Multi-section Financials-style essay; uploading local gallery images to Gemini in v1; replacing Neighborhood/Financials Gemini.
-
-**Touch:** new `app/core/gemini_photos.py` (or similar), `models.py` / `db.py`, `gallery.py`, `ui_jobs.py`, `property_service` if needed, tests, docs / AGENTS (Photos + Gemini §).
-
-**Related:** Financials Gemini (§6b), Neighborhood Gemini (§6), TODO-026 (`run.io_bound`).
+**Touch:** `gemini_photos.py`, models/db, `gallery.py`, `ui_jobs.py`, `property_service.py`, tests, docs.
 
 ---
 
 ## TODO-054 — Remove header “Gemini insights” bulk button
 
-**Status:** Open
+**Status:** Done (2026-07-19)
 
-**Problem:** Property header **Gemini insights** runs a bulk job (`ensure_gemini_insights_job`) that fans out to neighborhood + financials (multiple Gemini calls) in one click — easy to burn quota / hit rate limits. In-tab Ask / Regenerate already cover the same features with intentional, smaller calls.
+**Problem:** Property header **Gemini insights** ran a bulk job that fans out to neighborhood + financials — easy to burn quota.
 
-**Goals**
-1. Remove the property-header **Gemini insights** button and its handler wiring in `app/ui/pages.py`.
-2. Keep in-tab Gemini on Neighborhood + Financials (and Photos when TODO-053 ships).
-3. Leave `ensure_gemini_insights_job` / service helpers in place only if still useful internally; otherwise delete dead paths. Update AGENTS §5c / verify checklist (no header bulk Gemini).
-4. Docs: header bulk shortcut is gone; users generate per-tab.
+**Shipped**
+- Removed header button + handler from `pages.py`.
+- Deleted dead `ensure_gemini_insights` / `ensure_gemini_insights_job` (bulk-only).
+- In-tab Ask / Regenerate on Neighborhood, Financials, and Photos remain.
 
-**Non-goals:** Changing in-tab Ask/Regenerate behavior or cache keys.
-
-**Touch:** `app/ui/pages.py`, possibly `ui_jobs.py` / `property_service.py` if bulk-only, tests/docs / AGENTS.
+**Touch:** `pages.py`, `ui_jobs.py`, `property_service.py`, docs / AGENTS §5c.

@@ -32,13 +32,6 @@ def refresh_listing_details_job(property_id: int) -> None:
         PropertyService(session).refresh_listing_details(property_id)
 
 
-def ensure_gemini_insights_job(property_id: int, *, force: bool = False) -> dict[str, str]:
-    with get_session() as session:
-        return PropertyService(session).ensure_gemini_insights(
-            property_id, force=force
-        )
-
-
 def ensure_coordinates_job(
     property_id: int, *, force: bool = False
 ) -> tuple[float | None, float | None]:
@@ -64,6 +57,12 @@ def refresh_stale_broadband_status_job(*, limit: int = 3) -> int:
     """Best-effort stale FCC BDC refresh for library paint."""
     with get_session() as session:
         return int(PropertyService(session).refresh_stale_broadband_status(limit=limit))
+
+
+def refresh_stale_market_activity_job(*, limit: int = 3) -> int:
+    """Best-effort stale Redfin ZIP activity refresh for library paint."""
+    with get_session() as session:
+        return int(PropertyService(session).refresh_stale_market_activity(limit=limit))
 
 
 def ensure_neighborhood_job(property_id: int, *, force: bool = False) -> dict[str, str]:
@@ -117,4 +116,14 @@ def ensure_gemini_financial_job(
             "for": (prop.financial_gemini_for or "").strip(),
             "subject_zillow_url": (prop.zillow_url or "").strip(),
             "peer_refs": peer_refs,
+        }
+
+
+def ensure_gemini_photos_job(property_id: int, *, force: bool = False) -> dict[str, str]:
+    """Run Photos-tab Gemini blurb; return text + cache key."""
+    with get_session() as session:
+        prop = PropertyService(session).ensure_gemini_photos(property_id, force=force)
+        return {
+            "text": (prop.photos_gemini or "").strip(),
+            "for": (prop.photos_gemini_for or "").strip(),
         }

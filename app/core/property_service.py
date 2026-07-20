@@ -31,6 +31,14 @@ from app.core.fcc_broadband import (
     needs_refresh as broadband_needs_refresh,
     refresh_property_broadband,
 )
+from app.core.gemini_photos import (
+    build_photos_fingerprint,
+    generate_photos_commentary,
+)
+from app.core.market_activity import (
+    needs_refresh as market_needs_refresh,
+    refresh_property_market_activity,
+)
 from app.core.nearby_signals import needs_refresh, refresh_property_signals
 from app.core.permits_nearby import (
     needs_refresh as permits_needs_refresh,
@@ -248,6 +256,19 @@ class PropertyService:
             self.session.rollback()
         return prop
 
+    def refresh_market_activity(self, property_id: int) -> Property:
+        """Refresh and persist Redfin ZIP market activity without surfacing failures."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        try:
+            refresh_property_market_activity(prop)
+            self.session.commit()
+            self.session.refresh(prop)
+        except Exception:  # noqa: BLE001 - Redfin lookup never blocks property flows
+            self.session.rollback()
+        return prop
+
     def refresh_stale_nearby_signals(self, *, limit: int = 3) -> int:
         """Refresh up to ``limit`` stale properties that have map coordinates."""
         import time
@@ -318,6 +339,24 @@ class PropertyService:
                 break
         return refreshed
 
+    def refresh_stale_market_activity(self, *, limit: int = 3) -> int:
+        """Refresh up to ``limit`` stale Redfin ZIP activity lookups."""
+        if limit <= 0:
+            return 0
+        stmt = select(Property).order_by(Property.updated_at.desc())
+        refreshed = 0
+        for prop in self.session.scalars(stmt):
+            zip_code = (prop.zip_code or "").strip()
+            if not zip_code:
+                continue
+            if not market_needs_refresh(prop.market_activity_at, prop.market_activity):
+                continue
+            self.refresh_market_activity(prop.id)
+            refreshed += 1
+            if refreshed >= limit:
+                break
+        return refreshed
+
     def _apply_listing_details(
         self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
     ) -> None:
@@ -340,6 +379,17 @@ class PropertyService:
             prop.has_central_ac = details.has_central_ac
         elif details.has_central_ac is not None:
             prop.has_central_ac = details.has_central_ac
+        # Townhome mid-row / end (TODO-052): only persist clear center|end.
+        position = (getattr(details, "townhome_position", "") or "").strip().lower()
+        home_type = (details.home_type or prop.home_type or "").strip()
+        if position in {"center", "end"} and home_type.casefold() == "townhouse":
+            prop.townhome_position = position
+        elif home_type and home_type.casefold() != "townhouse":
+            prop.townhome_position = ""
+        elif position == "" and details.home_type:
+            # Fresh townhouse scrape with no position language → clear stale guess.
+            if home_type.casefold() == "townhouse":
+                prop.townhome_position = ""
         if details.city:
             prop.city = details.city
         if details.state:
@@ -623,6 +673,10 @@ class PropertyService:
                 self._sync_financial_from_listing(prop, details)
         self.session.commit()
         self.session.refresh(prop)
+        try:
+            prop = self.refresh_market_activity(prop.id)
+        except Exception:
+            pass
         return prop
 
     def add_from_zillow(
@@ -705,6 +759,11 @@ class PropertyService:
         except Exception:
             # FCC BDC lookups must never prevent saving a home.
             pass
+        try:
+            prop = self.refresh_market_activity(prop.id)
+        except Exception:
+            # Redfin ZIP activity must never prevent saving a home.
+            pass
         return prop, imported
 
     def ensure_coordinates(self, property_id: int, *, force: bool = False) -> Property:
@@ -735,6 +794,11 @@ class PropertyService:
             prop = self.refresh_broadband_status(prop.id)
         except Exception:
             # FCC BDC lookups must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_market_activity(prop.id)
+        except Exception:
+            # Redfin ZIP activity must never prevent saving coordinates.
             pass
         return prop
 
@@ -1050,6 +1114,36 @@ class PropertyService:
         self.session.refresh(prop)
         return prop
 
+    def ensure_gemini_photos(self, property_id: int, *, force: bool = False) -> Property:
+        """Generate and cache Photos-tab Gemini blurb from the subject Zillow URL."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        subject_url = (prop.zillow_url or "").strip()
+        if not subject_url:
+            raise ValueError("This home needs a Zillow URL before asking Gemini about photos.")
+
+        cache_key = build_photos_fingerprint(
+            subject_zillow_url=subject_url,
+            address=prop.address or "",
+        )
+        if (
+            not force
+            and (prop.photos_gemini or "").strip()
+            and (prop.photos_gemini_for or "").strip() == cache_key
+        ):
+            return prop
+
+        text = generate_photos_commentary(
+            subject_zillow_url=subject_url,
+            subject_label=prop.address or "",
+        )
+        prop.photos_gemini = text
+        prop.photos_gemini_for = cache_key
+        self.session.commit()
+        self.session.refresh(prop)
+        return prop
+
     def _library_zillow_refs(self, exclude_property_id: int) -> list[ZillowListingRef]:
         """Other saved homes as Zillow URL peers for Gemini (max 19 peers → 20 URLs)."""
         rows = self.session.execute(
@@ -1072,84 +1166,6 @@ class PropertyService:
             if len(refs) >= 19:
                 break
         return refs
-
-    def ensure_gemini_insights(
-        self, property_id: int, *, force: bool = False
-    ) -> dict[str, str]:
-        """Run neighborhood + financial Gemini jobs; return status per section.
-
-        Continues after individual failures so one missing piece (e.g. no price)
-        does not block the others. Keys: overview, things_to_do, financial.
-        Values are ``ok``, ``cached``, or an error message.
-        """
-        results: dict[str, str] = {}
-
-        try:
-            self.ensure_neighborhood(property_id)
-        except Exception as exc:  # noqa: BLE001
-            results["overview"] = f"Neighborhood name: {exc}"
-            results["things_to_do"] = f"Neighborhood name: {exc}"
-        else:
-            prop = self.get_property(property_id)
-            name = self.display_neighborhood(prop) if prop else ""
-            if not name:
-                msg = "Set a neighborhood name first"
-                results["overview"] = msg
-                results["things_to_do"] = msg
-            else:
-                try:
-                    before = (prop.neighborhood_gemini_for or "").strip() if prop else ""
-                    self.ensure_gemini_overview(property_id, force=force)
-                    after_prop = self.get_property(property_id)
-                    after = (
-                        (after_prop.neighborhood_gemini_for or "").strip()
-                        if after_prop
-                        else ""
-                    )
-                    results["overview"] = (
-                        "cached"
-                        if not force and before and before == after
-                        else "ok"
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    results["overview"] = str(exc)
-                try:
-                    prop2 = self.get_property(property_id)
-                    before_t = (
-                        (prop2.neighborhood_things_to_do_for or "").strip()
-                        if prop2
-                        else ""
-                    )
-                    self.ensure_gemini_things_to_do(property_id, force=force)
-                    after_prop2 = self.get_property(property_id)
-                    after_t = (
-                        (after_prop2.neighborhood_things_to_do_for or "").strip()
-                        if after_prop2
-                        else ""
-                    )
-                    results["things_to_do"] = (
-                        "cached"
-                        if not force and before_t and before_t == after_t
-                        else "ok"
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    results["things_to_do"] = str(exc)
-
-        try:
-            prop_f = self.get_property(property_id)
-            before_f = (prop_f.financial_gemini_for or "").strip() if prop_f else ""
-            self.ensure_gemini_financial(property_id, force=force)
-            after_f_prop = self.get_property(property_id)
-            after_f = (
-                (after_f_prop.financial_gemini_for or "").strip() if after_f_prop else ""
-            )
-            results["financial"] = (
-                "cached" if not force and before_f and before_f == after_f else "ok"
-            )
-        except Exception as exc:  # noqa: BLE001
-            results["financial"] = str(exc)
-
-        return results
 
     def update_financial(self, property_id: int, **fields: float | int) -> FinancialAssumptions:
         prop = self.get_property(property_id)

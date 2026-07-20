@@ -933,15 +933,20 @@ def render(prop: Property, container: ui.element) -> None:
                         ]
                     )
                     if maint > 0:
-                        projection_bits.append(f"maintenance {_money(maint)}/mo")
+                        projection_bits.append(
+                            f"maintenance {_money(maint)}/mo (inflates w/ rent growth)"
+                        )
                     if utils > 0:
-                        projection_bits.append(f"utilities {_money(utils)}/mo")
+                        projection_bits.append(
+                            f"utilities {_money(utils)}/mo (inflates w/ rent growth)"
+                        )
                     if float(rent_in.value or 0) <= 0:
                         projection_bits.append("set rent for a fair compare")
                     ui.label(" · ".join(projection_bits)).classes("hb-page-meta")
                     ui.label(
                         "Buy NW = sale proceeds − loan − CG tax + surplus portfolio; "
-                        "both paths invest leftover budget (simplified CA MFJ taxes)."
+                        "both paths invest leftover budget (simplified CA MFJ taxes). "
+                        "PITI stays flat; maintenance and utilities rise with rent growth."
                     ).classes("hb-page-meta")
                 else:
                     ui.label(

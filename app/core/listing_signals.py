@@ -11,6 +11,8 @@ from typing import Any, TypedDict
 # Material icon name used by NiceGUI ui.icon
 NO_CENTRAL_AC_ICON = "ac_unit"
 NO_CENTRAL_AC_KEY = "no_central_ac"
+CENTER_TOWNHOME_KEY = "center_townhome"
+CENTER_TOWNHOME_ICON = "view_column"
 
 _CENTRAL_RE = re.compile(
     r"\bcentral(?:\s+air|\s+a/?c|\s+ac|\s+cooling|\s+air\s*conditioning)?\b",
@@ -79,6 +81,27 @@ def central_ac_risk_entry(prop: Any) -> RiskChip | None:
     }
 
 
+def center_townhome_chip(prop: Any) -> RiskChip | None:
+    """Soft-risk chip when listing copy clearly marks a mid-row townhome.
+
+    Rule (TODO-052): ``home_type`` Townhouse + ``townhome_position == "center"``
+    from explicit interior/middle/mid-row language on the Zillow page.
+    End-unit / uncertain → no chip.
+    """
+    home_type = (getattr(prop, "home_type", "") or "").strip()
+    if home_type.casefold() != "townhouse":
+        return None
+    position = (getattr(prop, "townhome_position", "") or "").strip().casefold()
+    if position != "center":
+        return None
+    return {
+        "key": CENTER_TOWNHOME_KEY,
+        "kind": "risk",
+        "icon": CENTER_TOWNHOME_ICON,
+        "tooltip": "Center townhome — mid-row (attached both sides)",
+    }
+
+
 def listing_risk_chips(prop: Any) -> list[RiskChip]:
     """Ordered listing-derived risk chips for library / header rows.
 
@@ -94,4 +117,7 @@ def listing_risk_chips(prop: Any) -> list[RiskChip]:
     bb = chip_spec_for(parse_status_json(getattr(prop, "broadband_status", None) or ""))
     if bb is not None:
         chips.append(bb)  # type: ignore[arg-type]
+    mid = center_townhome_chip(prop)
+    if mid is not None:
+        chips.append(mid)
     return chips

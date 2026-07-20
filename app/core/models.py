@@ -45,6 +45,11 @@ class Property(Base):
     # FCC broadband status JSON + ISO timestamp (TODO-042).
     broadband_status: Mapped[str] = mapped_column(Text, default="", nullable=False)
     broadband_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Redfin ZIP homes_sold activity JSON + ISO timestamp (TODO-051).
+    market_activity: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    market_activity_at: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Listing townhome position: "" | "center" | "end" (TODO-052).
+    townhome_position: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     # Soft reference to photos.id (avoid circular FK with SQLite).
     thumbnail_photo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -62,6 +67,9 @@ class Property(Base):
     # Cached Gemini financial breakdown + opinion; _for is assumption fingerprint.
     financial_gemini: Mapped[str] = mapped_column(Text, default="", nullable=False)
     financial_gemini_for: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    # Photos-tab Gemini overall blurb; _for is URL fingerprint (TODO-053).
+    photos_gemini: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    photos_gemini_for: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

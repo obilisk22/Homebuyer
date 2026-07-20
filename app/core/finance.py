@@ -252,8 +252,10 @@ def buy_vs_rent_projection(
 
     Both paths invest ``max(0, budget − housing_cost)``. Buyer housing cost is
     PITI + maintenance + utilities minus a simplified interest + SALT-capped
-    property-tax shield. Buy NW includes the buyer investment portfolio and CG
-    tax on a hypothetical sale each year (primary-residence exclusion applied).
+    property-tax shield. Maintenance and utilities inflate each year at the same
+    rate as rent (``rent_growth_pct``); PITI stays flat. Buy NW includes the
+    buyer investment portfolio and CG tax on a hypothetical sale each year
+    (primary-residence exclusion applied).
     """
     term_years = max(len(summary.schedule) // 12, 0)
 
@@ -263,8 +265,8 @@ def buy_vs_rent_projection(
     appr = float(appreciation_pct) / 100.0
     r_month = (float(invest_return_pct) / 100.0) / 12.0
     piti = float(summary.monthly_total)
-    maint = float(monthly_maintenance or 0)
-    utils = float(monthly_utilities or 0)
+    maint0 = float(monthly_maintenance or 0)
+    utils0 = float(monthly_utilities or 0)
     g = float(rent_growth_pct or 0) / 100.0
     rent0 = float(monthly_rent or 0)
     budget = float(monthly_budget or 0)
@@ -310,9 +312,12 @@ def buy_vs_rent_projection(
 
         interest_y = interest_in_loan_year(summary.schedule, year)
         shield_y = marg * (interest_y + prop_deduct)
+        # Same timing as rent: contributions after snapshot ``year`` use (1+g)^(year+1)
+        growth = (1.0 + g) ** (year + 1)
+        maint = maint0 * growth
+        utils = utils0 * growth
         owner_after_tax = piti + maint + utils - shield_y / 12.0
-        # Rent for contributions after snapshot ``year`` (matches prior growth timing)
-        rent_year = rent0 * ((1.0 + g) ** (year + 1))
+        rent_year = rent0 * growth
 
         buy_contrib = max(0.0, budget - owner_after_tax)
         rent_contrib = max(0.0, budget - rent_year)

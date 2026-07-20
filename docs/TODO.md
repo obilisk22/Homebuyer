@@ -55,6 +55,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-051 | Open | Library icon: “Active market” — elevated recent sales nearby |
 | TODO-052 | Open | Library icon: “Center townhome” — mid-row unit (not an end unit) |
 | TODO-053 | Open | Photos tab: Gemini overall property blurb (Zillow URL context) |
+| TODO-054 | Open | Remove property-header “Gemini insights” bulk button (too many API calls) |
 
 ---
 
@@ -823,3 +824,21 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** new `app/core/gemini_photos.py` (or similar), `models.py` / `db.py`, `gallery.py`, `ui_jobs.py`, `property_service` if needed, tests, docs / AGENTS (Photos + Gemini §).
 
 **Related:** Financials Gemini (§6b), Neighborhood Gemini (§6), TODO-026 (`run.io_bound`).
+
+---
+
+## TODO-054 — Remove header “Gemini insights” bulk button
+
+**Status:** Open
+
+**Problem:** Property header **Gemini insights** runs a bulk job (`ensure_gemini_insights_job`) that fans out to neighborhood + financials (multiple Gemini calls) in one click — easy to burn quota / hit rate limits. In-tab Ask / Regenerate already cover the same features with intentional, smaller calls.
+
+**Goals**
+1. Remove the property-header **Gemini insights** button and its handler wiring in `app/ui/pages.py`.
+2. Keep in-tab Gemini on Neighborhood + Financials (and Photos when TODO-053 ships).
+3. Leave `ensure_gemini_insights_job` / service helpers in place only if still useful internally; otherwise delete dead paths. Update AGENTS §5c / verify checklist (no header bulk Gemini).
+4. Docs: header bulk shortcut is gone; users generate per-tab.
+
+**Non-goals:** Changing in-tab Ask/Regenerate behavior or cache keys.
+
+**Touch:** `app/ui/pages.py`, possibly `ui_jobs.py` / `property_service.py` if bulk-only, tests/docs / AGENTS.

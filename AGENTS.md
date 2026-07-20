@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (filed TODO-053: Photos Gemini overall blurb)
+> Last updated: 2026-07-19 (filed TODO-054: remove header Gemini insights button)
 
 
 
@@ -260,6 +260,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-051` | **Open** | Library icon — “Active market” (elevated recent sales / Redfin ZIP activity) |
 | `TODO-052` | **Open** | Library icon — “Center townhome” (mid-row / not end unit) |
 | `TODO-053` | **Open** | Photos tab — Gemini overall property blurb (Zillow URL context) |
+| `TODO-054` | **Open** | Remove property-header “Gemini insights” bulk button (quota) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

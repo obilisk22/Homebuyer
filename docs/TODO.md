@@ -52,6 +52,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-048 | Done | Playground library icon: radius 0.75 → 0.9375 mi (×1.25); tags unchanged |
 | TODO-049 | Done | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
 | TODO-050 | Open | Buy-vs-rent: scale utilities + maintenance with inflation |
+| TODO-051 | Open | Library icon: “Active market” — elevated recent sales nearby |
 
 ---
 
@@ -755,3 +756,24 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** `app/core/finance.py` (`buy_vs_rent_projection`), Financials module/chart wiring, tests, docs / AGENTS §6d.
 
 **Related:** TODO-040 (utilities estimate), TODO-017 (buy-vs-rent what-ifs).
+
+---
+
+## TODO-051 — Library icon: Active market (recent sales)
+
+**Status:** Open
+
+**Problem:** Buyers care whether the micro-market is “hot” (many recent sales). Map already has a Redfin **ZIP median sale price** choropleth (TODO-021), but the library card has no chip for **sales activity / turnover**.
+
+**Goals**
+1. Soft neo library (+ header) chip **“Active market”** when the home’s area shows elevated recent sale activity vs a quiet baseline.
+2. Prefer extending existing Redfin Data Center ZIP market tracker ingest (`app/core/redfin_sales.py`) — e.g. `homes_sold`, inventory, or months-of-supply for the property’s ZIP — rather than a new paid MLS feed. Document the chosen metric + threshold after a quick column audit.
+3. Persist a small JSON snapshot on `Property` (like permits/broadband) + stale refresh on library load; no API key.
+4. Tooltip: e.g. “N sales last month in ZIP #####” / period end; lime or amber tone (amenity/hot — pick one and match existing chip language).
+5. Optional click → Redfin/Zillow ZIP search or Maps (nice-to-have; not required for v1).
+
+**Non-goals:** Parcel-level sold comps map markers; replacing the Sale price choropleth; inventing fake activity when Redfin has no row.
+
+**Touch:** `redfin_sales.py` (or new `market_activity.py`), models/db, property_service / ui_jobs, `pages.py` chip row, theme, tests, docs / AGENTS §8.
+
+**Related:** TODO-021 (Redfin choropleth), TODO-025 / 043 (library chip patterns).

@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (in-app API keys dialog → user-local .env)
+> Last updated: 2026-07-19 (filed TODO-050: maint/utils inflate in buy-vs-rent)
 
 
 
@@ -256,6 +256,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-047` | **Done** | Nearby chips — click opens Google Maps (lat/lng / place_id / name); stopPropagation kept |
 | `TODO-048` | **Done** | Playground radius 0.75 → 0.9375 mi (×1.25); tags unchanged; Overpass cache `overpass_v3_*` |
 | `TODO-049` | **Done** | Nearby chip Maps — specific place pin + home↔place directions (not category search) |
+| `TODO-050` | **Open** | Buy-vs-rent — utilities + maintenance scale with inflation (rent growth) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

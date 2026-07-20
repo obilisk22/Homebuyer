@@ -51,6 +51,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-047 | Done | Library nearby icons: click opens Google Maps (lat/lng / place_id / name) |
 | TODO-048 | Done | Playground library icon: radius 0.75 → 0.9375 mi (×1.25); tags unchanged |
 | TODO-049 | Done | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
+| TODO-050 | Open | Buy-vs-rent: scale utilities + maintenance with inflation |
 
 ---
 
@@ -734,3 +735,23 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** `app/core/nearby_signals.py` (`source_url_for`), `app/ui/pages.py` (`_render_nearby_signal_chips`), tests, docs / AGENTS §8a.
 
 **Related:** TODO-047 (shipped).
+
+---
+
+## TODO-050 — Utilities + maintenance inflate in buy-vs-rent
+
+**Status:** Open
+
+**Problem:** In `buy_vs_rent_projection`, comparable **rent** rises with `rent_growth_pct`, but owner **monthly maintenance** and **monthly utilities** stay flat for the whole term. That understates long-run ownership cash costs vs renting.
+
+**Goals**
+1. Grow maintenance and utilities each projection year with an inflation rate (default: same as **`rent_growth_pct`** so one growth assumption drives housing OPEX; optional separate `opex_inflation_pct` only if UI already needs it — prefer reuse first).
+2. Year *t* owner housing cost uses `maint₀ × (1+g)^t` and `utils₀ × (1+g)^t` (or monthly compounding consistent with how rent is applied today).
+3. Charts / surplus math pick up the inflated amounts; captions note that maint/utils track inflation (same source as rent growth unless Manual).
+4. PITI / loan schedule remain flat as today (do not inflate principal & interest).
+
+**Non-goals:** Inflating HOA/tax/insurance in v1 unless already easy; changing autofill formulas for current-year maint/utils.
+
+**Touch:** `app/core/finance.py` (`buy_vs_rent_projection`), Financials module/chart wiring, tests, docs / AGENTS §6d.
+
+**Related:** TODO-040 (utilities estimate), TODO-017 (buy-vs-rent what-ifs).

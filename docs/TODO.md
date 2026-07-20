@@ -54,6 +54,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-050 | Open | Buy-vs-rent: scale utilities + maintenance with inflation |
 | TODO-051 | Open | Library icon: “Active market” — elevated recent sales nearby |
 | TODO-052 | Open | Library icon: “Center townhome” — mid-row unit (not an end unit) |
+| TODO-053 | Open | Photos tab: Gemini overall property blurb (Zillow URL context) |
 
 ---
 
@@ -801,3 +802,24 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** `listing_signals.py` and/or new helper, Zillow extract if needed, `pages.py` chips, tests, docs / AGENTS §8.
 
 **Related:** TODO-039 (no Central AC chip pattern), TODO-001 (home type scrape).
+
+---
+
+## TODO-053 — Photos tab: Gemini overall property blurb
+
+**Status:** Open
+
+**Problem:** Photos is view/pin only. There’s no quick AI read of the listing as a whole while browsing photos. Financials Gemini is deal/market-framed; Neighborhood Gemini is hood-framed — neither is a short “what do you think of this property?” blurb on Photos.
+
+**Goals**
+1. On the **Photos** tab (`app/modules/gallery.py`), add a compact Gemini section (above or below the grid): short overall opinion paragraph.
+2. Prompt Gemini with the subject **`zillow_url` via URL context** (+ Search as needed) — same spirit as Financials Gemini (`fin_v4`); include exact address when known. Do **not** dump calculator fields or photo binaries in v1 (URL + address is enough; listing photos are on the Zillow page).
+3. Cache on `Property` (e.g. `photos_gemini` / `photos_gemini_for` with a versioned key like `photos_v1|<url-hash>`); **Ask** uses warm cache; **Regenerate** forces refresh.
+4. In-tab Ask / Regenerate buttons; require `GEMINI_API_KEY`; long call via `run.io_bound` + `ui_jobs` (no Connection lost).
+5. Match Photos/Financials cyberpunk chrome (titles/hints denser controls).
+
+**Non-goals:** Multi-section Financials-style essay; uploading local gallery images to Gemini in v1; replacing Neighborhood/Financials Gemini.
+
+**Touch:** new `app/core/gemini_photos.py` (or similar), `models.py` / `db.py`, `gallery.py`, `ui_jobs.py`, `property_service` if needed, tests, docs / AGENTS (Photos + Gemini §).
+
+**Related:** Financials Gemini (§6b), Neighborhood Gemini (§6), TODO-026 (`run.io_bound`).

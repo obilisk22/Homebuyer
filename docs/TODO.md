@@ -53,6 +53,7 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-049 | Done | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
 | TODO-050 | Open | Buy-vs-rent: scale utilities + maintenance with inflation |
 | TODO-051 | Open | Library icon: “Active market” — elevated recent sales nearby |
+| TODO-052 | Open | Library icon: “Center townhome” — mid-row unit (not an end unit) |
 
 ---
 
@@ -777,3 +778,26 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Touch:** `redfin_sales.py` (or new `market_activity.py`), models/db, property_service / ui_jobs, `pages.py` chip row, theme, tests, docs / AGENTS §8.
 
 **Related:** TODO-021 (Redfin choropleth), TODO-025 / 043 (library chip patterns).
+
+---
+
+## TODO-052 — Library icon: Center townhome (mid-row, not end)
+
+**Status:** Open
+
+**Problem:** In row-style townhome / attached products, **interior (“center”) units** differ from **end units** (light, privacy, yard, noise, resale). Library cards don’t flag when a listing is a mid-row unit in a row complex.
+
+**Goals**
+1. Soft neo library (+ header) chip **“Center townhome”** (or similar short label) when the property is part of a **row / attached townhome-style** complex **and is not an edge/end unit**.
+2. Detection — investigate then ship one reliable path (document chosen rule):
+   - Listing signals: `home_type` Townhouse / similar + address/unit heuristics; and/or
+   - Geometry: parcel / building footprint neighbors (e.g. OSM or local GIS) — unit has attached neighbors on **both** sides vs one side (end) or none (detached).
+3. False positives: skip true detached SFR, stacked mid-rise condos that aren’t “row,” and unknown when confidence is low (no chip better than wrong chip).
+4. Tooltip explains why (e.g. “Mid-row townhome — attached both sides”); tone quiet/neutral or magenta risk — pick to match product feel (interior often less desirable → soft risk is reasonable).
+5. Compute on add / refresh listing; optional stale refresh; wire through existing listing-risk / extra chip strip (`listing_signals` pattern).
+
+**Non-goals:** Full HOA site plans; distinguishing every condo stack type; map overlay for the whole row.
+
+**Touch:** `listing_signals.py` and/or new helper, Zillow extract if needed, `pages.py` chips, tests, docs / AGENTS §8.
+
+**Related:** TODO-039 (no Central AC chip pattern), TODO-001 (home type scrape).

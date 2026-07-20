@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (filed TODO-051: Active market library icon)
+> Last updated: 2026-07-19 (filed TODO-052: Center townhome library icon)
 
 
 
@@ -258,6 +258,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 | `TODO-049` | **Done** | Nearby chip Maps — specific place pin + home↔place directions (not category search) |
 | `TODO-050` | **Open** | Buy-vs-rent — utilities + maintenance scale with inflation (rent growth) |
 | `TODO-051` | **Open** | Library icon — “Active market” (elevated recent sales / Redfin ZIP activity) |
+| `TODO-052` | **Open** | Library icon — “Center townhome” (mid-row / not end unit) |
 
 Full write-ups: [`docs/TODO.md`](docs/TODO.md).  
 **Before implementing overlays / area signals:** read [`docs/RESEARCH.md`](docs/RESEARCH.md) — do not re-research from scratch.

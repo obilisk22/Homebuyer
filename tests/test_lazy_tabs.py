@@ -21,6 +21,23 @@ def test_property_page_lazy_mounts_modules():
     assert "on_value_change" in src
 
 
+def test_ensure_tab_marks_mounted_only_after_successful_render():
+    src = (ROOT / "app" / "ui" / "property_page.py").read_text(encoding="utf-8")
+    match = re.search(
+        r"async def ensure_tab\(mod_id: str\) -> None:(.*?)(?=\n        async def |\n        tabs\.)",
+        src,
+        re.DOTALL,
+    )
+    assert match, "ensure_tab body not found"
+    body = match.group(1)
+    assert "mounted.add(mod_id)" in body
+    add_pos = body.index("mounted.add(mod_id)")
+    await_pos = body.rfind("await result")
+    assert add_pos > await_pos, "mounted.add must run after await result"
+    assert "except Exception" in body
+    assert "retry_tab" in body
+
+
 def test_ui_jobs_has_ensure_financial_job():
     src = (ROOT / "app" / "core" / "ui_jobs.py").read_text(encoding="utf-8")
     assert "def ensure_financial_job(" in src

@@ -309,13 +309,27 @@ def property_page(property_id: int) -> None:
         async def ensure_tab(mod_id: str) -> None:
             if mod_id not in panels or mod_id in mounted:
                 return
-            mounted.add(mod_id)
             panel = panels[mod_id]
             panel.clear()
-            with panel:
-                result = mod_by_id[mod_id].render(prop, panel)
-                if inspect.isawaitable(result):
-                    await result
+            try:
+                with panel:
+                    result = mod_by_id[mod_id].render(prop, panel)
+                    if inspect.isawaitable(result):
+                        await result
+                mounted.add(mod_id)
+            except Exception as exc:  # noqa: BLE001
+                panel.clear()
+                with panel:
+                    ui.label(f"Could not load this tab: {exc}").classes(
+                        "text-negative hb-empty-state"
+                    )
+
+                    async def retry_tab() -> None:
+                        await ensure_tab(mod_id)
+
+                    ui.button("Retry", on_click=retry_tab).props(
+                        "unelevated dense color=dark"
+                    ).classes("q-mt-sm")
 
         async def on_tab_change(e) -> None:
             val = getattr(e, "value", e)

@@ -111,7 +111,7 @@ Layer toggles are exclusive (one overlay at a time; turning another on clears th
 | Wildfire | USFS Wildfire Hazard Potential 2023 WMS | No key; long-term hazard classes |
 | AQI | Open-Meteo US AQI | Hex grid near pin; no key |
 | Schools | NCES CCD / Locale / EDGE public school points | ~4 mi radius markers + legend; no GreatSchools. (Assigned Elementary/Middle/High schools for a home live on the **Neighborhood** tab, not this overlay — see below.) |
-| Sale price | Redfin Data Center ZIP median → ZCTA | First load may ingest the national TSV once (cached) |
+| Sale price | Redfin Data Center ZIP median → ZCTA | First load may ingest the national TSV once (gzip disk + process memo; concurrent callers singleflight) |
 | Median income (ACS) | Census ACS `B19013` tracts | Needs `CENSUS_API_KEY` |
 | Median home value (ACS) | Census ACS `B25077` tracts | Needs `CENSUS_API_KEY` |
 | Median age (ACS) | Census ACS `B01002` tracts | Needs `CENSUS_API_KEY` |

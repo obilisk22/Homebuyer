@@ -23,11 +23,21 @@ from urllib.request import urlopen
 
 import requests
 
+from app.core.cache import (
+    cache_dir,
+    cache_key,
+    memo_get,
+    memo_set,
+    read_json,
+    singleflight,
+    write_json,
+)
 from app.core.census_acs import fill_color_for_breaks
-from app.core.overlay_cache import cache_dir, cache_key, read_json, write_json
 
 REQUEST_TIMEOUT_S = 120
 CACHE_MAX_AGE_S = 7 * 24 * 3600
+# Process memo shorter than disk TTL — warm map toggles / chips share one load.
+MEMO_TTL_S = 3600
 DEFAULT_HALF_SPAN_DEG = 0.06
 
 REDFIN_ZIP_TSV_URL = (
@@ -222,15 +232,28 @@ def _ingest_redfin_reader(reader: csv.DictReader) -> dict[str, dict[str, Any]]:
 
 # v2 cache includes homes_sold / inventory for Active-market chip (TODO-051).
 _ZIP_MARKET_CACHE_KEY = "zip_market_all_residential_monthly_v2"
+_REDFIN_NS = "redfin"
 
 
-def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
-    """Download + stream-parse Redfin ZIP TSV → slim zip map (cached)."""
-    cached = read_json("redfin", _ZIP_MARKET_CACHE_KEY, max_age_s=CACHE_MAX_AGE_S)
-    if isinstance(cached, dict) and isinstance(cached.get("zips"), dict) and cached["zips"]:
-        return {str(k): dict(v) for k, v in cached["zips"].items()}
+def _bundle_from_disk_payload(cached: dict[str, Any]) -> dict[str, Any] | None:
+    zips_raw = cached.get("zips")
+    if not isinstance(zips_raw, dict) or not zips_raw:
+        return None
+    zips = {str(k): dict(v) for k, v in zips_raw.items()}
+    p75: float | None = None
+    if cached.get("homes_sold_p75") is not None:
+        try:
+            p75 = float(cached["homes_sold_p75"])
+        except (TypeError, ValueError):
+            p75 = None
+    if p75 is None:
+        p75 = homes_sold_p75(zips)
+    return {"zips": zips, "homes_sold_p75": p75}
 
-    cache_dir("redfin")
+
+def _download_redfin_zip_medians() -> dict[str, dict[str, Any]]:
+    """Network download + stream-parse (no disk/memo)."""
+    cache_dir(_REDFIN_NS)
     last_err: Exception | None = None
     best: dict[str, dict[str, Any]] = {}
     try:
@@ -253,10 +276,21 @@ def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
 
     if not best:
         raise RuntimeError("Redfin ZIP market tracker returned no usable medians")
+    return best
 
+
+def _load_bundle_uncached() -> dict[str, Any]:
+    """Disk hit or network ingest → ``{zips, homes_sold_p75}`` (no memo/singleflight)."""
+    cached = read_json(_REDFIN_NS, _ZIP_MARKET_CACHE_KEY, max_age_s=CACHE_MAX_AGE_S)
+    if isinstance(cached, dict):
+        bundle = _bundle_from_disk_payload(cached)
+        if bundle is not None:
+            return bundle
+
+    best = _download_redfin_zip_medians()
     p75 = homes_sold_p75(best)
     write_json(
-        "redfin",
+        _REDFIN_NS,
         _ZIP_MARKET_CACHE_KEY,
         {
             "zips": best,
@@ -264,28 +298,40 @@ def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
             "count": len(best),
             "homes_sold_p75": p75,
         },
+        gzip=True,
     )
-    return best
+    return {"zips": best, "homes_sold_p75": p75}
+
+
+def load_zip_market_bundle() -> dict[str, Any]:
+    """Cached ZIP map plus national ``homes_sold_p75`` for activity chips.
+
+    Process memo + singleflight so concurrent cold callers share one ingest;
+    disk payload is gzip when rewritten.
+    """
+    memoed = memo_get(_REDFIN_NS, _ZIP_MARKET_CACHE_KEY)
+    if isinstance(memoed, dict) and isinstance(memoed.get("zips"), dict) and memoed["zips"]:
+        return memoed
+
+    def factory() -> dict[str, Any]:
+        hit = memo_get(_REDFIN_NS, _ZIP_MARKET_CACHE_KEY)
+        if isinstance(hit, dict) and isinstance(hit.get("zips"), dict) and hit["zips"]:
+            return hit
+        bundle = _load_bundle_uncached()
+        memo_set(_REDFIN_NS, _ZIP_MARKET_CACHE_KEY, bundle, ttl_s=MEMO_TTL_S)
+        return bundle
+
+    return singleflight(_REDFIN_NS, _ZIP_MARKET_CACHE_KEY, factory)
+
+
+def _stream_redfin_zip_medians() -> dict[str, dict[str, Any]]:
+    """Download + stream-parse Redfin ZIP TSV → slim zip map (cached)."""
+    return load_zip_market_bundle()["zips"]
 
 
 def load_zip_medians() -> dict[str, dict[str, Any]]:
     """Public entry: cached zip → median sale (+ optional homes_sold) dict."""
     return _stream_redfin_zip_medians()
-
-
-def load_zip_market_bundle() -> dict[str, Any]:
-    """Cached ZIP map plus national ``homes_sold_p75`` for activity chips."""
-    zips = _stream_redfin_zip_medians()
-    cached = read_json("redfin", _ZIP_MARKET_CACHE_KEY, max_age_s=CACHE_MAX_AGE_S)
-    p75: float | None = None
-    if isinstance(cached, dict) and cached.get("homes_sold_p75") is not None:
-        try:
-            p75 = float(cached["homes_sold_p75"])
-        except (TypeError, ValueError):
-            p75 = None
-    if p75 is None:
-        p75 = homes_sold_p75(zips)
-    return {"zips": zips, "homes_sold_p75": p75}
 
 
 def _fetch_zcta_geojson(

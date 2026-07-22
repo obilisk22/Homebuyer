@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.sql import ColumnElement
 
 from app.core import area_signals, financial_sync, listing_ingest
 from app.core.db import UPLOADS_DIR
@@ -72,6 +72,44 @@ def resolve_library_thumbnail(prop: Property) -> Photo | None:
     return prop.photos[0]
 
 
+def fetch_library_thumbnails(
+    session: Session,
+    properties: list[Property],
+) -> dict[int, Photo]:
+    """Batch-load one thumbnail Photo per property without hydrating photos collections.
+
+    Honors ``thumbnail_photo_id`` when present; otherwise the lowest ``sort_order``
+    (then id) photo. Properties with no photos are omitted from the result.
+    """
+    if not properties:
+        return {}
+
+    result: dict[int, Photo] = {}
+    by_thumb_id = {
+        p.thumbnail_photo_id: p.id
+        for p in properties
+        if p.thumbnail_photo_id is not None
+    }
+    if by_thumb_id:
+        for photo in session.scalars(
+            select(Photo).where(Photo.id.in_(by_thumb_id.keys()))
+        ):
+            prop_id = by_thumb_id.get(photo.id)
+            if prop_id is not None and photo.property_id == prop_id:
+                result[prop_id] = photo
+
+    missing_ids = [p.id for p in properties if p.id not in result]
+    if missing_ids:
+        for photo in session.scalars(
+            select(Photo)
+            .where(Photo.property_id.in_(missing_ids))
+            .order_by(Photo.property_id, Photo.sort_order, Photo.id)
+        ):
+            if photo.property_id not in result:
+                result[photo.property_id] = photo
+    return result
+
+
 def parse_zillow_url(url: str) -> dict[str, str | None]:
     return listing_ingest.parse_zillow_url(url)
 
@@ -110,6 +148,35 @@ def property_matches_filters(
     return True
 
 
+def _library_filter_clauses(
+    *,
+    search: str = "",
+    min_price: float | None = None,
+    max_price: float | None = None,
+    min_beds: float | None = None,
+) -> list[ColumnElement[bool]]:
+    """SQL equivalents of the cheap library filters (beds / price / like search)."""
+    clauses: list[ColumnElement[bool]] = []
+    needle = (search or "").strip()
+    if needle:
+        pattern = f"%{needle}%"
+        clauses.append(
+            or_(
+                Property.address.ilike(pattern),
+                Property.city.ilike(pattern),
+                Property.state.ilike(pattern),
+                Property.zip_code.ilike(pattern),
+            )
+        )
+    if min_price is not None:
+        clauses.append(Property.list_price >= min_price)
+    if max_price is not None:
+        clauses.append(Property.list_price <= max_price)
+    if min_beds is not None:
+        clauses.append(Property.beds >= min_beds)
+    return clauses
+
+
 _UNSET = object()
 
 
@@ -140,30 +207,27 @@ class PropertyService:
         min_beds: float | None = None,
         sort: str = "newest",
     ) -> list[Property]:
-        stmt = select(Property).options(joinedload(Property.photos)).order_by(Property.created_at.desc())
-        props = list(self.session.scalars(stmt).unique())
-        if search or min_price is not None or max_price is not None or min_beds is not None:
-            props = [
-                p
-                for p in props
-                if property_matches_filters(
-                    p,
-                    search=search,
-                    min_price=min_price,
-                    max_price=max_price,
-                    min_beds=min_beds,
-                )
-            ]
+        stmt = select(Property).options(joinedload(Property.financial))
+        for clause in _library_filter_clauses(
+            search=search,
+            min_price=min_price,
+            max_price=max_price,
+            min_beds=min_beds,
+        ):
+            stmt = stmt.where(clause)
         if sort == "price_asc":
-            props.sort(key=lambda p: (p.list_price is None, p.list_price or 0.0))
-        elif sort == "price_desc":
-            props.sort(key=lambda p: (p.list_price is None, -(p.list_price or 0.0)))
-        else:
-            props.sort(
-                key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),
-                reverse=True,
+            stmt = stmt.order_by(
+                Property.list_price.asc().nulls_last(),
+                Property.created_at.desc(),
             )
-        return props
+        elif sort == "price_desc":
+            stmt = stmt.order_by(
+                Property.list_price.desc().nulls_last(),
+                Property.created_at.desc(),
+            )
+        else:
+            stmt = stmt.order_by(Property.created_at.desc())
+        return list(self.session.scalars(stmt).unique())
 
     def has_any_properties(self) -> bool:
         return self.session.scalar(select(Property.id).limit(1)) is not None

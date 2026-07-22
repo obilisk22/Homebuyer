@@ -233,6 +233,72 @@ def test_filter_price_and_beds():
     assert not property_matches_filters(_prop(list_price=None), min_price=100_000)
 
 
+def test_list_properties_applies_filters_in_sql(tmp_path, monkeypatch):
+    """Cheap beds/price/search filters run in SQL via list_properties."""
+    import app.core.db as db
+    from app.core.models import FinancialAssumptions, Property
+    from app.core.property_service import PropertyService
+
+    monkeypatch.setenv("HOMEBUY_DB_PATH", str(tmp_path / "filters.db"))
+    db._engine = None
+    db._SessionLocal = None
+    db.init_db()
+    with db.get_session() as session:
+        svc = PropertyService(session)
+        keep = Property(
+            address="100 Keep Ave, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/keep/1_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_price = Property(
+            address="200 Cheap St, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/cheap/2_zpid/",
+            list_price=200_000,
+            beds=3,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_beds = Property(
+            address="300 Small St, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/small/3_zpid/",
+            list_price=800_000,
+            beds=1,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_city = Property(
+            address="400 Other St, Portland, OR 97201",
+            zillow_url="https://www.zillow.com/homedetails/other/4_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Portland",
+            state="OR",
+            zip_code="97201",
+            financial=FinancialAssumptions(),
+        )
+        session.add_all([keep, drop_price, drop_beds, drop_city])
+        session.commit()
+
+        found = svc.list_properties(
+            search="seattle",
+            min_price=700_000,
+            max_price=900_000,
+            min_beds=3,
+        )
+        assert [p.id for p in found] == [keep.id]
+        assert found[0].financial is not None
+
+
+
 SAMPLE_TAX_INSURANCE_GDP = r"""
 <script id="__NEXT_DATA__" type="application/json">
 {"props":{"pageProps":{"componentProps":{"gdpClientCache":"{\"zpid\":1,\"price\":1200000,\"monthlyHoaFee\":250,\"taxAnnualAmount\":11004,\"taxAssessedValue\":1214000,\"propertyTaxRate\":0.82,\"annualHomeownersInsurance\":2400,\"taxHistory\":[{\"time\":1752811412428,\"taxPaid\":12853.69,\"value\":1214000},{\"time\":1700000000000,\"taxPaid\":11054.17,\"value\":1100000}]}"}}}}

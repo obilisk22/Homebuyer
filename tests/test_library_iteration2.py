@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import inspect as sa_inspect
+
 import app.core.db as db
 from app.core.models import FinancialAssumptions, Property
-from app.core.property_service import PropertyService
+from app.core.property_service import PropertyService, fetch_library_thumbnails
 
 
 def _session(tmp_path, monkeypatch):
@@ -59,6 +61,49 @@ def test_list_properties_sort_price_asc_nulls_last(tmp_path, monkeypatch):
         ids = [p.id for p in ordered]
         assert ids.index(p_low.id) < ids.index(p_mid.id)
         assert ids.index(p_mid.id) < ids.index(p_null.id)
+
+
+def test_list_properties_does_not_eager_load_all_photos(tmp_path, monkeypatch):
+    with _session(tmp_path, monkeypatch) as session:
+        svc = PropertyService(session)
+        prop = _add_prop(session, address="9 Photo Heavy St", list_price=500_000)
+        for i in range(8):
+            svc.add_photo_bytes(prop.id, f"img-{i}".encode(), f"p{i}.jpg", caption=f"Shot {i}")
+
+        # Fresh list query — must not pull the full photo graph.
+        listed = svc.list_properties()
+        assert len(listed) == 1
+        listed_prop = listed[0]
+        state = sa_inspect(listed_prop)
+        assert "photos" in state.unloaded
+        assert "financial" not in state.unloaded
+        assert listed_prop.financial is not None
+
+
+def test_fetch_library_thumbnails_batch(tmp_path, monkeypatch):
+    with _session(tmp_path, monkeypatch) as session:
+        svc = PropertyService(session)
+        with_id = _add_prop(session, address="1 Chosen Thumb St", list_price=1.0)
+        a = svc.add_photo_bytes(with_id.id, b"a", "a.jpg", caption="A")
+        b = svc.add_photo_bytes(with_id.id, b"b", "b.jpg", caption="B")
+        svc.set_library_thumbnail(with_id.id, b.id)
+
+        fallback = _add_prop(session, address="2 First Photo St", list_price=2.0)
+        first = svc.add_photo_bytes(fallback.id, b"f0", "f0.jpg", caption="First")
+        svc.add_photo_bytes(fallback.id, b"f1", "f1.jpg", caption="Second")
+
+        empty = _add_prop(session, address="3 No Photos St", list_price=3.0)
+
+        props = svc.list_properties(sort="newest")
+        # Ensure list did not eager-load photos (batch path must not rely on it).
+        for p in props:
+            assert "photos" in sa_inspect(p).unloaded
+
+        thumbs = fetch_library_thumbnails(session, props)
+        assert thumbs[with_id.id].id == b.id
+        assert thumbs[fallback.id].id == first.id
+        assert empty.id not in thumbs
+        assert a.id != b.id
 
 
 def test_select_thumbnail_skips_when_locked(tmp_path, monkeypatch):

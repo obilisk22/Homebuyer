@@ -8,7 +8,7 @@ from app.core.library_export import (
     export_library_json,
     snapshot_from_property,
 )
-from app.core.property_service import PropertyService, resolve_library_thumbnail
+from app.core.property_service import PropertyService, fetch_library_thumbnails
 from app.core.ui_jobs import (
     add_from_zillow_job,
     refresh_stale_broadband_status_job,
@@ -220,10 +220,11 @@ def library_page() -> None:
                     sort=sort_key,
                 )
                 has_any = True if props else service.has_any_properties()
+                thumbs = fetch_library_thumbnails(session, props)
                 for prop in props:
                     snap = snapshot_from_property(prop)
                     thumb = None
-                    thumb_photo = resolve_library_thumbnail(prop)
+                    thumb_photo = thumbs.get(prop.id)
                     if thumb_photo is not None:
                         thumb = f"/uploads/{thumb_photo.path}"
                     card_rows.append(

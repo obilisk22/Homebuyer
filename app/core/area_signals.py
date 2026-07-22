@@ -157,7 +157,6 @@ def refresh_stale_nearby_signals(
             prop.nearby_signals_at, prop.nearby_signals
         ),
         refresh=callback,
-        pause_seconds=1.25,
     )
 
 
@@ -229,10 +228,40 @@ def refresh_stale_market_activity(
 def refresh_stale_area_signals(
     session: Session, *, limit: int = 3
 ) -> dict[str, int]:
-    """Refresh each stale area-signal kind and return per-kind counts."""
-    return {
-        "nearby": refresh_stale_nearby_signals(session, limit=limit),
-        "permits": refresh_stale_permits_activity(session, limit=limit),
-        "broadband": refresh_stale_broadband_status(session, limit=limit),
-        "market": refresh_stale_market_activity(session, limit=limit),
-    }
+    """One DB scan; refresh each stale kind up to ``limit`` and return counts.
+
+    Sequential per home (no artificial inter-home sleep — Overpass/Socrata
+    already pace via their own caches and timeouts).
+    """
+    counts = {"nearby": 0, "permits": 0, "broadband": 0, "market": 0}
+    if limit <= 0:
+        return counts
+
+    stmt = select(Property).order_by(Property.updated_at.desc())
+    for prop in session.scalars(stmt):
+        if all(n >= limit for n in counts.values()):
+            break
+        pinned = prop.latitude is not None and prop.longitude is not None
+        if pinned and counts["nearby"] < limit and nearby_needs_refresh(
+            prop.nearby_signals_at, prop.nearby_signals
+        ):
+            refresh_nearby_signals(session, prop.id)
+            counts["nearby"] += 1
+        if pinned and counts["permits"] < limit and permits_needs_refresh(
+            prop.permits_activity_at, prop.permits_activity
+        ):
+            refresh_permits_activity(session, prop.id)
+            counts["permits"] += 1
+        if pinned and counts["broadband"] < limit and broadband_needs_refresh(
+            prop.broadband_at, prop.broadband_status
+        ):
+            refresh_broadband_status(session, prop.id)
+            counts["broadband"] += 1
+        if (
+            counts["market"] < limit
+            and bool((prop.zip_code or "").strip())
+            and market_needs_refresh(prop.market_activity_at, prop.market_activity)
+        ):
+            refresh_market_activity(session, prop.id)
+            counts["market"] += 1
+    return counts

@@ -8,13 +8,11 @@ from app.core.library_export import (
     export_library_json,
     snapshot_from_property,
 )
+from app.core.models import Property
 from app.core.property_service import PropertyService, fetch_library_thumbnails
 from app.core.ui_jobs import (
     add_from_zillow_job,
-    refresh_stale_broadband_status_job,
-    refresh_stale_market_activity_job,
-    refresh_stale_nearby_signals_job,
-    refresh_stale_permits_activity_job,
+    refresh_stale_area_signals_job,
 )
 from app.ui.chip_helpers import (
     _extra_signal_chips,
@@ -145,6 +143,7 @@ def library_page() -> None:
 
         list_box = ui.column().classes("w-full gap-3")
         filter_debounce = None
+        chip_hosts: dict[int, ui.element] = {}
 
         def _export(fmt: str) -> None:
             with get_session() as session:
@@ -202,6 +201,7 @@ def library_page() -> None:
                 filter_debounce.deactivate()
                 filter_debounce = None
             list_box.clear()
+            chip_hosts.clear()
             sort_key = sort_options.get(str(sort_select.value or "Newest"), "newest")
             active = _active_filter_count()
             filter_expansion._props["label"] = (
@@ -404,43 +404,76 @@ def library_page() -> None:
                                             ),
                                         )
 
-                        _render_nearby_signal_chips(
-                            row["nearby_signals"],
-                            home_lat=row.get("latitude"),
-                            home_lng=row.get("longitude"),
-                            stop_card_nav=True,
-                            listing_chips=_extra_signal_chips(
-                                has_central_ac=row.get("has_central_ac"),
-                                cooling=row.get("cooling") or "",
-                                broadband_status=row.get("broadband_status") or "",
-                                permits_activity=row.get("permits_activity") or "",
-                                market_activity=row.get("market_activity") or "",
-                                home_type=row.get("home_type") or "",
-                                townhome_position=row.get("townhome_position") or "",
-                            ),
-                        )
+                        chip_host = ui.element("div").classes("hb-library-chip-host")
+                        chip_hosts[prop_id] = chip_host
+                        with chip_host:
+                            _render_nearby_signal_chips(
+                                row["nearby_signals"],
+                                home_lat=row.get("latitude"),
+                                home_lng=row.get("longitude"),
+                                stop_card_nav=True,
+                                listing_chips=_extra_signal_chips(
+                                    has_central_ac=row.get("has_central_ac"),
+                                    cooling=row.get("cooling") or "",
+                                    broadband_status=row.get("broadband_status") or "",
+                                    permits_activity=row.get("permits_activity") or "",
+                                    market_activity=row.get("market_activity") or "",
+                                    home_type=row.get("home_type") or "",
+                                    townhome_position=row.get("townhome_position") or "",
+                                ),
+                            )
+
+        def _patch_chip_rows() -> None:
+            """Re-render chip hosts after stale refresh without rebuilding the list."""
+            if not chip_hosts:
+                return
+            rows: dict[int, dict] = {}
+            with get_session() as session:
+                for prop_id in list(chip_hosts):
+                    prop = session.get(Property, prop_id)
+                    if prop is None:
+                        continue
+                    rows[prop_id] = {
+                        "nearby_signals": prop.nearby_signals or "",
+                        "latitude": prop.latitude,
+                        "longitude": prop.longitude,
+                        "cooling": prop.cooling or "",
+                        "has_central_ac": prop.has_central_ac,
+                        "broadband_status": prop.broadband_status or "",
+                        "permits_activity": prop.permits_activity or "",
+                        "market_activity": prop.market_activity or "",
+                        "home_type": prop.home_type or "",
+                        "townhome_position": prop.townhome_position or "",
+                    }
+            for prop_id, host in list(chip_hosts.items()):
+                row = rows.get(prop_id)
+                if row is None:
+                    continue
+                host.clear()
+                with host:
+                    _render_nearby_signal_chips(
+                        row["nearby_signals"],
+                        home_lat=row.get("latitude"),
+                        home_lng=row.get("longitude"),
+                        stop_card_nav=True,
+                        listing_chips=_extra_signal_chips(
+                            has_central_ac=row.get("has_central_ac"),
+                            cooling=row.get("cooling") or "",
+                            broadband_status=row.get("broadband_status") or "",
+                            permits_activity=row.get("permits_activity") or "",
+                            market_activity=row.get("market_activity") or "",
+                            home_type=row.get("home_type") or "",
+                            townhome_position=row.get("townhome_position") or "",
+                        ),
+                    )
 
         async def _refresh_stale_nearby_after_paint() -> None:
             try:
-                refreshed = await run.io_bound(
-                    refresh_stale_nearby_signals_job, limit=3
+                counts = await run.io_bound(
+                    refresh_stale_area_signals_job, limit=3
                 )
-                refreshed_permits = await run.io_bound(
-                    refresh_stale_permits_activity_job, limit=3
-                )
-                refreshed_bb = await run.io_bound(
-                    refresh_stale_broadband_status_job, limit=3
-                )
-                refreshed_market = await run.io_bound(
-                    refresh_stale_market_activity_job, limit=3
-                )
-                if (
-                    refreshed
-                    or refreshed_permits
-                    or refreshed_bb
-                    or refreshed_market
-                ):
-                    refresh()
+                if any(int(v or 0) for v in (counts or {}).values()):
+                    _patch_chip_rows()
             except Exception:  # noqa: BLE001 - background signals never break library
                 pass
 

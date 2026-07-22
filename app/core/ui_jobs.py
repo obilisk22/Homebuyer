@@ -42,27 +42,30 @@ def ensure_coordinates_job(
         return lat, lng
 
 
-def refresh_stale_nearby_signals_job(*, limit: int = 3) -> int:
+def refresh_stale_area_signals_job(*, limit: int = 3) -> dict[str, int]:
+    """Best-effort coalesced stale refresh for library paint (one DB scan)."""
     with get_session() as session:
-        return int(PropertyService(session).refresh_stale_nearby_signals(limit=limit))
+        return dict(PropertyService(session).refresh_stale_area_signals(limit=limit))
+
+
+def refresh_stale_nearby_signals_job(*, limit: int = 3) -> int:
+    """Deprecated: prefer ``refresh_stale_area_signals_job``."""
+    return int(refresh_stale_area_signals_job(limit=limit).get("nearby", 0))
 
 
 def refresh_stale_permits_activity_job(*, limit: int = 3) -> int:
-    """Best-effort stale permit refresh for library paint."""
-    with get_session() as session:
-        return int(PropertyService(session).refresh_stale_permits_activity(limit=limit))
+    """Deprecated: prefer ``refresh_stale_area_signals_job``."""
+    return int(refresh_stale_area_signals_job(limit=limit).get("permits", 0))
 
 
 def refresh_stale_broadband_status_job(*, limit: int = 3) -> int:
-    """Best-effort stale FCC BDC refresh for library paint."""
-    with get_session() as session:
-        return int(PropertyService(session).refresh_stale_broadband_status(limit=limit))
+    """Deprecated: prefer ``refresh_stale_area_signals_job``."""
+    return int(refresh_stale_area_signals_job(limit=limit).get("broadband", 0))
 
 
 def refresh_stale_market_activity_job(*, limit: int = 3) -> int:
-    """Best-effort stale Redfin ZIP activity refresh for library paint."""
-    with get_session() as session:
-        return int(PropertyService(session).refresh_stale_market_activity(limit=limit))
+    """Deprecated: prefer ``refresh_stale_area_signals_job``."""
+    return int(refresh_stale_area_signals_job(limit=limit).get("market", 0))
 
 
 def ensure_neighborhood_job(property_id: int, *, force: bool = False) -> dict[str, str]:

@@ -318,6 +318,9 @@ class PropertyService:
             needs_refresh_fn=market_needs_refresh,
         )
 
+    def refresh_stale_area_signals(self, *, limit: int = 3) -> dict[str, int]:
+        return area_signals.refresh_stale_area_signals(self.session, limit=limit)
+
     def _apply_listing_details(
         self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
     ) -> None:

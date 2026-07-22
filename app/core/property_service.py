@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import ColumnElement
 
@@ -148,6 +148,24 @@ def property_matches_filters(
     return True
 
 
+def _escape_like_pattern(text: str) -> str:
+    """Escape % and _ so user input is matched literally in SQL LIKE."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _library_search_haystack() -> ColumnElement[str]:
+    """Concat address/city/state/zip — same haystack as property_matches_filters."""
+    return func.lower(
+        func.coalesce(Property.address, "")
+        + " "
+        + func.coalesce(Property.city, "")
+        + " "
+        + func.coalesce(Property.state, "")
+        + " "
+        + func.coalesce(Property.zip_code, "")
+    )
+
+
 def _library_filter_clauses(
     *,
     search: str = "",
@@ -159,15 +177,8 @@ def _library_filter_clauses(
     clauses: list[ColumnElement[bool]] = []
     needle = (search or "").strip()
     if needle:
-        pattern = f"%{needle}%"
-        clauses.append(
-            or_(
-                Property.address.ilike(pattern),
-                Property.city.ilike(pattern),
-                Property.state.ilike(pattern),
-                Property.zip_code.ilike(pattern),
-            )
-        )
+        pattern = f"%{_escape_like_pattern(needle.lower())}%"
+        clauses.append(_library_search_haystack().like(pattern, escape="\\"))
     if min_price is not None:
         clauses.append(Property.list_price >= min_price)
     if max_price is not None:

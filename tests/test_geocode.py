@@ -12,6 +12,18 @@ from app.core.geocode import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_geocode_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMEBUY_DATA_DIR", str(tmp_path))
+    from app.core import paths
+
+    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
+    paths.refresh_data_dirs()
+    memo_clear()
+    yield
+    memo_clear()
+
+
 def test_geocode_requires_address():
     with pytest.raises(ValueError, match="Address is required"):
         geocode_address("  ")
@@ -59,12 +71,7 @@ def test_geocode_query_candidates_unit_fallbacks():
 
 @patch.dict("os.environ", {"GOOGLE_MAPS_API_KEY": ""}, clear=False)
 @patch("app.core.geocode.requests.get")
-def test_geocode_uses_disk_cache_on_second_call(mock_get: MagicMock, tmp_path, monkeypatch):
-    from app.core import paths
-
-    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
-    paths.refresh_data_dirs()
-    memo_clear()
+def test_geocode_uses_disk_cache_on_second_call(mock_get: MagicMock):
     response = MagicMock()
     response.raise_for_status = MagicMock()
     response.json.return_value = [{"lat": "34.0", "lon": "-118.0"}]

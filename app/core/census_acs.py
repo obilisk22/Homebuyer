@@ -10,6 +10,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from app.core.cache import memo_get, memo_set, quantize_geojson, singleflight
 from app.core.overlay_cache import cache_key, read_json, write_json
 
 load_dotenv()
@@ -18,6 +19,9 @@ REQUEST_TIMEOUT_S = 30
 ACS_YEAR = 2023
 ACS_DATASET = f"{ACS_YEAR}/acs/acs5"
 CACHE_MAX_AGE_S = 7 * 24 * 3600
+MEMO_TTL_S = 3600.0
+STYLED_MEMO_NS = "acs_styled"
+STYLED_CACHE_REV = "q1"
 DEFAULT_HALF_SPAN_DEG = 0.045
 
 _MISSING = {None, "", "-", "null", "-666666666", "-999999999"}
@@ -701,14 +705,33 @@ def _fetch_tract_geojson(
     return payload
 
 
-def build_acs_geojson(
+def _safe_quantize(fc: dict[str, Any]) -> dict[str, Any]:
+    """Round/dedupe coords; on failure return the pre-quantize payload."""
+    try:
+        return quantize_geojson(fc, precision=5)
+    except Exception:  # noqa: BLE001
+        return fc
+
+
+def _styled_memo_key(
+    layer_id: str, lat: float, lng: float, half_span_deg: float
+) -> str:
+    return cache_key(
+        STYLED_CACHE_REV,
+        layer_id,
+        f"{lat:.3f}",
+        f"{lng:.3f}",
+        f"{half_span_deg:.3f}",
+    )
+
+
+def _build_acs_geojson_uncached(
     layer_id: str,
     lat: float,
     lng: float,
     *,
-    half_span_deg: float = DEFAULT_HALF_SPAN_DEG,
+    half_span_deg: float,
 ) -> dict[str, Any]:
-    """FeatureCollection of nearby tracts for an ACS choropleth layer."""
     layer = ACS_LAYERS.get(layer_id)
     if layer is None:
         raise ValueError(f"Unknown ACS layer: {layer_id}")
@@ -758,3 +781,38 @@ def build_acs_geojson(
             "layer_id": layer_id,
         },
     }
+
+
+def build_acs_geojson(
+    layer_id: str,
+    lat: float,
+    lng: float,
+    *,
+    half_span_deg: float = DEFAULT_HALF_SPAN_DEG,
+) -> dict[str, Any]:
+    """FeatureCollection of nearby tracts for an ACS choropleth layer.
+
+    Styled output is quantized (precision 5) and memoized per layer+bbox so Map
+    re-toggles skip rebuild. Quantize failure falls back to the unsimplified FC.
+    """
+    if layer_id not in ACS_LAYERS:
+        raise ValueError(f"Unknown ACS layer: {layer_id}")
+
+    key = _styled_memo_key(layer_id, lat, lng, half_span_deg)
+    memoed = memo_get(STYLED_MEMO_NS, key)
+    if isinstance(memoed, dict) and memoed.get("type") == "FeatureCollection":
+        return memoed
+
+    def factory() -> dict[str, Any]:
+        hit = memo_get(STYLED_MEMO_NS, key)
+        if isinstance(hit, dict) and hit.get("type") == "FeatureCollection":
+            return hit
+        result = _safe_quantize(
+            _build_acs_geojson_uncached(
+                layer_id, lat, lng, half_span_deg=half_span_deg
+            )
+        )
+        memo_set(STYLED_MEMO_NS, key, result, ttl_s=MEMO_TTL_S)
+        return result
+
+    return singleflight(STYLED_MEMO_NS, key, factory)

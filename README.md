@@ -107,7 +107,7 @@ Layer toggles are exclusive (one overlay at a time; turning another on clears th
 | Toggle | Source | Notes |
 |--------|--------|--------|
 | Flood (FEMA) | NFHL WMS | No key |
-| Zoning | City of LA (ZIMAS 1102 citywide), Santa Monica (SCAG), LA County DRP | ACS-style polygons merged by zone (~2.8 mi radius, WS-safe); other cities: disabled / message |
+| Zoning | City of LA (ZIMAS 1102 citywide), Santa Monica (SCAG), LA County DRP | ACS-style slim polygons (~2.8 mi radius); coords quantized for smaller toggles; other cities: disabled / message |
 | Wildfire | USFS Wildfire Hazard Potential 2023 WMS | No key; long-term hazard classes |
 | AQI | Open-Meteo US AQI | Hex grid near pin; no key |
 | Schools | NCES CCD / Locale / EDGE public school points | ~4 mi radius markers + legend; no GreatSchools. (Assigned Elementary/Middle/High schools for a home live on the **Neighborhood** tab, not this overlay — see below.) |

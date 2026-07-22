@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from app.core.cache import memo_clear, memo_get
 from app.core.census_acs import (
     AVG_KIDS_BREAKS,
     HOME_VALUE_BREAKS,
@@ -14,6 +17,18 @@ from app.core.census_acs import (
     parse_acs_avg_kids_rows,
     parse_acs_tract_rows,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMEBUY_DATA_DIR", str(tmp_path))
+    from app.core import paths
+
+    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
+    paths.refresh_data_dirs()
+    memo_clear()
+    yield
+    memo_clear()
 from app.core.crime_socrata import (
     CRIME_CITIES,
     bbox_around as crime_bbox_around,
@@ -194,3 +209,92 @@ def test_fema_wms_args():
     assert options["layers"] == "28"
     assert options["transparent"] is True
     assert "FEMA" in options["attribution"]
+
+
+def test_acs_styled_geojson_is_quantized(monkeypatch):
+    """Styled ACS FeatureCollection coords are quantized at precision 5 + memoized."""
+    from app.core import census_acs as acs
+
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.123456780, 34.123456780],
+            [-118.120000111, 34.120000111],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    monkeypatch.setattr(acs, "_fcc_fips", lambda lat, lng: ("06", "037"))  # noqa: ARG005
+    monkeypatch.setattr(
+        acs,
+        "_fetch_acs_values",
+        lambda layer, state_fips, county_fips: {"06037123456": 90_000.0},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        acs,
+        "_fetch_tract_geojson",
+        lambda bbox, state_fips, county_fips: {  # noqa: ARG005
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {"GEOID": "06037123456", "NAME": "Tract 1"},
+                }
+            ],
+        },
+    )
+
+    result = acs.build_acs_geojson("income", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.12346, 34.12346]
+    assert result["features"][0]["properties"]["fillColor"]
+    assert result["meta"]["layer_id"] == "income"
+
+    # Process memo hit on re-toggle (same layer + bbox key).
+    second = acs.build_acs_geojson("income", 34.05, -118.25)
+    assert second == result
+    key = acs._styled_memo_key("income", 34.05, -118.25, acs.DEFAULT_HALF_SPAN_DEG)
+    assert memo_get(acs.STYLED_MEMO_NS, key) is not None
+
+
+def test_acs_quantize_fallback_on_failure(monkeypatch):
+    from app.core import census_acs as acs
+
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.12, 34.12],
+            [-118.11, 34.11],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    monkeypatch.setattr(acs, "_fcc_fips", lambda lat, lng: ("06", "037"))  # noqa: ARG005
+    monkeypatch.setattr(
+        acs,
+        "_fetch_acs_values",
+        lambda layer, state_fips, county_fips: {"06037123456": 50_000.0},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        acs,
+        "_fetch_tract_geojson",
+        lambda bbox, state_fips, county_fips: {  # noqa: ARG005
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {"GEOID": "06037123456", "NAME": "Tract 1"},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        acs,
+        "quantize_geojson",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("bad geom")),
+    )
+    result = acs.build_acs_geojson("income", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.123456789, 34.123456789]

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.core import zoning_gis
+from app.core.cache import memo_clear, read_json
 from app.core.zoning_gis import (
+    CACHE_REV,
     DEFAULT_HALF_SPAN_DEG,
     FEEDS,
     ZONING_LEGEND,
@@ -17,6 +20,18 @@ from app.core.zoning_gis import (
     resolve_zoning_feed,
     zoning_supported,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMEBUY_DATA_DIR", str(tmp_path))
+    from app.core import paths
+
+    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
+    paths.refresh_data_dirs()
+    memo_clear()
+    yield
+    memo_clear()
 
 
 def test_categorize_zone_residential_commercial():
@@ -204,4 +219,102 @@ def test_query_near_pin_shrinks_when_truncated(monkeypatch):
     assert used_span >= 0.012
     assert used_span <= 0.015 + 1e-9
     assert any(s >= 0.039 for s in spans_seen)
+
+
+def test_zoning_result_is_quantized(monkeypatch):
+    """build_zoning_geojson writes quantized coords at precision 5."""
+    assert CACHE_REV == "v7"
+
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.123456780, 34.123456780],
+            [-118.120000111, 34.120000111],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    def fake_query(feed, lat, lng, *, half_span_deg):  # noqa: ARG001
+        return (
+            [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {
+                        "zone_code": "R1-1",
+                        "category": "Residential",
+                        "fillColor": "#00E5FF",
+                        "source": feed.label,
+                        "popup": "R1-1",
+                    },
+                }
+            ],
+            False,
+            half_span_deg,
+            (-118.5, 34.0, -118.4, 34.1),
+        )
+
+    monkeypatch.setattr(zoning_gis, "_query_zoning_near_pin", fake_query)
+    result = zoning_gis.build_zoning_geojson("Los Angeles", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.12346, 34.12346]
+    assert all(len(str(pt[0]).split(".")[-1]) <= 5 for pt in ring if isinstance(pt[0], float))
+
+    # Disk payload is also quantized (CACHE_REV bump).
+    from app.core.overlay_cache import cache_key
+
+    key = cache_key(
+        "zoning",
+        "la_city",
+        f"{34.05:.3f}",
+        f"{-118.25:.3f}",
+        f"{DEFAULT_HALF_SPAN_DEG:.3f}",
+        CACHE_REV,
+    )
+    cached = read_json("zoning", key, max_age_s=zoning_gis.CACHE_MAX_AGE_S)
+    assert cached is not None
+    cached_ring = cached["features"][0]["geometry"]["coordinates"][0]
+    assert cached_ring[0] == [-118.12346, 34.12346]
+
+
+def test_zoning_quantize_fallback_on_failure(monkeypatch):
+    """If quantize raises, return the pre-quantize FeatureCollection."""
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.12, 34.12],
+            [-118.11, 34.11],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    def fake_query(feed, lat, lng, *, half_span_deg):  # noqa: ARG001
+        return (
+            [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {
+                        "zone_code": "R1-1",
+                        "category": "Residential",
+                        "fillColor": "#00E5FF",
+                        "source": feed.label,
+                        "popup": "R1-1",
+                    },
+                }
+            ],
+            False,
+            half_span_deg,
+            (-118.5, 34.0, -118.4, 34.1),
+        )
+
+    monkeypatch.setattr(zoning_gis, "_query_zoning_near_pin", fake_query)
+    monkeypatch.setattr(
+        zoning_gis,
+        "quantize_geojson",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("bad geom")),
+    )
+    result = zoning_gis.build_zoning_geojson("Los Angeles", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.123456789, 34.123456789]
 

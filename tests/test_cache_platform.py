@@ -17,6 +17,7 @@ from app.core.cache import (
     quantize_geojson,
     read_json,
     singleflight,
+    swr_get,
     write_json,
 )
 
@@ -110,6 +111,35 @@ def test_quantize_geojson_shrinks_coords():
 def test_cache_key_stable():
     assert cache_key("a", "b") == cache_key("a", "b")
     assert cache_key("a", "b") != cache_key("a", "c")
+
+
+def test_swr_get_age_bands():
+    """Fresh and soft-stale return cache without factory; expired refetches."""
+    import os
+
+    ns, key = "swr", "bands"
+    write_json(ns, key, {"cached": True})
+
+    def factory():
+        factory.calls += 1
+        return {"fresh": True}
+
+    factory.calls = 0
+
+    # Fresh: age <= soft_age_s
+    assert swr_get(ns, key, max_age_s=100, soft_age_s=50, factory=factory) == {"cached": True}
+    assert factory.calls == 0
+
+    path = cache_dir(ns) / f"{key}.json"
+    mid = time.time() - 60  # soft_age_s(50) < age(60) <= max_age_s(100)
+    os.utime(path, (mid, mid))
+    assert swr_get(ns, key, max_age_s=100, soft_age_s=50, factory=factory) == {"cached": True}
+    assert factory.calls == 0
+
+    expired = time.time() - 120  # age > max_age_s
+    os.utime(path, (expired, expired))
+    assert swr_get(ns, key, max_age_s=100, soft_age_s=50, factory=factory) == {"fresh": True}
+    assert factory.calls == 1
 
 
 def test_prune_namespace_removes_old():

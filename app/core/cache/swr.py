@@ -39,10 +39,6 @@ def swr_get(
             write_json(ns, key, fresh)
         return fresh
 
-    if age > soft_age_s:
-        fresh = factory()
-        if fresh is not None:
-            write_json(ns, key, fresh)
-            return fresh
-
+    # Fresh (age <= soft_age_s) or soft-stale (soft_age_s < age <= max_age_s):
+    # return cached payload; caller may refresh in the background.
     return payload

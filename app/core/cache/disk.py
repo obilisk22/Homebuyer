@@ -10,13 +10,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.core.paths import DATA_DIR
+from app.core import paths
 
 _log = logging.getLogger(__name__)
 
 
 def cache_dir(*parts: str) -> Path:
-    path = DATA_DIR / "cache"
+    path = paths.DATA_DIR / "cache"
     if parts:
         path = path.joinpath(*parts)
     path.mkdir(parents=True, exist_ok=True)

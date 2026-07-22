@@ -166,7 +166,7 @@ MODULE = ModuleSpec(id="my_module", title="My Module", order=50, render=render)
 
 3. Restart the app — the tab appears automatically.
 
-Module first paints receive a fully eager-loaded, detached property from the property page. Treat it as read-only; open a new session and reload only when a module needs to persist or re-read changed data.
+Modules mount **lazily** on first tab select (default Photos mounts immediately). First paint receives a detached property from the property page — treat it as read-only; open a new session and reload only when a module needs to persist or re-read changed data. Long I/O (Financials `ensure_financial` / PMMS, Map geocode, Neighborhood schools) stays on `run.io_bound` when that tab mounts.
 
 ## Tests
 

@@ -15,7 +15,7 @@ from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
 from app.core.property_service import PropertyService
-from app.core.ui_jobs import ensure_gemini_financial_job
+from app.core.ui_jobs import ensure_financial_job, ensure_gemini_financial_job
 
 # Neon cyberpunk chart palette (cyan / magenta / lime / amber)
 _CHART = {
@@ -184,14 +184,16 @@ def _source_caption(text: str):
     return label
 
 
-def render(prop: Property, container: ui.element) -> None:
+async def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
-    # Always ensure_financial so maintenance/utilities/PMMS backfill on tab open.
+    # Maintenance/utilities/PMMS backfill via io_bound — never on the UI thread.
+    with container:
+        ui.label("Loading financials…").classes("hb-page-meta")
+    await run.io_bound(ensure_financial_job, property_id)
+    container.clear()
     with get_session() as session:
-        fresh = PropertyService(session).get_property(property_id)
-        assert fresh is not None
-        PropertyService(session).ensure_financial(fresh)
-        live = fresh
+        live = PropertyService(session).get_property(property_id)
+        assert live is not None
 
     fin = live.financial
     assert fin is not None

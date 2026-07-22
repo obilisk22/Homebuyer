@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from nicegui import ui
+
+RenderFn = Callable[[object, ui.element], None | Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -11,7 +13,7 @@ class ModuleSpec:
     id: str
     title: str
     order: int
-    render: Callable[[object, ui.element], None]
+    render: RenderFn
 
 
 _MODULES: list[ModuleSpec] | None = None

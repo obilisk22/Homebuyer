@@ -102,6 +102,16 @@ def resolve_assigned_schools_job(
     return result
 
 
+def ensure_financial_job(property_id: int) -> None:
+    """Backfill financial assumptions (PMMS / maint / utilities) off the UI thread."""
+    with get_session() as session:
+        svc = PropertyService(session)
+        prop = svc.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        svc.ensure_financial(prop)
+
+
 def ensure_gemini_financial_job(
     property_id: int,
     financial_fields: dict[str, Any],

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 from nicegui import run, ui
 
 from app.core.db import get_session
@@ -285,13 +287,41 @@ def property_page(property_id: int) -> None:
             ui.label("No modules registered.").classes("text-negative")
             return
 
-        with ui.tabs().classes("w-full").props("dense indicator-color=primary active-color=primary") as tabs:
-            tab_refs = {m.id: ui.tab(m.title) for m in modules}
+        default_id = modules[0].id
+        mod_by_id = {m.id: m for m in modules}
+        panels: dict[str, ui.element] = {}
+        mounted: set[str] = set()
 
-        with ui.tab_panels(tabs, value=tab_refs[modules[0].id]).classes("w-full").props(
-            "animated"
-        ):
+        with ui.tabs().classes("w-full").props(
+            "dense indicator-color=primary active-color=primary"
+        ) as tabs:
+            for m in modules:
+                ui.tab(m.id, label=m.title)
+
+        with ui.tab_panels(tabs, value=default_id).classes("w-full").props("animated"):
             for mod in modules:
-                with ui.tab_panel(tab_refs[mod.id]):
-                    panel = ui.column().classes("w-full")
-                    mod.render(prop, panel)
+                with ui.tab_panel(mod.id):
+                    panels[mod.id] = ui.column().classes("w-full")
+
+        async def ensure_tab(mod_id: str) -> None:
+            if mod_id not in panels or mod_id in mounted:
+                return
+            mounted.add(mod_id)
+            panel = panels[mod_id]
+            panel.clear()
+            with panel:
+                result = mod_by_id[mod_id].render(prop, panel)
+                if inspect.isawaitable(result):
+                    await result
+
+        async def on_tab_change(e) -> None:
+            val = getattr(e, "value", e)
+            if isinstance(val, str):
+                await ensure_tab(val)
+
+        async def mount_default() -> None:
+            await ensure_tab(default_id)
+
+        tabs.on_value_change(on_tab_change)
+        # Default tab (Photos) mounts immediately; Map/Neighborhood/Financials wait.
+        ui.timer(0, mount_default, once=True)

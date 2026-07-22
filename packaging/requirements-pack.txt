@@ -1,0 +1,2 @@
+# Extra deps for Windows freeze / installer builds (not required for browser-only dev).
+pyinstaller>=6.3

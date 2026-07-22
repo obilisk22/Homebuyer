@@ -21,11 +21,16 @@ class MortgageSummary:
     total_interest: float
     schedule: list[dict[str, float | int]]
     monthly_maintenance: float = 0.0
+    monthly_utilities: float = 0.0
 
     @property
     def monthly_owner_total(self) -> float:
-        """PITI + maintenance (ownership cash cost for display)."""
-        return float(self.monthly_total) + float(self.monthly_maintenance or 0)
+        """PITI + maintenance + utilities (ownership cash cost for display)."""
+        return (
+            float(self.monthly_total)
+            + float(self.monthly_maintenance or 0)
+            + float(self.monthly_utilities or 0)
+        )
 
 
 def effective_price(list_price: float, offer_price: float = 0.0) -> float:
@@ -110,13 +115,14 @@ def summarize(
     *,
     purchase_price: float | None = None,
     monthly_maintenance: float = 0.0,
+    monthly_utilities: float = 0.0,
 ) -> MortgageSummary:
     """Build a mortgage / PITI summary.
 
     ``purchase_price`` is a legacy alias: when provided and list/offer are unset,
     both are treated as that price (tests and older callers).
-    ``monthly_maintenance`` is tracked for ownership display; ``monthly_total``
-    remains PITI-only so buy-vs-rent can add maintenance once.
+    ``monthly_maintenance`` / ``monthly_utilities`` are tracked for ownership
+    display; ``monthly_total`` remains PITI-only so buy-vs-rent can add them once.
     """
     if purchase_price is not None and not list_price and not offer_price:
         list_price = purchase_price
@@ -149,6 +155,7 @@ def summarize(
         total_interest=total_interest,
         schedule=schedule,
         monthly_maintenance=float(monthly_maintenance or 0),
+        monthly_utilities=float(monthly_utilities or 0),
     )
 
 
@@ -233,6 +240,7 @@ def buy_vs_rent_projection(
     selling_cost_pct: float = 6.0,
     rent_growth_pct: float = 0.0,
     monthly_maintenance: float = 0.0,
+    monthly_utilities: float = 0.0,
     monthly_budget: float = 13_000.0,
     marginal_tax_pct: float = 41.0,
     cg_tax_pct: float = 24.0,
@@ -243,9 +251,11 @@ def buy_vs_rent_projection(
     """Project buy vs rent net worth with two-way budget surplus and tax effects.
 
     Both paths invest ``max(0, budget − housing_cost)``. Buyer housing cost is
-    PITI + maintenance minus a simplified interest + SALT-capped property-tax
-    shield. Buy NW includes the buyer investment portfolio and CG tax on a
-    hypothetical sale each year (primary-residence exclusion applied).
+    PITI + maintenance + utilities minus a simplified interest + SALT-capped
+    property-tax shield. Maintenance and utilities inflate each year at the same
+    rate as rent (``rent_growth_pct``); PITI stays flat. Buy NW includes the
+    buyer investment portfolio and CG tax on a hypothetical sale each year
+    (primary-residence exclusion applied).
     """
     term_years = max(len(summary.schedule) // 12, 0)
 
@@ -255,7 +265,8 @@ def buy_vs_rent_projection(
     appr = float(appreciation_pct) / 100.0
     r_month = (float(invest_return_pct) / 100.0) / 12.0
     piti = float(summary.monthly_total)
-    maint = float(monthly_maintenance or 0)
+    maint0 = float(monthly_maintenance or 0)
+    utils0 = float(monthly_utilities or 0)
     g = float(rent_growth_pct or 0) / 100.0
     rent0 = float(monthly_rent or 0)
     budget = float(monthly_budget or 0)
@@ -301,9 +312,12 @@ def buy_vs_rent_projection(
 
         interest_y = interest_in_loan_year(summary.schedule, year)
         shield_y = marg * (interest_y + prop_deduct)
-        owner_after_tax = piti + maint - shield_y / 12.0
-        # Rent for contributions after snapshot ``year`` (matches prior growth timing)
-        rent_year = rent0 * ((1.0 + g) ** (year + 1))
+        # Same timing as rent: contributions after snapshot ``year`` use (1+g)^(year+1)
+        growth = (1.0 + g) ** (year + 1)
+        maint = maint0 * growth
+        utils = utils0 * growth
+        owner_after_tax = piti + maint + utils - shield_y / 12.0
+        rent_year = rent0 * growth
 
         buy_contrib = max(0.0, budget - owner_after_tax)
         rent_contrib = max(0.0, budget - rent_year)

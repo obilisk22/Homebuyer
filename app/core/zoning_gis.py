@@ -9,8 +9,9 @@ Queries use an ACS-scale bbox and paginate past ArcGIS transfer limits.
 
 Large FeatureCollections (~10–20 MB) need NiceGUI's Engine.IO
 ``max_http_buffer_size`` raised in ``app.main`` (default 1 MB drops the payload).
-Do not over-simplify geometry (maxAllowableOffset / merge-by-zone) — that turns
-parcels into triangle-like shapes.
+Coordinate precision is quantized (``quantize_geojson``, precision 5) before disk
+cache / WS; do not use ArcGIS maxAllowableOffset or merge-by-zone — those turn
+parcels into triangle-like shapes. Quantize failure falls back to unsimplified.
 """
 
 from __future__ import annotations
@@ -21,11 +22,14 @@ from typing import Any
 
 import requests
 
-from app.core.crime_socrata import LA_COUNTY_BBOX, in_la_county, normalize_city
+from app.core.cache import memo_get, memo_set, quantize_geojson, singleflight
+from app.core.crime_socrata import in_la_county, normalize_city
 from app.core.overlay_cache import cache_key, read_json, write_json
 
 REQUEST_TIMEOUT_S = 45
 CACHE_MAX_AGE_S = 24 * 3600
+MEMO_TTL_S = 3600.0
+MEMO_NS = "zoning"
 # ~ACS-scale bbox (~2.5–3 mi half) so zoning fills the typical Map viewport, not a pin pocket.
 DEFAULT_HALF_SPAN_DEG = 0.04
 # When a dense city (e.g. Santa Monica) truncates at MAX_FEATURES, shrink toward the pin
@@ -35,8 +39,8 @@ MIN_HALF_SPAN_DEG = 0.008  # ~0.55 mi
 PAGE_SIZE = 1000
 # Hard cap across pages so a huge bbox cannot stall the Map tab.
 MAX_FEATURES = 5000
-# Cache revision: binary-search max pin-local span under MAX_FEATURES.
-CACHE_REV = "v6"
+# Cache revision: quantized GeoJSON (precision 5) after pin-local span shrink.
+CACHE_REV = "v7"
 
 # City of LA — use MapServer **1102** (citywide Zoning), not **1101** (Chapter 1A).
 # Root cause of pocket coverage: 1101 only has polygons where the new Chapter 1A code
@@ -397,6 +401,96 @@ def _query_zoning_near_pin(
     # Even MIN span truncates — return it (still pin-centered).
     return best_feats, best_trunc, best_span, best_box
 
+def _safe_quantize(fc: dict[str, Any]) -> dict[str, Any]:
+    """Round/dedupe coords; on failure return the pre-quantize payload."""
+    try:
+        return quantize_geojson(fc, precision=5)
+    except Exception:  # noqa: BLE001
+        return fc
+
+
+def _zoning_cache_key(feed_id: str, lat: float, lng: float, half_span_deg: float) -> str:
+    return cache_key(
+        "zoning",
+        feed_id,
+        f"{lat:.3f}",
+        f"{lng:.3f}",
+        f"{half_span_deg:.3f}",
+        CACHE_REV,
+    )
+
+
+def _load_or_fetch_zoning(
+    feed: ZoningFeed,
+    lat: float,
+    lng: float,
+    *,
+    half_span_deg: float,
+    cache_empty: bool,
+) -> dict[str, Any]:
+    """Disk/memo hit or ArcGIS query → quantized FeatureCollection for one feed."""
+    key = _zoning_cache_key(feed.id, lat, lng, half_span_deg)
+
+    memoed = memo_get(MEMO_NS, key)
+    if isinstance(memoed, dict) and memoed.get("type") == "FeatureCollection":
+        if (memoed.get("features") or []) or cache_empty:
+            return memoed
+
+    def factory() -> dict[str, Any]:
+        hit = memo_get(MEMO_NS, key)
+        if isinstance(hit, dict) and hit.get("type") == "FeatureCollection":
+            if (hit.get("features") or []) or cache_empty:
+                return hit
+
+        cached = read_json("zoning", key, max_age_s=CACHE_MAX_AGE_S)
+        if isinstance(cached, dict) and cached.get("type") == "FeatureCollection":
+            if (cached.get("features") or []) or cache_empty:
+                memo_set(MEMO_NS, key, cached, ttl_s=MEMO_TTL_S)
+                return cached
+
+        features, truncated, used_span, _bbox = _query_zoning_near_pin(
+            feed, lat, lng, half_span_deg=half_span_deg
+        )
+
+        # ~69 mi per degree latitude; caption for the query half-span (not map zoom).
+        radius_mi = used_span * 69.0
+        if features:
+            msg = (
+                f"Zoning: {len(features)} parcels ({feed.label}) "
+                f"· ~{radius_mi:.1f} mi radius"
+            )
+            if truncated:
+                msg += f" · truncated at {MAX_FEATURES}"
+            if abs(used_span - half_span_deg) > 1e-9:
+                msg += " · tightened to pin"
+        else:
+            msg = (
+                "No zoning polygons returned for this pin "
+                "(may be outside this feed’s coverage)."
+            )
+
+        result: dict[str, Any] = {
+            "type": "FeatureCollection",
+            "features": features,
+            "meta": {
+                "feed_id": feed.id,
+                "feed_label": feed.label,
+                "count": len(features),
+                "half_span_deg": used_span,
+                "requested_half_span_deg": half_span_deg,
+                "truncated": truncated,
+                "message": msg,
+            },
+        }
+        result = _safe_quantize(result)
+        if features or cache_empty:
+            write_json("zoning", key, result)
+            memo_set(MEMO_NS, key, result, ttl_s=MEMO_TTL_S)
+        return result
+
+    return singleflight(MEMO_NS, key, factory)
+
+
 def build_zoning_geojson(
     city: str | None,
     lat: float,
@@ -431,69 +525,27 @@ def build_zoning_geojson(
 
     last_error = ""
     for feed in feeds_to_try:
-        key = cache_key(
-            "zoning",
-            feed.id,
-            f"{lat:.3f}",
-            f"{lng:.3f}",
-            f"{half_span_deg:.3f}",
-            CACHE_REV,  # pin-focused shrink when truncated
-        )
-        cached = read_json("zoning", key, max_age_s=CACHE_MAX_AGE_S)
-        if isinstance(cached, dict) and cached.get("type") == "FeatureCollection":
-            if (cached.get("features") or []) or feed is feeds_to_try[-1]:
-                return cached
-
+        cache_empty = feed is feeds_to_try[-1]
         try:
-            features, truncated, used_span, bbox = _query_zoning_near_pin(
-                feed, lat, lng, half_span_deg=half_span_deg
+            result = _load_or_fetch_zoning(
+                feed,
+                lat,
+                lng,
+                half_span_deg=half_span_deg,
+                cache_empty=cache_empty,
             )
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
             continue
 
-        # ~69 mi per degree latitude; caption for the query half-span (not map zoom).
-        radius_mi = used_span * 69.0
+        features = result.get("features") or []
         if features:
-            msg = (
-                f"Zoning: {len(features)} parcels ({feed.label}) "
-                f"· ~{radius_mi:.1f} mi radius"
-            )
-            if truncated:
-                msg += f" · truncated at {MAX_FEATURES}"
-            if abs(used_span - half_span_deg) > 1e-9:
-                msg += " · tightened to pin"
-        else:
-            msg = (
-                "No zoning polygons returned for this pin "
-                "(may be outside this feed’s coverage)."
-            )
-
-        result = {
-            "type": "FeatureCollection",
-            "features": features,
-            "meta": {
-                "feed_id": feed.id,
-                "feed_label": feed.label,
-                "count": len(features),
-                "half_span_deg": used_span,
-                "requested_half_span_deg": half_span_deg,
-                "truncated": truncated,
-                "message": msg,
-            },
-        }
-        if features:
-            write_json("zoning", key, result)
             return result
-        # Keep empty cached only for last attempt to avoid poisoning fallbacks.
-        if feed is feeds_to_try[-1]:
-            write_json("zoning", key, result)
-            if last_error and not features:
-                result["meta"]["message"] = (
-                    f"{result['meta']['message']} ({last_error})"
-                    if last_error
-                    else result["meta"]["message"]
-                )
+        if cache_empty:
+            if last_error:
+                meta = dict(result.get("meta") or {})
+                meta["message"] = f"{meta.get('message', '')} ({last_error})".strip()
+                result = {**result, "meta": meta}
             return result
 
     return {

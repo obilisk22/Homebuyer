@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import re
 import shutil
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import unquote, urlparse
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.sql import ColumnElement
 
+from app.core import area_signals, financial_sync, listing_ingest
 from app.core.db import UPLOADS_DIR
 from app.core.finance import blend_appreciation_rates
 from app.core.fhfa_hpi import zip5_cagr
@@ -18,6 +16,8 @@ from app.core.gemini_financial import (
     generate_financial_commentary,
 )
 from app.core.gemini_neighborhood import (
+    build_overview_cache_key,
+    build_things_to_do_cache_key,
     generate_neighborhood_overview,
     generate_things_to_do,
 )
@@ -26,10 +26,31 @@ from app.core.home_insurance import resolve_annual_insurance
 from app.core.home_maintenance import resolve_monthly_maintenance
 from app.core.models import DEFAULT_MONTHLY_RENT, FinancialAssumptions, Photo, Property
 from app.core.mortgage_rates import resolve_interest_rate, should_autofill_interest_rate
+from app.core.fcc_broadband import (
+    needs_refresh as broadband_needs_refresh,
+    refresh_property_broadband,
+)
+from app.core.gemini_photos import (
+    build_photos_fingerprint,
+    generate_photos_commentary,
+)
+from app.core.market_activity import (
+    needs_refresh as market_needs_refresh,
+    refresh_property_market_activity,
+)
 from app.core.nearby_signals import needs_refresh, refresh_property_signals
+from app.core.permits_nearby import (
+    needs_refresh as permits_needs_refresh,
+    refresh_property_permits,
+)
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
-from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
+from app.core.thumbnail import (
+    PhotoCandidate,
+    pick_thumbnail_photo_id,
+    sidecar_thumb_path,
+)
+from app.core.utilities import resolve_monthly_utilities
 from app.core.zillow_listing import (
     ListingDetails,
     extract_listing_details,
@@ -55,45 +76,46 @@ def resolve_library_thumbnail(prop: Property) -> Photo | None:
     return prop.photos[0]
 
 
-def parse_zillow_url(url: str) -> dict[str, str | None]:
-    """Extract whatever we can from a Zillow listing URL without scraping.
+def fetch_library_thumbnails(
+    session: Session,
+    properties: list[Property],
+) -> dict[int, Photo]:
+    """Batch-load one thumbnail Photo per property without hydrating photos collections.
 
-    Typical pattern:
-      https://www.zillow.com/homedetails/123-Main-St-Seattle-WA-98101/12345678_zpid/
+    Honors ``thumbnail_photo_id`` when present; otherwise the lowest ``sort_order``
+    (then id) photo. Properties with no photos are omitted from the result.
     """
-    url = (url or "").strip()
-    if not url:
-        raise ValueError("Zillow URL is required.")
+    if not properties:
+        return {}
 
-    if not re.match(r"^https?://", url, re.I):
-        url = "https://" + url
+    result: dict[int, Photo] = {}
+    by_thumb_id = {
+        p.thumbnail_photo_id: p.id
+        for p in properties
+        if p.thumbnail_photo_id is not None
+    }
+    if by_thumb_id:
+        for photo in session.scalars(
+            select(Photo).where(Photo.id.in_(by_thumb_id.keys()))
+        ):
+            prop_id = by_thumb_id.get(photo.id)
+            if prop_id is not None and photo.property_id == prop_id:
+                result[prop_id] = photo
 
-    parsed = urlparse(url)
-    host = (parsed.netloc or "").lower()
-    if host.startswith("www."):
-        host_core = host[4:]
-    else:
-        host_core = host
+    missing_ids = [p.id for p in properties if p.id not in result]
+    if missing_ids:
+        for photo in session.scalars(
+            select(Photo)
+            .where(Photo.property_id.in_(missing_ids))
+            .order_by(Photo.property_id, Photo.sort_order, Photo.id)
+        ):
+            if photo.property_id not in result:
+                result[photo.property_id] = photo
+    return result
 
-    if "zillow.com" not in host_core:
-        raise ValueError("URL must be a zillow.com link.")
 
-    address_guess: str | None = None
-    zpid: str | None = None
-
-    path = unquote(parsed.path or "")
-    # /homedetails/<slug>/<zpid>_zpid/
-    m = re.search(r"/homedetails/([^/]+)/(\d+)_zpid", path, re.I)
-    if m:
-        slug, zpid = m.group(1), m.group(2)
-        address_guess = slug.replace("-", " ").strip() or None
-
-    if not zpid:
-        m2 = re.search(r"/(\d+)_zpid", path, re.I)
-        if m2:
-            zpid = m2.group(1)
-
-    return {"url": url, "address_guess": address_guess, "zpid": zpid}
+def parse_zillow_url(url: str) -> dict[str, str | None]:
+    return listing_ingest.parse_zillow_url(url)
 
 
 def property_matches_filters(
@@ -130,6 +152,46 @@ def property_matches_filters(
     return True
 
 
+def _escape_like_pattern(text: str) -> str:
+    """Escape % and _ so user input is matched literally in SQL LIKE."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _library_search_haystack() -> ColumnElement[str]:
+    """Concat address/city/state/zip — same haystack as property_matches_filters."""
+    return func.lower(
+        func.coalesce(Property.address, "")
+        + " "
+        + func.coalesce(Property.city, "")
+        + " "
+        + func.coalesce(Property.state, "")
+        + " "
+        + func.coalesce(Property.zip_code, "")
+    )
+
+
+def _library_filter_clauses(
+    *,
+    search: str = "",
+    min_price: float | None = None,
+    max_price: float | None = None,
+    min_beds: float | None = None,
+) -> list[ColumnElement[bool]]:
+    """SQL equivalents of the cheap library filters (beds / price / like search)."""
+    clauses: list[ColumnElement[bool]] = []
+    needle = (search or "").strip()
+    if needle:
+        pattern = f"%{_escape_like_pattern(needle.lower())}%"
+        clauses.append(_library_search_haystack().like(pattern, escape="\\"))
+    if min_price is not None:
+        clauses.append(Property.list_price >= min_price)
+    if max_price is not None:
+        clauses.append(Property.list_price <= max_price)
+    if min_beds is not None:
+        clauses.append(Property.beds >= min_beds)
+    return clauses
+
+
 _UNSET = object()
 
 
@@ -160,30 +222,27 @@ class PropertyService:
         min_beds: float | None = None,
         sort: str = "newest",
     ) -> list[Property]:
-        stmt = select(Property).options(joinedload(Property.photos)).order_by(Property.created_at.desc())
-        props = list(self.session.scalars(stmt).unique())
-        if search or min_price is not None or max_price is not None or min_beds is not None:
-            props = [
-                p
-                for p in props
-                if property_matches_filters(
-                    p,
-                    search=search,
-                    min_price=min_price,
-                    max_price=max_price,
-                    min_beds=min_beds,
-                )
-            ]
+        stmt = select(Property).options(joinedload(Property.financial))
+        for clause in _library_filter_clauses(
+            search=search,
+            min_price=min_price,
+            max_price=max_price,
+            min_beds=min_beds,
+        ):
+            stmt = stmt.where(clause)
         if sort == "price_asc":
-            props.sort(key=lambda p: (p.list_price is None, p.list_price or 0.0))
-        elif sort == "price_desc":
-            props.sort(key=lambda p: (p.list_price is None, -(p.list_price or 0.0)))
-        else:
-            props.sort(
-                key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),
-                reverse=True,
+            stmt = stmt.order_by(
+                Property.list_price.asc().nulls_last(),
+                Property.created_at.desc(),
             )
-        return props
+        elif sort == "price_desc":
+            stmt = stmt.order_by(
+                Property.list_price.desc().nulls_last(),
+                Property.created_at.desc(),
+            )
+        else:
+            stmt = stmt.order_by(Property.created_at.desc())
+        return list(self.session.scalars(stmt).unique())
 
     def has_any_properties(self) -> bool:
         return self.session.scalar(select(Property.id).limit(1)) is not None
@@ -200,246 +259,124 @@ class PropertyService:
         return self.session.scalars(stmt).unique().first()
 
     def refresh_nearby_signals(self, property_id: int) -> Property:
-        """Refresh and persist nearby signals without surfacing provider failures."""
-        prop = self.get_property(property_id)
-        if prop is None:
-            raise ValueError("Property not found.")
-        try:
-            refresh_property_signals(prop)
-            self.session.commit()
-            self.session.refresh(prop)
-        except Exception:  # noqa: BLE001 - nearby providers never block property flows
-            self.session.rollback()
-        return prop
+        return area_signals.refresh_nearby_signals(
+            self.session,
+            property_id,
+            lookup=self.get_property,
+            refresher=refresh_property_signals,
+        )
+
+    def refresh_permits_activity(self, property_id: int) -> Property:
+        return area_signals.refresh_permits_activity(
+            self.session,
+            property_id,
+            lookup=self.get_property,
+            refresher=refresh_property_permits,
+        )
+
+    def refresh_broadband_status(self, property_id: int) -> Property:
+        return area_signals.refresh_broadband_status(
+            self.session,
+            property_id,
+            lookup=self.get_property,
+            refresher=refresh_property_broadband,
+        )
+
+    def refresh_market_activity(self, property_id: int) -> Property:
+        return area_signals.refresh_market_activity(
+            self.session,
+            property_id,
+            lookup=self.get_property,
+            refresher=refresh_property_market_activity,
+        )
 
     def refresh_stale_nearby_signals(self, *, limit: int = 3) -> int:
-        """Refresh up to ``limit`` stale properties that have map coordinates."""
-        import time
-
-        if limit <= 0:
-            return 0
-        stmt = (
-            select(Property)
-            .where(
-                Property.latitude.is_not(None),
-                Property.longitude.is_not(None),
-            )
-            .order_by(Property.updated_at.desc())
+        return area_signals.refresh_stale_nearby_signals(
+            self.session,
+            limit=limit,
+            refresh=self.refresh_nearby_signals,
+            needs_refresh_fn=needs_refresh,
         )
-        refreshed = 0
-        for prop in self.session.scalars(stmt):
-            if not needs_refresh(prop.nearby_signals_at, prop.nearby_signals):
-                continue
-            self.refresh_nearby_signals(prop.id)
-            refreshed += 1
-            if refreshed >= limit:
-                break
-            # Public Overpass mirrors rate-limit; brief pause between homes.
-            time.sleep(1.25)
-        return refreshed
+
+    def refresh_stale_permits_activity(self, *, limit: int = 3) -> int:
+        return area_signals.refresh_stale_permits_activity(
+            self.session,
+            limit=limit,
+            refresh=self.refresh_permits_activity,
+            needs_refresh_fn=permits_needs_refresh,
+        )
+
+    def refresh_stale_broadband_status(self, *, limit: int = 3) -> int:
+        return area_signals.refresh_stale_broadband_status(
+            self.session,
+            limit=limit,
+            refresh=self.refresh_broadband_status,
+            needs_refresh_fn=broadband_needs_refresh,
+        )
+
+    def refresh_stale_market_activity(self, *, limit: int = 3) -> int:
+        return area_signals.refresh_stale_market_activity(
+            self.session,
+            limit=limit,
+            refresh=self.refresh_market_activity,
+            needs_refresh_fn=market_needs_refresh,
+        )
+
+    def refresh_stale_area_signals(self, *, limit: int = 3) -> dict[str, int]:
+        return area_signals.refresh_stale_area_signals(self.session, limit=limit)
 
     def _apply_listing_details(
         self, prop: Property, details: ListingDetails, *, sync_financial: bool = True
     ) -> None:
-        if details.list_price is not None:
-            prop.list_price = details.list_price
-        if details.beds is not None:
-            prop.beds = details.beds
-        if details.baths is not None:
-            prop.baths = details.baths
-        if details.sqft is not None:
-            prop.sqft = details.sqft
-        if details.hoa_fee is not None:
-            prop.hoa_fee = details.hoa_fee
-        if details.year_built is not None:
-            prop.year_built = details.year_built
-        if details.home_type:
-            prop.home_type = details.home_type
-        if details.city:
-            prop.city = details.city
-        if details.state:
-            prop.state = details.state
-        if details.zip_code:
-            prop.zip_code = details.zip_code
-        if details.address:
-            prop.address = details.address
-        if details.neighborhood and not (prop.neighborhood_override or "").strip():
-            # Cache Zillow neighborhood when we already have the listing HTML.
-            if not (prop.neighborhood_name or "").strip():
-                prop.neighborhood_name = details.neighborhood.strip()
-                prop.neighborhood_source = "zillow"
-        if sync_financial:
-            self._sync_financial_from_listing(prop, details)
+        listing_ingest.apply_listing_details(
+            prop,
+            details,
+            sync_financial=sync_financial,
+            sync_financial_fn=self._sync_financial_from_listing,
+        )
 
     def _sync_financial_from_listing(self, prop: Property, details: ListingDetails) -> None:
-        """Overwrite listing-derived Financials fields; preserve Manual loan inputs."""
-        if prop.financial is None:
-            prop.financial = FinancialAssumptions()
-        fin = prop.financial
-
-        if details.list_price is not None and details.list_price > 0:
-            fin.list_price = float(details.list_price)
-            fin.purchase_price = float(details.list_price)
-        elif details.list_price is not None:
-            fin.list_price = 0.0
-            fin.purchase_price = 0.0
-
-        if details.hoa_fee is not None:
-            fin.monthly_hoa = float(details.hoa_fee)
-
-        price_for_tax = None
-        if fin.list_price and fin.list_price > 0:
-            price_for_tax = float(fin.list_price)
-        elif details.list_price and details.list_price > 0:
-            price_for_tax = float(details.list_price)
-        elif prop.list_price and prop.list_price > 0:
-            price_for_tax = float(prop.list_price)
-
-        tax_amt, tax_src = resolve_annual_property_tax(
-            annual_tax=details.annual_tax,
-            tax_assessed_value=details.tax_assessed_value,
-            property_tax_rate=details.property_tax_rate,
-            list_price=price_for_tax,
-            lat=prop.latitude,
-            lng=prop.longitude,
+        financial_sync.sync_financial_from_listing(
+            self.session,
+            prop,
+            details,
+            rent_growth_resolver=self.resolve_rent_growth,
+            tax_resolver=resolve_annual_property_tax,
+            insurance_resolver=resolve_annual_insurance,
+            fhfa_resolver=zip5_cagr,
+            appreciation_blender=blend_appreciation_rates,
+            rate_resolver=resolve_interest_rate,
+            maintenance_resolver=resolve_monthly_maintenance,
+            utilities_resolver=resolve_monthly_utilities,
         )
-        if tax_amt is not None and tax_amt > 0:
-            fin.annual_property_tax = float(tax_amt)
-            fin.property_tax_source = tax_src
-        else:
-            fin.annual_property_tax = 0.0
-            fin.property_tax_source = ""
-
-        state = (details.state or prop.state or "").strip()
-        ins_amt, ins_src = resolve_annual_insurance(
-            annual_insurance=details.annual_insurance,
-            list_price=price_for_tax,
-            state=state,
-        )
-        if ins_amt is not None and ins_amt > 0:
-            fin.annual_insurance = float(ins_amt)
-            fin.insurance_source = ins_src
-        else:
-            fin.annual_insurance = 0.0
-            fin.insurance_source = ""
-
-        rent_src = (fin.rent_source or "").strip()
-        if rent_src in ("", "Zillow", "Default"):
-            if details.rent_zestimate is not None and details.rent_zestimate > 0:
-                fin.monthly_rent = float(details.rent_zestimate)
-                fin.rent_source = "Zillow"
-            else:
-                fin.monthly_rent = float(DEFAULT_MONTHLY_RENT)
-                fin.rent_source = "Default"
-        self.resolve_rent_growth(fin, prop)
-
-        fhfa = None
-        try:
-            zip_code = (prop.zip_code or details.zip_code or "").strip()
-            if zip_code:
-                fhfa = zip5_cagr(zip_code)
-        except Exception:
-            fhfa = None
-        if fhfa is not None:
-            fin.appreciation_fhfa_pct = float(fhfa)
-
-        if details.appreciation_decade_pct is not None:
-            fin.appreciation_zillow_pct = float(details.appreciation_decade_pct)
-
-        if (fin.appreciation_source or "").strip() != "Manual":
-            blended, source = blend_appreciation_rates(
-                fin.appreciation_fhfa_pct, fin.appreciation_zillow_pct
-            )
-            fin.appreciation_pct = float(blended)
-            fin.appreciation_source = source
-
-        self._apply_mortgage_rate_autofill(fin)
-        self._apply_maintenance_autofill(fin, prop, details)
 
     def _apply_maintenance_autofill(
         self, fin: FinancialAssumptions, prop: Property, details: ListingDetails
     ) -> None:
-        """Fill monthly maintenance unless the buyer set Manual."""
-        if (fin.maintenance_source or "").strip() == "Manual":
-            return
-
-        price = None
-        if fin.list_price and fin.list_price > 0:
-            price = float(fin.list_price)
-        elif details.list_price and details.list_price > 0:
-            price = float(details.list_price)
-        elif prop.list_price and prop.list_price > 0:
-            price = float(prop.list_price)
-
-        offer = float(fin.offer_price or 0) or None
-        sqft = None
-        if prop.sqft and prop.sqft > 0:
-            sqft = float(prop.sqft)
-        elif details.sqft and details.sqft > 0:
-            sqft = float(details.sqft)
-
-        year_built = None
-        if prop.year_built:
-            try:
-                year_built = int(prop.year_built)
-            except (TypeError, ValueError):
-                year_built = None
-        if year_built is None and details.year_built:
-            try:
-                year_built = int(details.year_built)
-            except (TypeError, ValueError):
-                year_built = None
-
-        state = (details.state or prop.state or "").strip()
-        amt, src = resolve_monthly_maintenance(
-            list_price=price,
-            offer_price=offer,
-            sqft=sqft,
-            year_built=year_built,
-            state=state,
+        financial_sync.apply_maintenance_autofill(
+            fin,
+            prop,
+            details,
+            maintenance_resolver=resolve_monthly_maintenance,
         )
-        if amt is not None and amt > 0:
-            fin.monthly_maintenance = float(amt)
-            fin.maintenance_source = src
-        else:
-            fin.monthly_maintenance = 0.0
-            fin.maintenance_source = ""
+
+    def _apply_utilities_autofill(
+        self, fin: FinancialAssumptions, prop: Property, details: ListingDetails
+    ) -> None:
+        financial_sync.apply_utilities_autofill(
+            fin,
+            prop,
+            details,
+            utilities_resolver=resolve_monthly_utilities,
+        )
 
     def _apply_mortgage_rate_autofill(self, fin: FinancialAssumptions) -> None:
-        """Fill interest rate from Freddie Mac PMMS for the current loan term."""
-        if not should_autofill_interest_rate(fin.interest_rate_source):
-            return
-        term = int(fin.loan_term_years or 30)
-        rate, src = resolve_interest_rate(term)
-        if rate is None or rate <= 0:
-            return
-        fin.interest_rate_pct = float(rate)
-        fin.interest_rate_source = src
+        financial_sync.apply_mortgage_rate_autofill(
+            fin, rate_resolver=resolve_interest_rate
+        )
 
     def resolve_rent_growth(self, fin: FinancialAssumptions, prop: Property) -> None:
-        """Resolve rent growth from control status, ACS county data, or a default."""
-        if fin.rent_control:
-            fin.rent_growth_pct = 2.0
-            fin.rent_growth_source = "Rent control 2%"
-            return
-        if (fin.rent_growth_source or "").strip() == "Manual":
-            return
-
-        cagr = None
-        try:
-            if prop.latitude is not None and prop.longitude is not None:
-                from app.core.census_acs import county_median_rent_cagr
-
-                cagr = county_median_rent_cagr(float(prop.latitude), float(prop.longitude))
-        except Exception:  # noqa: BLE001 - data resolution must not block listing sync
-            cagr = None
-
-        if cagr is not None:
-            fin.rent_growth_pct = float(cagr)
-            fin.rent_growth_source = "ACS county ~5y CAGR"
-        else:
-            fin.rent_growth_pct = 3.0
-            fin.rent_growth_source = "Default"
+        financial_sync.resolve_rent_growth(fin, prop)
 
     def ensure_rent_growth(
         self, property_id: int, *, rent_control: bool | None = None
@@ -457,43 +394,17 @@ class PropertyService:
         return fin
 
     def _fill_location_from_address(self, prop: Property) -> None:
-        if prop.city and prop.state:
-            return
-        city, state, zip_code = parse_address_parts(prop.address)
-        if city and not prop.city:
-            prop.city = city
-        if state and not prop.state:
-            prop.state = state
-        if zip_code and not prop.zip_code:
-            prop.zip_code = zip_code
+        listing_ingest.fill_location_from_address(
+            prop, address_parser=parse_address_parts
+        )
 
     def refresh_listing_details(self, property_id: int) -> Property:
-        """Re-fetch list price / beds / baths / sqft / HOA / year / type from Zillow."""
-        prop = self.get_property(property_id)
-        if prop is None:
-            raise ValueError("Property not found.")
-        had_coords = prop.latitude is not None and prop.longitude is not None
-        details: ListingDetails | None = None
-        try:
-            details = fetch_listing_details(prop.zillow_url)
-            self._apply_listing_details(prop, details)
-        except Exception:
-            # Leave existing values; still try address parse fallback.
-            pass
-        self._fill_location_from_address(prop)
-        if prop.latitude is None or prop.longitude is None:
-            try:
-                self.ensure_coordinates(property_id)
-                prop = self.get_property(property_id) or prop
-            except Exception:
-                pass
-        if details is not None:
-            now_has_coords = prop.latitude is not None and prop.longitude is not None
-            if now_has_coords and not had_coords:
-                self._sync_financial_from_listing(prop, details)
-        self.session.commit()
-        self.session.refresh(prop)
-        return prop
+        return listing_ingest.refresh_listing_details(
+            self.session,
+            property_id,
+            service=self,
+            details_fetcher=fetch_listing_details,
+        )
 
     def add_from_zillow(
         self,
@@ -502,70 +413,20 @@ class PropertyService:
         *,
         import_photos: bool = True,
     ) -> tuple[Property, int]:
-        parsed = parse_zillow_url(zillow_url)
-        addr = (address or "").strip() or (parsed.get("address_guess") or "")
-        if not addr:
-            raise ValueError(
-                "Could not read an address from that link. "
-                "Paste a full Zillow home details URL (…/homedetails/…)."
-            )
-
-        city, state, zip_code = parse_address_parts(addr)
-        prop = Property(
-            address=addr,
-            zillow_url=str(parsed["url"]),
-            city=city,
-            state=state,
-            zip_code=zip_code,
+        return listing_ingest.add_from_zillow(
+            self.session,
+            zillow_url,
+            address,
+            import_photos=import_photos,
+            service=self,
+            url_parser=parse_zillow_url,
+            html_fetcher=fetch_listing_html,
+            details_extractor=extract_listing_details,
+            geocoder=geocode_address,
+            photo_fetcher=fetch_listing_photo_urls,
+            image_downloader=download_image,
+            extension_resolver=extension_for,
         )
-        prop.financial = FinancialAssumptions()
-        self.session.add(prop)
-        self.session.commit()
-        self.session.refresh(prop)
-
-        html: str | None = None
-        details_for_sync: ListingDetails | None = None
-        try:
-            html = fetch_listing_html(prop.zillow_url)
-            details_for_sync = extract_listing_details(html)
-            self._apply_listing_details(
-                prop, details_for_sync, sync_financial=False
-            )
-            self._fill_location_from_address(prop)
-            self.session.commit()
-            self.session.refresh(prop)
-        except Exception:
-            # Keep the home even if listing scrape fails; user can refresh/edit later.
-            html = None
-            details_for_sync = None
-
-        try:
-            lat, lng = geocode_address(prop.address)
-            prop.latitude = lat
-            prop.longitude = lng
-            self.session.commit()
-            self.session.refresh(prop)
-        except ValueError:
-            # Keep the home even if geocoding fails; Map tab can retry later.
-            pass
-        if details_for_sync is not None:
-            self._sync_financial_from_listing(prop, details_for_sync)
-            self.session.commit()
-            self.session.refresh(prop)
-
-        imported = 0
-        if import_photos:
-            try:
-                imported = self.import_zillow_photos(prop.id, html=html)
-            except Exception:
-                # Keep the home even if Zillow photo fetch fails; user can re-import later.
-                imported = 0
-        try:
-            prop = self.refresh_nearby_signals(prop.id)
-        except Exception:
-            # Nearby providers must never prevent saving a home.
-            pass
-        return prop, imported
 
     def ensure_coordinates(self, property_id: int, *, force: bool = False) -> Property:
         """Geocode and persist lat/lng when missing (or always when ``force``)."""
@@ -585,6 +446,21 @@ class PropertyService:
             prop = self.refresh_nearby_signals(prop.id)
         except Exception:
             # Nearby providers must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_permits_activity(prop.id)
+        except Exception:
+            # Permit SODA lookups must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_broadband_status(prop.id)
+        except Exception:
+            # FCC BDC lookups must never prevent saving coordinates.
+            pass
+        try:
+            prop = self.refresh_market_activity(prop.id)
+        except Exception:
+            # Redfin ZIP activity must never prevent saving coordinates.
             pass
         return prop
 
@@ -658,7 +534,13 @@ class PropertyService:
                 "No neighborhood name yet — refresh from Zillow or set an override."
             )
 
-        cache_key = f"{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        address = (prop.address or "").strip()
+        cache_key = build_overview_cache_key(
+            address=address,
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
+        )
         if (
             not force
             and (prop.neighborhood_gemini or "").strip()
@@ -667,6 +549,7 @@ class PropertyService:
             return prop
 
         text = generate_neighborhood_overview(
+            address=address,
             neighborhood=name,
             city=prop.city or "",
             state=prop.state or "",
@@ -688,9 +571,13 @@ class PropertyService:
                 "No neighborhood name yet — refresh from Zillow or set an override."
             )
 
-        # Separate cache from overview; suffix keeps keys distinct if compared side-by-side.
-        cache_key = (
-            f"things_v2|{name}|{(prop.city or '').strip()}|{(prop.state or '').strip()}"
+        address = (prop.address or "").strip()
+        # Separate cache from overview; prefix keeps keys distinct if compared side-by-side.
+        cache_key = build_things_to_do_cache_key(
+            address=address,
+            neighborhood=name,
+            city=prop.city or "",
+            state=prop.state or "",
         )
         if (
             not force
@@ -700,6 +587,7 @@ class PropertyService:
             return prop
 
         text = generate_things_to_do(
+            address=address,
             neighborhood=name,
             city=prop.city or "",
             state=prop.state or "",
@@ -839,6 +727,16 @@ class PropertyService:
             if after_m != before_m or after_ms != before_ms:
                 dirty = True
 
+        # Backfill utilities estimate (provider × sqft × age) unless Manual.
+        if (prop.financial.utilities_source or "").strip() != "Manual":
+            before_u = float(prop.financial.monthly_utilities or 0)
+            before_us = (prop.financial.utilities_source or "").strip()
+            self._apply_utilities_autofill(prop.financial, prop, ListingDetails())
+            after_u = float(prop.financial.monthly_utilities or 0)
+            after_us = (prop.financial.utilities_source or "").strip()
+            if after_u != before_u or after_us != before_us:
+                dirty = True
+
         if dirty:
             self.session.commit()
             self.session.refresh(prop.financial)
@@ -878,6 +776,36 @@ class PropertyService:
         self.session.refresh(prop)
         return prop
 
+    def ensure_gemini_photos(self, property_id: int, *, force: bool = False) -> Property:
+        """Generate and cache Photos-tab Gemini blurb from the subject Zillow URL."""
+        prop = self.get_property(property_id)
+        if prop is None:
+            raise ValueError("Property not found.")
+        subject_url = (prop.zillow_url or "").strip()
+        if not subject_url:
+            raise ValueError("This home needs a Zillow URL before asking Gemini about photos.")
+
+        cache_key = build_photos_fingerprint(
+            subject_zillow_url=subject_url,
+            address=prop.address or "",
+        )
+        if (
+            not force
+            and (prop.photos_gemini or "").strip()
+            and (prop.photos_gemini_for or "").strip() == cache_key
+        ):
+            return prop
+
+        text = generate_photos_commentary(
+            subject_zillow_url=subject_url,
+            subject_label=prop.address or "",
+        )
+        prop.photos_gemini = text
+        prop.photos_gemini_for = cache_key
+        self.session.commit()
+        self.session.refresh(prop)
+        return prop
+
     def _library_zillow_refs(self, exclude_property_id: int) -> list[ZillowListingRef]:
         """Other saved homes as Zillow URL peers for Gemini (max 19 peers → 20 URLs)."""
         rows = self.session.execute(
@@ -901,84 +829,6 @@ class PropertyService:
                 break
         return refs
 
-    def ensure_gemini_insights(
-        self, property_id: int, *, force: bool = False
-    ) -> dict[str, str]:
-        """Run neighborhood + financial Gemini jobs; return status per section.
-
-        Continues after individual failures so one missing piece (e.g. no price)
-        does not block the others. Keys: overview, things_to_do, financial.
-        Values are ``ok``, ``cached``, or an error message.
-        """
-        results: dict[str, str] = {}
-
-        try:
-            self.ensure_neighborhood(property_id)
-        except Exception as exc:  # noqa: BLE001
-            results["overview"] = f"Neighborhood name: {exc}"
-            results["things_to_do"] = f"Neighborhood name: {exc}"
-        else:
-            prop = self.get_property(property_id)
-            name = self.display_neighborhood(prop) if prop else ""
-            if not name:
-                msg = "Set a neighborhood name first"
-                results["overview"] = msg
-                results["things_to_do"] = msg
-            else:
-                try:
-                    before = (prop.neighborhood_gemini_for or "").strip() if prop else ""
-                    self.ensure_gemini_overview(property_id, force=force)
-                    after_prop = self.get_property(property_id)
-                    after = (
-                        (after_prop.neighborhood_gemini_for or "").strip()
-                        if after_prop
-                        else ""
-                    )
-                    results["overview"] = (
-                        "cached"
-                        if not force and before and before == after
-                        else "ok"
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    results["overview"] = str(exc)
-                try:
-                    prop2 = self.get_property(property_id)
-                    before_t = (
-                        (prop2.neighborhood_things_to_do_for or "").strip()
-                        if prop2
-                        else ""
-                    )
-                    self.ensure_gemini_things_to_do(property_id, force=force)
-                    after_prop2 = self.get_property(property_id)
-                    after_t = (
-                        (after_prop2.neighborhood_things_to_do_for or "").strip()
-                        if after_prop2
-                        else ""
-                    )
-                    results["things_to_do"] = (
-                        "cached"
-                        if not force and before_t and before_t == after_t
-                        else "ok"
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    results["things_to_do"] = str(exc)
-
-        try:
-            prop_f = self.get_property(property_id)
-            before_f = (prop_f.financial_gemini_for or "").strip() if prop_f else ""
-            self.ensure_gemini_financial(property_id, force=force)
-            after_f_prop = self.get_property(property_id)
-            after_f = (
-                (after_f_prop.financial_gemini_for or "").strip() if after_f_prop else ""
-            )
-            results["financial"] = (
-                "cached" if not force and before_f and before_f == after_f else "ok"
-            )
-        except Exception as exc:  # noqa: BLE001
-            results["financial"] = str(exc)
-
-        return results
-
     def update_financial(self, property_id: int, **fields: float | int) -> FinancialAssumptions:
         prop = self.get_property(property_id)
         if prop is None:
@@ -994,6 +844,7 @@ class PropertyService:
         prev_term = int(fin.loan_term_years or 30)
         prev_rate_src = (fin.interest_rate_source or "").strip()
         prev_maint = float(fin.monthly_maintenance or 0)
+        prev_utils = float(fin.monthly_utilities or 0)
         for key, value in fields.items():
             if hasattr(fin, key):
                 setattr(fin, key, value)
@@ -1008,6 +859,11 @@ class PropertyService:
             and float(fields["monthly_maintenance"]) != prev_maint
         ):
             fin.maintenance_source = "Manual"
+        if (
+            "monthly_utilities" in fields
+            and float(fields["monthly_utilities"]) != prev_utils
+        ):
+            fin.utilities_source = "Manual"
         if "rent_control" in fields and bool(fields["rent_control"]):
             fin.rent_control = True
             fin.rent_growth_pct = 2.0
@@ -1050,40 +906,101 @@ class PropertyService:
         self.session.refresh(fin)
         return fin
 
-    def add_photo(
-        self,
-        property_id: int,
-        source_path: Path,
-        caption: str = "",
-        *,
-        source_url: str = "",
-    ) -> Photo:
+    def revert_financial_field(self, property_id: int, field: str) -> FinancialAssumptions:
+        """Restore one Financials field to product / autofill baseline; clear Manual."""
         prop = self.get_property(property_id)
         if prop is None:
             raise ValueError("Property not found.")
+        fin = self.ensure_financial(prop)
+        details = ListingDetails()
+        key = (field or "").strip()
 
-        dest_dir = UPLOADS_DIR / str(property_id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / source_path.name
-        if dest.exists():
-            stem, suffix = dest.stem, dest.suffix
-            i = 1
-            while dest.exists():
-                dest = dest_dir / f"{stem}_{i}{suffix}"
-                i += 1
-        shutil.copy2(source_path, dest)
+        if key == "offer_price":
+            fin.offer_price = 0.0
+        elif key == "down_payment_pct":
+            fin.down_payment_pct = 20.0
+        elif key == "list_price":
+            fin.list_price = float(prop.list_price or 0)
+            if fin.list_price > 0:
+                fin.purchase_price = float(fin.list_price)
+        elif key == "interest_rate_pct":
+            fin.interest_rate_source = ""
+            self._apply_mortgage_rate_autofill(fin)
+        elif key == "loan_term_years":
+            fin.loan_term_years = 30
+            if should_autofill_interest_rate(fin.interest_rate_source):
+                self._apply_mortgage_rate_autofill(fin)
+        elif key == "closing_cost_pct":
+            fin.closing_cost_pct = 3.0
+        elif key == "annual_property_tax":
+            price = float(fin.list_price or prop.list_price or 0) or None
+            tax_amt, tax_src = resolve_annual_property_tax(
+                annual_tax=None,
+                tax_assessed_value=None,
+                property_tax_rate=None,
+                list_price=price,
+                lat=prop.latitude,
+                lng=prop.longitude,
+            )
+            if tax_amt is not None and tax_amt > 0:
+                fin.annual_property_tax = float(tax_amt)
+                fin.property_tax_source = tax_src
+            else:
+                fin.annual_property_tax = 0.0
+                fin.property_tax_source = ""
+        elif key == "annual_insurance":
+            price = float(fin.list_price or prop.list_price or 0) or None
+            ins_amt, ins_src = resolve_annual_insurance(
+                annual_insurance=None,
+                list_price=price,
+                state=(prop.state or "").strip(),
+            )
+            if ins_amt is not None and ins_amt > 0:
+                fin.annual_insurance = float(ins_amt)
+                fin.insurance_source = ins_src
+            else:
+                fin.annual_insurance = 0.0
+                fin.insurance_source = ""
+        elif key == "monthly_hoa":
+            fin.monthly_hoa = float(prop.hoa_fee or 0)
+        elif key == "monthly_maintenance":
+            fin.maintenance_source = ""
+            self._apply_maintenance_autofill(fin, prop, details)
+        elif key == "monthly_utilities":
+            fin.utilities_source = ""
+            self._apply_utilities_autofill(fin, prop, details)
+        elif key == "monthly_rent":
+            fin.monthly_rent = float(DEFAULT_MONTHLY_RENT)
+            fin.rent_source = "Default"
+        elif key == "rent_control":
+            fin.rent_control = False
+            self.resolve_rent_growth(fin, prop)
+        elif key == "appreciation_pct":
+            blended, source = blend_appreciation_rates(
+                fin.appreciation_fhfa_pct, fin.appreciation_zillow_pct
+            )
+            fin.appreciation_pct = float(blended)
+            fin.appreciation_source = source
+        elif key == "invest_return_pct":
+            fin.invest_return_pct = 10.0
+        elif key == "selling_cost_pct":
+            fin.selling_cost_pct = 6.0
+        elif key == "monthly_budget":
+            fin.monthly_budget = 13_000.0
+        elif key == "marginal_tax_pct":
+            fin.marginal_tax_pct = 41.0
+        elif key == "cg_tax_pct":
+            fin.cg_tax_pct = 24.0
+        elif key == "cg_exclusion":
+            fin.cg_exclusion = 500_000.0
+        elif key == "salt_cap":
+            fin.salt_cap = 10_000.0
+        else:
+            raise ValueError(f"Unknown financial field: {field}")
 
-        photo = Photo(
-            property_id=property_id,
-            path=str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
-            source_url=source_url or "",
-            caption=caption,
-            sort_order=len(prop.photos),
-        )
-        self.session.add(photo)
         self.session.commit()
-        self.session.refresh(photo)
-        return photo
+        self.session.refresh(fin)
+        return fin
 
     def add_photo_bytes(
         self,
@@ -1128,61 +1045,16 @@ class PropertyService:
         replace: bool = False,
         html: str | None = None,
     ) -> int:
-        prop = self.get_property(property_id)
-        if prop is None:
-            raise ValueError("Property not found.")
-
-        if replace:
-            locked_id = prop.thumbnail_photo_id if prop.thumbnail_locked else None
-            for photo in list(prop.photos):
-                self.delete_photo(photo.id)
-            prop = self.get_property(property_id)
-            assert prop is not None
-            if locked_id is not None and not any(p.id == locked_id for p in prop.photos):
-                prop.thumbnail_locked = False
-                prop.thumbnail_photo_id = None
-                self.session.commit()
-
-        existing_urls = {p.source_url for p in prop.photos if p.source_url}
-
-        fetched = fetch_listing_photo_urls(prop.zillow_url, html=html)
-        imported = 0
-        sort_order = len(prop.photos)
-        dest_dir = UPLOADS_DIR / str(property_id)
-        for index, url in enumerate(fetched.urls):
-            if url in existing_urls:
-                continue
-            try:
-                data, content_type = download_image(url)
-            except ValueError:
-                continue
-            ext = extension_for(content_type, url)
-            filename = f"zillow_{index:03d}{ext}"
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest = dest_dir / filename
-            if dest.exists():
-                stem, suffix = dest.stem, dest.suffix
-                i = 1
-                while dest.exists():
-                    dest = dest_dir / f"{stem}_{i}{suffix}"
-                    i += 1
-            dest.write_bytes(data)
-            self.session.add(
-                Photo(
-                    property_id=property_id,
-                    path=str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
-                    source_url=url or "",
-                    caption=f"Zillow photo {index + 1}",
-                    sort_order=sort_order,
-                )
-            )
-            sort_order += 1
-            imported += 1
-            existing_urls.add(url)
-        if imported:
-            self.session.commit()
-        self.select_thumbnail(property_id)
-        return imported
+        return listing_ingest.import_zillow_photos(
+            self.session,
+            property_id,
+            replace=replace,
+            html=html,
+            service=self,
+            photo_fetcher=fetch_listing_photo_urls,
+            image_downloader=download_image,
+            extension_resolver=extension_for,
+        )
 
     def select_thumbnail(self, property_id: int) -> Photo | None:
         """Choose and persist a front-of-house style thumbnail for library cards."""
@@ -1260,6 +1132,9 @@ class PropertyService:
         full = UPLOADS_DIR / photo.path
         if full.exists():
             full.unlink(missing_ok=True)
+        thumb = sidecar_thumb_path(full)
+        if thumb.exists():
+            thumb.unlink(missing_ok=True)
         self.session.delete(photo)
         self.session.commit()
         if was_thumbnail:

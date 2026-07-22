@@ -224,6 +224,18 @@ def test_filter_search_address_and_city():
     assert not property_matches_filters(prop, search="portland")
 
 
+def test_filter_search_cross_field_city_state():
+    """Needle spanning city+state matches concat haystack, not any single column."""
+    prop = _prop(
+        address="100 Keep Ave",
+        city="Seattle",
+        state="WA",
+        zip_code="98101",
+    )
+    assert property_matches_filters(prop, search="Seattle WA")
+    assert not property_matches_filters(prop, search="Portland OR")
+
+
 def test_filter_price_and_beds():
     prop = _prop(list_price=800_000, beds=3)
     assert property_matches_filters(prop, min_price=700_000, max_price=900_000, min_beds=3)
@@ -231,6 +243,111 @@ def test_filter_price_and_beds():
     assert not property_matches_filters(prop, max_price=500_000)
     assert not property_matches_filters(prop, min_beds=4)
     assert not property_matches_filters(_prop(list_price=None), min_price=100_000)
+
+
+def test_list_properties_applies_filters_in_sql(tmp_path, monkeypatch):
+    """Cheap beds/price/search filters run in SQL via list_properties."""
+    import app.core.db as db
+    from app.core.models import FinancialAssumptions, Property
+    from app.core.property_service import PropertyService
+
+    monkeypatch.setenv("HOMEBUY_DB_PATH", str(tmp_path / "filters.db"))
+    db._engine = None
+    db._SessionLocal = None
+    db.init_db()
+    with db.get_session() as session:
+        svc = PropertyService(session)
+        keep = Property(
+            address="100 Keep Ave, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/keep/1_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_price = Property(
+            address="200 Cheap St, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/cheap/2_zpid/",
+            list_price=200_000,
+            beds=3,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_beds = Property(
+            address="300 Small St, Seattle, WA 98101",
+            zillow_url="https://www.zillow.com/homedetails/small/3_zpid/",
+            list_price=800_000,
+            beds=1,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        drop_city = Property(
+            address="400 Other St, Portland, OR 97201",
+            zillow_url="https://www.zillow.com/homedetails/other/4_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Portland",
+            state="OR",
+            zip_code="97201",
+            financial=FinancialAssumptions(),
+        )
+        session.add_all([keep, drop_price, drop_beds, drop_city])
+        session.commit()
+
+        found = svc.list_properties(
+            search="seattle",
+            min_price=700_000,
+            max_price=900_000,
+            min_beds=3,
+        )
+        assert [p.id for p in found] == [keep.id]
+        assert found[0].financial is not None
+
+
+def test_list_properties_search_cross_field_concat_parity(tmp_path, monkeypatch):
+    """SQL search uses concat haystack; OR ilike would miss city+state needles."""
+    import app.core.db as db
+    from app.core.models import FinancialAssumptions, Property
+    from app.core.property_service import PropertyService
+
+    monkeypatch.setenv("HOMEBUY_DB_PATH", str(tmp_path / "concat_search.db"))
+    db._engine = None
+    db._SessionLocal = None
+    db.init_db()
+    with db.get_session() as session:
+        svc = PropertyService(session)
+        split_fields = Property(
+            address="100 Keep Ave",
+            zillow_url="https://www.zillow.com/homedetails/split/5_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Seattle",
+            state="WA",
+            zip_code="98101",
+            financial=FinancialAssumptions(),
+        )
+        other = Property(
+            address="400 Other St",
+            zillow_url="https://www.zillow.com/homedetails/other/6_zpid/",
+            list_price=800_000,
+            beds=3,
+            city="Portland",
+            state="OR",
+            zip_code="97201",
+            financial=FinancialAssumptions(),
+        )
+        session.add_all([split_fields, other])
+        session.commit()
+
+        found = svc.list_properties(search="Seattle WA")
+        assert [p.id for p in found] == [split_fields.id]
+
 
 
 SAMPLE_TAX_INSURANCE_GDP = r"""

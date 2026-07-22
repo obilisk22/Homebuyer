@@ -4,7 +4,8 @@ import json
 import math
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from urllib.parse import urlencode
 
 import requests
 
@@ -16,10 +17,15 @@ if TYPE_CHECKING:
 
 HIGHWAY_RADIUS_FT = 800.0
 TRANSIT_RADIUS_MI = 0.5
-PLAYGROUND_RADIUS_MI = 0.5
+# TODO-048: was 0.75 mi; widen 25% for better hit rate (tags unchanged).
+PLAYGROUND_RADIUS_MI = 0.75 * 1.25  # 0.9375
 GROCERY_RADIUS_MI = 0.5
-SHELTER_RADIUS_MI = 0.25
+SHELTER_RADIUS_MI = 0.5
 STALE_MAX_AGE_DAYS = 30.0
+
+# Overpass (around:…) meters — must cover the largest non-highway radius.
+_NEARBY_OVERPASS_M = int(math.ceil(max(TRANSIT_RADIUS_MI, PLAYGROUND_RADIUS_MI, GROCERY_RADIUS_MI, SHELTER_RADIUS_MI) * 1609.344))
+_HIGHWAY_OVERPASS_M = int(math.ceil(HIGHWAY_RADIUS_FT * 0.3048))
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_URLS = (
@@ -53,6 +59,7 @@ class NearestHit(TypedDict):
     lat: float
     lng: float
     distance_mi: float
+    place_id: NotRequired[str]
 
 
 def ft_to_miles(ft: float) -> float:
@@ -73,6 +80,30 @@ def _signal_radius_mi(key: str) -> float:
     }[key]
 
 
+def _tag_list(value: Any) -> list[str]:
+    """Split OSM semicolon-separated tag values."""
+    if value is None:
+        return []
+    return [part.strip() for part in str(value).split(";") if part.strip()]
+
+
+def _is_homeless_social_facility(tags: dict[str, Any]) -> bool:
+    """True for homeless / recovery shelters without matching noisy amenities."""
+    for_values = {v.lower() for v in _tag_list(tags.get("social_facility:for"))}
+    if "homeless" in for_values:
+        return True
+    social_facility = str(tags.get("social_facility") or "").strip().lower()
+    if social_facility in {"shelter", "drug_rehabilitation", "transitional"}:
+        return True
+    amenity = str(tags.get("amenity") or "").strip().lower()
+    shelter_type = str(tags.get("shelter_type") or "").strip().lower()
+    if amenity == "shelter" and shelter_type == "homeless":
+        return True
+    if amenity == "shelter" and tags.get("homeless") == "yes":
+        return True
+    return False
+
+
 def _signal_key(tags: dict[str, Any]) -> str | None:
     highway = tags.get("highway")
     railway = tags.get("railway")
@@ -85,21 +116,17 @@ def _signal_key(tags: dict[str, Any]) -> str | None:
         or (railway == "halt" and tags.get("light_rail") == "yes")
     ):
         return "transit"
+    # Dedicated playground areas (nodes/ways). Park nodes that are themselves
+    # playgrounds sometimes only carry playground=* equipment keys — accept a
+    # named leisure=park only when it also has playground=yes (rare but real).
     if tags.get("leisure") == "playground":
+        return "playground"
+    if tags.get("leisure") == "park" and tags.get("playground") == "yes":
         return "playground"
     if tags.get("shop") in {"supermarket", "grocery"}:
         return "grocery"
-    social_facility = tags.get("social_facility")
-    if tags.get("amenity") == "social_facility" and (
-        social_facility
-        in {"shelter", "drug_rehabilitation", "transitional"}
-        or tags.get("social_facility:for") == "homeless"
-    ):
-        return "shelter"
-    if (
-        tags.get("amenity") == "shelter"
-        and tags.get("shelter_type") == "homeless"
-    ):
+    amenity = tags.get("amenity")
+    if amenity in {"social_facility", "shelter"} and _is_homeless_social_facility(tags):
         return "shelter"
     return None
 
@@ -163,15 +190,21 @@ def _classify_overpass_nearest(
         if key is None:
             continue
 
+        # Prefer center when present; otherwise use way/relation geometry vertices.
+        # Overpass `out geom` often omits `center`, which previously dropped polygon
+        # playgrounds / shelters / grocery buildings mapped as ways.
         locations: list[dict[str, Any]] = []
-        if key == "highway" and element.get("type") == "way":
+        if element.get("type") == "node":
+            locations = [element]
+        else:
+            center = element.get("center")
+            if isinstance(center, dict):
+                locations = [center]
             geometry = element.get("geometry")
             if isinstance(geometry, list):
-                locations = [point for point in geometry if isinstance(point, dict)]
-        if not locations:
-            location = element if element.get("type") == "node" else element.get("center")
-            if isinstance(location, dict):
-                locations = [location]
+                geom_points = [point for point in geometry if isinstance(point, dict)]
+                if key == "highway" or not locations:
+                    locations = geom_points if geom_points else locations
 
         nearest_location: tuple[float, float, float] | None = None
         for location in locations:
@@ -231,21 +264,107 @@ def signal_entry_from_hit(
 
     name = str(hit.get("name") or _fallback_name(key)).strip() or _fallback_name(key)
     if key == "highway":
-        return {
+        out: dict[str, Any] = {
             "hit": True,
             "distance_ft": miles_to_ft(hit["distance_mi"]),
             "name": name,
+            "lat": hit["lat"],
+            "lng": hit["lng"],
         }
-    return {
-        "hit": True,
-        "distance_mi": round(hit["distance_mi"], 2),
-        "name": name,
-    }
+    else:
+        out = {
+            "hit": True,
+            "distance_mi": round(hit["distance_mi"], 2),
+            "name": name,
+            "lat": hit["lat"],
+            "lng": hit["lng"],
+        }
+    place_id = str(hit.get("place_id") or "").strip()
+    if place_id:
+        out["place_id"] = place_id
+    return out
+
+
+def _entry_coords(entry: dict[str, Any]) -> tuple[float, float] | None:
+    try:
+        lat = entry.get("lat")
+        lng = entry.get("lng")
+        if lat is None or lng is None:
+            return None
+        return float(lat), float(lng)
+    except (TypeError, ValueError):
+        return None
+
+
+def _place_label(entry: dict[str, Any]) -> str:
+    return str(entry.get("name") or "").strip()
+
+
+def _destination_query(entry: dict[str, Any]) -> str | None:
+    """Specific place query: name@lat,lng when possible (not bare coords)."""
+    name = _place_label(entry)
+    coords = _entry_coords(entry)
+    if name and coords:
+        lat, lng = coords
+        return f"{name}@{lat},{lng}"
+    if coords:
+        lat, lng = coords
+        return f"{lat},{lng}"
+    if name:
+        return name
+    return None
+
+
+def source_url_for(
+    entry: dict[str, Any] | None,
+    *,
+    home_lat: float | None = None,
+    home_lng: float | None = None,
+) -> str | None:
+    """Google Maps deep link for a nearby-signal chip (TODO-049).
+
+    Prefer a specific place (place_id, else name@lat,lng) over bare coords search.
+    When home coords are known, open directions (home → place) so the relation is clear.
+    """
+    if not entry or not entry.get("hit"):
+        return None
+
+    place_id = str(entry.get("place_id") or "").strip()
+    name = _place_label(entry) or "place"
+    dest = _destination_query(entry)
+
+    try:
+        h_lat = float(home_lat) if home_lat is not None else None
+        h_lng = float(home_lng) if home_lng is not None else None
+    except (TypeError, ValueError):
+        h_lat, h_lng = None, None
+
+    if h_lat is not None and h_lng is not None and dest:
+        # Keep origin comma unescaped — standard Maps lat,lng form.
+        params: dict[str, str] = {
+            "api": "1",
+            "origin": f"{h_lat},{h_lng}",
+            "destination": dest if not place_id else name,
+        }
+        if place_id:
+            params["destination_place_id"] = place_id
+        return "https://www.google.com/maps/dir/?" + urlencode(params)
+
+    if place_id:
+        return (
+            "https://www.google.com/maps/search/?api=1&"
+            + urlencode({"query": name, "query_place_id": place_id})
+        )
+    if dest:
+        return (
+            "https://www.google.com/maps/search/?api=1&" + urlencode({"query": dest})
+        )
+    return None
 
 
 def build_overpass_query(lat: float, lng: float) -> str:
-    highway_around = f"(around:244,{lat},{lng})"
-    nearby_around = f"(around:805,{lat},{lng})"
+    highway_around = f"(around:{_HIGHWAY_OVERPASS_M},{lat},{lng})"
+    nearby_around = f"(around:{_NEARBY_OVERPASS_M},{lat},{lng})"
     clauses = [
         f'way["highway"="motorway"]{highway_around};',
         f'way["highway"="motorway_link"]{highway_around};',
@@ -258,6 +377,9 @@ def build_overpass_query(lat: float, lng: float) -> str:
         f'node["railway"="halt"]["light_rail"="yes"]{nearby_around};',
         f'node["leisure"="playground"]{nearby_around};',
         f'way["leisure"="playground"]{nearby_around};',
+        f'relation["leisure"="playground"]{nearby_around};',
+        f'node["leisure"="park"]["playground"="yes"]{nearby_around};',
+        f'way["leisure"="park"]["playground"="yes"]{nearby_around};',
         f'node["shop"="supermarket"]{nearby_around};',
         f'way["shop"="supermarket"]{nearby_around};',
         f'node["shop"="grocery"]{nearby_around};',
@@ -273,16 +395,22 @@ def build_overpass_query(lat: float, lng: float) -> str:
             f'{element_type}["amenity"="social_facility"]'
             f'["social_facility:for"="homeless"]{nearby_around};'
         )
+        # amenity=shelter used for homeless facilities (not bus-stop weather shelters)
         clauses.append(
             f'{element_type}["amenity"="shelter"]'
             f'["shelter_type"="homeless"]{nearby_around};'
         )
+        clauses.append(
+            f'{element_type}["amenity"="shelter"]["homeless"="yes"]{nearby_around};'
+        )
     body = "\n  ".join(clauses)
-    return f"[out:json][timeout:45];\n(\n  {body}\n);\nout geom tags;"
+    # center + geom: center for polygons; geom vertices for highway nearest-edge
+    return f"[out:json][timeout:45];\n(\n  {body}\n);\nout center geom tags;"
 
 
 def _raw_cache_key(lat: float, lng: float) -> str:
-    return f"overpass_{float(lat):.5f}_{float(lng):.5f}"
+    # v3: playground radius 0.75→0.9375 mi (TODO-048); v2 was TODO-036 tag/geom fixes
+    return f"overpass_v3_{float(lat):.5f}_{float(lng):.5f}"
 
 
 def _places_raw_cache_key(
@@ -397,12 +525,39 @@ def fetch_places_nearby(
     return [result for result in results or [] if isinstance(result, dict)]
 
 
+def _places_shelter_hit_ok(result: dict) -> bool:
+    """Keep Places shelter matches that look like homeless/recovery, not hotels."""
+    name = str(result.get("name") or "").lower()
+    types = {
+        str(value).lower()
+        for value in result.get("types", [])
+        if isinstance(value, str)
+    }
+    keywords = (
+        "homeless",
+        "shelter",
+        "transitional",
+        "rehabilitation",
+        "rehab",
+        "recovery",
+        "mission",
+        "soup kitchen",
+    )
+    if any(token in name for token in keywords):
+        return True
+    # Google sometimes types these as lodging / point_of_interest only.
+    if "homeless_shelter" in types:
+        return True
+    return False
+
+
 def parse_places_results(
     results: list[dict],
     *,
     pin_lat: float,
     pin_lng: float,
     radius_mi: float,
+    require_shelter_keywords: bool = False,
 ) -> list[NearestHit]:
     hits: list[NearestHit] = []
     for result in results:
@@ -415,6 +570,8 @@ def parse_places_results(
             {"supermarket", "grocery_or_supermarket"} & types
         ):
             continue
+        if require_shelter_keywords and not _places_shelter_hit_ok(result):
+            continue
         try:
             location = result["geometry"]["location"]
             lat = float(location["lat"])
@@ -425,15 +582,24 @@ def parse_places_results(
         if distance_mi > radius_mi:
             continue
         name = str(result.get("name") or "Nearby place").strip() or "Nearby place"
-        hits.append(
-            {
-                "name": name,
-                "lat": lat,
-                "lng": lng,
-                "distance_mi": distance_mi,
-            }
-        )
+        hit: NearestHit = {
+            "name": name,
+            "lat": lat,
+            "lng": lng,
+            "distance_mi": distance_mi,
+        }
+        place_id = str(result.get("place_id") or "").strip()
+        if place_id:
+            hit["place_id"] = place_id
+        hits.append(hit)
     return sorted(hits, key=lambda hit: hit["distance_mi"])
+
+
+def _nearer_hit(*candidates: NearestHit | None) -> NearestHit | None:
+    present = [hit for hit in candidates if hit is not None]
+    if not present:
+        return None
+    return min(present, key=lambda hit: hit["distance_mi"])
 
 
 def google_key() -> str:
@@ -473,13 +639,18 @@ def compute_signals(
         "grocery": [("supermarket", None, math.ceil(GROCERY_RADIUS_MI * 1609.344))],
         "shelter": [
             (
-                "establishment",
+                "",
                 "homeless shelter",
                 math.ceil(SHELTER_RADIUS_MI * 1609.344),
             ),
             (
-                "establishment",
-                "drug rehabilitation|transitional housing",
+                "",
+                "transitional housing",
+                math.ceil(SHELTER_RADIUS_MI * 1609.344),
+            ),
+            (
+                "",
+                "drug rehabilitation",
                 math.ceil(SHELTER_RADIUS_MI * 1609.344),
             ),
         ],
@@ -503,10 +674,13 @@ def compute_signals(
                 pin_lat=lat,
                 pin_lng=lng,
                 radius_mi=_signal_radius_mi(signal_key),
+                require_shelter_keywords=(signal_key == "shelter"),
             )
-            payload[signal_key] = signal_entry_from_hit(
-                signal_key, nearest_within(hits, _signal_radius_mi(signal_key))
-            )
+            places_hit = nearest_within(hits, _signal_radius_mi(signal_key))
+            # Prefer nearer of Places vs OSM — never wipe a good OSM hit when
+            # Places returns ZERO_RESULTS inside a tight radius.
+            best = _nearer_hit(osm_hits[signal_key], places_hit)
+            payload[signal_key] = signal_entry_from_hit(signal_key, best)
         except Exception as exc:
             payload[signal_key] = signal_entry_from_hit(
                 signal_key,

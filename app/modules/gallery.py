@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.db import UPLOADS_DIR, get_session
 from app.core.module_registry import ModuleSpec
 from app.core.models import Property
 from app.core.property_service import PropertyService
+from app.core.ui_jobs import ensure_gemini_photos_job
 
 
 def render(prop: Property, container: ui.element) -> None:
     property_id = prop.id
+    cached_blurb = (prop.photos_gemini or "").strip()
 
     with container:
         ui.label("Photos").classes("hb-page-title")
@@ -21,6 +23,62 @@ def render(prop: Property, container: ui.element) -> None:
         ).classes("hb-page-hint")
 
         status = ui.label("").classes("hb-page-meta q-mt-xs")
+
+        with ui.element("div").classes("w-full q-mt-sm hb-photos-gemini"):
+            ui.label("Overall take").classes("hb-section-title")
+            ui.label(
+                "Short Gemini read of the Zillow listing (URL context) — not a "
+                "deal spreadsheet."
+            ).classes("hb-page-hint")
+            gemini_state = {"text": cached_blurb}
+            gemini_controls = ui.row().classes(
+                "w-full gap-2 q-mt-sm flex-wrap items-center"
+            )
+            gemini_box = ui.column().classes("w-full gap-2 q-mt-xs")
+
+            async def run_photos_gemini(*, force: bool) -> None:
+                try:
+                    ui.notify(
+                        "Generating property take from Zillow…",
+                        type="ongoing",
+                        timeout=0,
+                    )
+                    result = await run.io_bound(
+                        ensure_gemini_photos_job, property_id, force=force
+                    )
+                    gemini_state["text"] = (result.get("text") or "").strip()
+                    refresh_gemini_panel()
+                    ui.notify("Property take ready", type="positive")
+                except Exception as exc:  # noqa: BLE001
+                    ui.notify(f"Gemini failed: {exc}", type="negative")
+
+            def refresh_gemini_panel() -> None:
+                text = gemini_state["text"]
+                gemini_controls.clear()
+                with gemini_controls:
+                    if text:
+                        ui.button(
+                            "Regenerate",
+                            on_click=lambda: run_photos_gemini(force=True),
+                            icon="auto_awesome",
+                        ).props("unelevated dense color=dark")
+                    else:
+                        ui.button(
+                            "Ask Gemini",
+                            on_click=lambda: run_photos_gemini(force=False),
+                            icon="auto_awesome",
+                        ).props("unelevated dense color=dark").classes("hb-btn-cta")
+                gemini_box.clear()
+                with gemini_box:
+                    if text:
+                        ui.markdown(text).classes("hb-gemini-prose")
+                    else:
+                        ui.label(
+                            "Ask Gemini to open this home’s Zillow page for a short "
+                            "overall property take while you browse photos."
+                        ).classes("hb-empty-state w-full")
+
+            refresh_gemini_panel()
 
         with ui.dialog().props("maximized") as lightbox, ui.card().classes(
             "hb-lightbox w-full h-full items-center justify-center"

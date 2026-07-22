@@ -16,7 +16,6 @@ from app.core.schools_nces import (
     miles_to_half_span_deg,
     normalize_level,
     parse_nces_features,
-    schools_to_geojson,
 )
 from app.core.wildfire_whp import USFS_WHP_WMS_URL, wildfire_wms_layer_args
 
@@ -73,11 +72,9 @@ def test_parse_nces_features_filters_by_radius():
     assert schools[0]["name"] == "Near Elem"
     assert schools[0]["level"] == "Elementary"
     assert schools[0]["distance_mi"] == pytest.approx(0.0)
-
-    geo = schools_to_geojson(schools)
-    assert geo["type"] == "FeatureCollection"
-    assert len(geo["features"]) == 1
-    assert geo["features"][0]["geometry"]["type"] == "Point"
+    assert schools[0]["lat"] == pytest.approx(34.05)
+    assert schools[0]["lng"] == pytest.approx(-118.25)
+    assert schools[0]["fillColor"]
 
 
 def test_parse_nces_features_ccd_field_aliases():

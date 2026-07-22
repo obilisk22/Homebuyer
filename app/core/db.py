@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-load_dotenv()
+from app.core.paths import DATA_DIR, ROOT, UPLOADS_DIR, env_file
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "data"
-UPLOADS_DIR = DATA_DIR / "uploads"
+load_dotenv(env_file())
+# Dev: also load repo `.env` when present (no-op / non-override if same path).
+load_dotenv(ROOT / ".env", override=False)
 
 
 class Base(DeclarativeBase):
@@ -22,11 +22,19 @@ _engine = None
 _SessionLocal: sessionmaker[Session] | None = None
 
 
-def _db_url() -> str:
-    raw = os.getenv("HOMEBUY_DB_PATH", "data/homebuy.db")
+def _resolve_db_path() -> Path:
+    raw = (os.getenv("HOMEBUY_DB_PATH") or "data/homebuy.db").strip()
     path = Path(raw)
-    if not path.is_absolute():
-        path = ROOT / path
+    if path.is_absolute():
+        return path
+    parts = path.parts
+    if parts and parts[0] == "data":
+        return DATA_DIR.joinpath(*parts[1:])
+    return DATA_DIR / path
+
+
+def _db_url() -> str:
+    path = _resolve_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{path.as_posix()}"
 
@@ -141,6 +149,34 @@ def _migrate_sqlite() -> None:
                 "ALTER TABLE properties ADD COLUMN nearby_signals_at VARCHAR(64) NOT NULL DEFAULT ''",
             ),
             (
+                "permits_activity",
+                "ALTER TABLE properties ADD COLUMN permits_activity TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "permits_activity_at",
+                "ALTER TABLE properties ADD COLUMN permits_activity_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "broadband_status",
+                "ALTER TABLE properties ADD COLUMN broadband_status TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "broadband_at",
+                "ALTER TABLE properties ADD COLUMN broadband_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "market_activity",
+                "ALTER TABLE properties ADD COLUMN market_activity TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "market_activity_at",
+                "ALTER TABLE properties ADD COLUMN market_activity_at VARCHAR(64) NOT NULL DEFAULT ''",
+            ),
+            (
+                "townhome_position",
+                "ALTER TABLE properties ADD COLUMN townhome_position VARCHAR(32) NOT NULL DEFAULT ''",
+            ),
+            (
                 "thumbnail_photo_id",
                 "ALTER TABLE properties ADD COLUMN thumbnail_photo_id INTEGER",
             ),
@@ -188,12 +224,28 @@ def _migrate_sqlite() -> None:
                 "ALTER TABLE properties ADD COLUMN home_type VARCHAR(64) NOT NULL DEFAULT ''",
             ),
             (
+                "cooling",
+                "ALTER TABLE properties ADD COLUMN cooling VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "has_central_ac",
+                "ALTER TABLE properties ADD COLUMN has_central_ac BOOLEAN",
+            ),
+            (
                 "financial_gemini",
                 "ALTER TABLE properties ADD COLUMN financial_gemini TEXT NOT NULL DEFAULT ''",
             ),
             (
                 "financial_gemini_for",
                 "ALTER TABLE properties ADD COLUMN financial_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
+            ),
+            (
+                "photos_gemini",
+                "ALTER TABLE properties ADD COLUMN photos_gemini TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "photos_gemini_for",
+                "ALTER TABLE properties ADD COLUMN photos_gemini_for VARCHAR(256) NOT NULL DEFAULT ''",
             ),
         ):
             if name not in prop_cols:
@@ -317,4 +369,14 @@ def _migrate_sqlite() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE financial_assumptions ADD COLUMN salt_cap "
                     "FLOAT NOT NULL DEFAULT 10000"
+                )
+            if "monthly_utilities" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN monthly_utilities "
+                    "FLOAT NOT NULL DEFAULT 0"
+                )
+            if "utilities_source" not in fin_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE financial_assumptions ADD COLUMN utilities_source "
+                    "VARCHAR(96) NOT NULL DEFAULT ''"
                 )

@@ -62,7 +62,9 @@ python-dotenv==1.2.2
 python-engineio==4.13.3
 python-multipart==0.0.32
 python-socketio==5.16.3
-PyYAML==6.0.3
+pyyaml==6.0.3
+# Desktop window (NiceGUI native=True / pywebview). Optional for browser-only dev.
+pywebview==5.4
 requests==2.34.2
 rich==15.0.0
 ruff==0.15.22

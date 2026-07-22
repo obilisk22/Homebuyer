@@ -44,22 +44,18 @@ def street_view_open_url(lat: float, lng: float) -> str:
     )
 
 
+def earth_open_url(lat: float, lng: float) -> str:
+    """Google Earth web deep link for a pin (no API key)."""
+    return (
+        f"https://earth.google.com/web/@{lat},{lng},100a,1000d,35y,0h,0t,0r"
+    )
+
+
 def _panorama(src: str) -> None:
+    # Sizing lives on .homebuy-sv in theme.py (16:9 + max-height; no min-height shell).
     ui.html(
         f"""
-        <div class="homebuy-sv" style="
-            container-type: inline-size;
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            min-height: 280px;
-            max-height: min(50vh, 560px);
-            overflow: hidden;
-            border-radius: 12px;
-            background: #111;
-            position: relative;
-            box-shadow: 0 0 24px rgba(0, 229, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.45);
-            border: 1px solid #2A3340;
-        ">
+        <div class="homebuy-sv">
           <iframe
             src="{src}"
             title="Street View"
@@ -103,15 +99,12 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
 
         address = (live.address or "").strip()
 
-        with ui.expansion("Street View", icon="streetview", value=True).classes("w-full q-mt-md"):
+        with ui.expansion("Street View", icon="streetview", value=True).classes(
+            "w-full q-mt-sm hb-sv-panel"
+        ).props("dense"):
             if not _has_coords(live):
-                with ui.column().classes("w-full items-stretch gap-3 q-py-md"):
-                    ui.label("Street View needs a map pin").classes(
-                        "hb-empty-state w-full"
-                    )
-                    ui.label(
-                        "Geocode the address above, then Street View will appear here."
-                    ).classes("hb-page-hint")
+                with ui.column().classes("w-full items-stretch gap-1 q-py-none"):
+                    ui.label("Pin the map to load Street View.").classes("hb-page-hint")
                     if address:
                         ui.button("Open in Google Maps").props(
                             f'unelevated dense color=dark icon=map '
@@ -125,7 +118,9 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
 
             _panorama(street_view_embed_url(lat, lng))
 
-            with ui.row().classes("w-full justify-start items-center gap-2 q-mt-sm flex-wrap"):
+            with ui.row().classes(
+                "w-full justify-start items-center gap-2 q-mt-xs flex-wrap hb-sv-actions"
+            ):
                 ui.button("Open in Google Maps").props(
                     f'unelevated dense color=dark icon=map href="{maps_search_url(query)}" target=_blank'
                 )
@@ -133,6 +128,10 @@ def render_street_view(prop: Property, container: ui.element | None = None) -> N
                     f'unelevated dense color=dark icon=streetview '
                     f'href="{street_view_open_url(lat, lng)}" target=_blank'
                 ).classes("hb-btn-cta")
+                ui.button("Open in Google Earth").props(
+                    f'unelevated dense color=dark icon=public '
+                    f'href="{earth_open_url(lat, lng)}" target=_blank'
+                )
 
     if container is None:
         body()

@@ -27,6 +27,35 @@ Filed 2026-07-17. **Refer by number:** say “do TODO-001”, etc.
 | TODO-023 | Won't fix | Document attachments per property (offers, inspection, disclosures) |
 | TODO-024 | Done | Zoning overlay: coverage (1102/bbox/pagination) + WS-safe slim/merge (~16 MB → &lt;1 MB) |
 | TODO-025 | Done | Library nearby proximity icons (OSM Overpass + optional Google Places) |
+| TODO-026 | Done | NiceGUI Connection lost — `run.io_bound` + `app/core/ui_jobs.py` |
+| TODO-027 | Done | Remove Home Compare feature (library checkboxes + `/compare`) |
+| TODO-028 | Done | Financials UX: collapse rarely-touched fields, per-field revert, hierarchy |
+| TODO-029 | Done | Property header: show library nearby-signal icons (bottom-right, above tabs) |
+| TODO-030 | Done | Gemini neighborhood prompts: pass exact home address (not only hood name) |
+| TODO-031 | Done | Property page: lower visual weight of Edit listing details |
+| TODO-032 | Done | Library card: show calculated appreciation %; amber if under 3% |
+| TODO-033 | Done | Financials: replace field blurbs with clickable ? help (how defaults calculated) |
+| TODO-034 | Done | Map Street View: negative-space polish and layout tweaks |
+| TODO-035 | Done | Map / Street View: “Open in Google Earth” button |
+| TODO-036 | Done | Library nearby icons: verify all five work; fix playground + shelter |
+| TODO-037 | Done | Library card: remove unclear “Cash” from financial caption |
+| TODO-038 | Done | Neighborhood: Assigned E/M/H schools (LAUSD GIS + SchoolDigger); removed Map Nearby schools panel |
+| TODO-039 | Done | Library icon when home has no Central AC |
+| TODO-040 | Done | Estimate utilities from provider + sqft + age |
+| TODO-041 | Done | Map overlay: National Transportation Noise Map (BTS) |
+| TODO-042 | Done | Library icon when location lacks broadband (FCC BDC; chip when env set) |
+| TODO-043 | Done | Library icon: high building-permit activity within ~0.25 mi |
+| TODO-044 | Done | Library card: rename appreciation label “Appr.” → “Growth” |
+| TODO-045 | Done | Library/header street: −10% size; APT/UNIT → “#…” in smaller type |
+| TODO-046 | Done | Library appreciation caption: lime/green when &gt; 6%/yr |
+| TODO-047 | Done | Library nearby icons: click opens Google Maps (lat/lng / place_id / name) |
+| TODO-048 | Done | Playground library icon: radius 0.75 → 0.9375 mi (×1.25); tags unchanged |
+| TODO-049 | Done | Nearby chip → Maps: pin the specific hit + show home relation (not “all groceries”) |
+| TODO-050 | Done | Buy-vs-rent: scale utilities + maintenance with inflation |
+| TODO-051 | Done | Library icon: “Active market” — elevated recent sales nearby |
+| TODO-052 | Done | Library icon: “Center townhome” — mid-row unit (not an end unit) |
+| TODO-053 | Done | Photos tab: Gemini overall property blurb (Zillow URL context) |
+| TODO-054 | Done | Remove property-header “Gemini insights” bulk button (too many API calls) |
 
 ---
 
@@ -198,10 +227,10 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 
 **Shipped**
 - Free **NCES EDGE** public school points via ArcGIS REST bbox query (`app/core/schools_nces.py`) — no GreatSchools; no national shapefile download.
-- **Map:** Schools toggle → markers within ~4 mi + legend; **Nearby schools** panel with distance + NCES deep link.
+- **Map:** Schools toggle → markers within ~4 mi + legend. (The original "Nearby schools" distance-list panel was later removed by TODO-038, which moved per-home assigned-school detail to the Neighborhood tab.)
 - Cache under `data/cache/schools_nces/` (~7d).
 
-**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons, walkability.
+**Out of scope (v1):** paid ratings APIs, attendance-boundary polygons, walkability. (Attendance boundaries shipped for LAUSD in TODO-038.)
 
 **Touch:** `app/core/schools_nces.py`, `map_view.py`, tests, `docs/RESEARCH.md` / `AGENTS.md`
 
@@ -222,7 +251,7 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Show quick money columns on the library** (e.g. estimated PITI, cash-to-close, $/sqft) derived from saved `FinancialAssumptions`, plus **CSV/JSON export** of library + financials for backup / spreadsheet compare.
 
 **Shipped**
-- Quiet `PITI $…/mo · Cash $…` caption on library cards when financials exist (`finance.summarize` via `app/core/library_export.py`).
+- Quiet `PITI $…/mo` caption on library cards when financials exist (`finance.summarize` via `app/core/library_export.py`); cash-to-close remains in export only.
 - Toolbar **Export** → Download CSV / JSON (properties + key financial fields).
 - `$/sqft` already on library chips (TODO-003).
 
@@ -338,3 +367,455 @@ Remaining area-signal ideas from the umbrella are shipped as **TODO-020** (wildf
 **Non-goals (v1):** Map markers, property Nearby panel, manual refresh, library filters by signal.
 
 **Touch:** `nearby_signals.py`, `models.py`, `db.py`, `property_service.py`, `pages.py`, `theme.py`, `tests/test_nearby_signals.py`
+
+---
+
+## TODO-026 — NiceGUI “Connection lost” during long work
+
+**Status:** Done (2026-07-18)
+
+**Problem:** Sync blocking I/O (Zillow scrape, geocode, nearby, Gemini, map overlay fetches) ran on the event loop inside button handlers, freezing WebSocket heartbeats → “Connection lost”.
+
+**Fix**
+- `app/core/ui_jobs.py` — session-safe workers (`get_session()` inside the thread; plain values in/out; never pass ORM/UI objects).
+- Long UI handlers use `await run.io_bound(job, …)`: library add / refresh / stale nearby; Map heavy overlays + re-geocode; Financials / Neighborhood / Photos Gemini Ask / Refresh.
+- Flood/wildfire stay sync (instant WMS); `wire_layer` awaits awaitable handlers.
+
+**Touch:** `ui_jobs.py`, `pages.py`, `map_view.py`, `financial.py`, `neighborhood_reviews.py`, docs.
+
+---
+
+## TODO-027 — Remove Home Compare feature
+
+**Status:** Done (2026-07-19)
+
+**Remove** the side-by-side Compare flow shipped as TODO-018. Keep library financial captions + CSV/JSON export (TODO-016).
+
+**Deleted / unwound**
+- Library card checkboxes + **Compare** toolbar button + selection state.
+- `/compare` page route and helpers (`compare_page`, `_compare_street`).
+- `app/core/compare.py` + `tests/test_compare.py`.
+- Docs / AGENTS / README mentions of Compare (product decision §8 + verify checklist).
+
+**Kept:** Export menu, PITI card captions, rest of library chrome.
+
+**Touch:** `app/ui/pages.py`, `app/main.py` (route import), `app/core/compare.py`, tests, `AGENTS.md`, `README.md`, this file.
+
+---
+
+## TODO-028 — Financials page cleanup (hierarchy + defaults)
+
+**Status:** Done (2026-07-19)
+
+**Problem:** The Financials tab lays out nearly every assumption at once (Your deal / Loan / Ownership / Buy vs rent tax knobs). Fields that rarely change compete with offer/down and the charts.
+
+**Shipped**
+1. **Primary surface** — always-visible **Your deal** (offer + down $) and **Buy vs rent** (comparable rent + rent control); hero monthly / charts stay above the fold.
+2. **Collapsed** — **Loan**, **Ownership costs**, and **Advanced buy vs rent** live in quiet expansions (list/rate/term/closing; tax/insurance/HOA/maintenance/utilities; appreciation/invest/sell/budget/tax knobs).
+3. **Per-field revert** — restart icon restores product/autofill baselines via `PropertyService.revert_financial_field` (clears Manual where applicable).
+
+**Touch:** `app/modules/financial.py`, `app/ui/theme.py`, `property_service.revert_financial_field`, docs.
+
+---
+
+## TODO-029 — Nearby icons on property header
+
+**Status:** Done (2026-07-19)
+
+**Show the same library-card nearby proximity icons** (TODO-025: highway / transit / playground / grocery / shelter) on the **property page header**, bottom-right of the hero — **above the module tabs**.
+
+**Shipped**
+- Reuse cached `Property.nearby_signals` + shared `_render_nearby_signal_chips` (`hits_in_order`, tooltips, magenta risk / lime amenity).
+- Position bottom-right of `.hb-property-hero` via theme padding; readable on bleed photo + scrim and beside mode.
+- Same fixed order / thresholds as library; no new Map markers or filters.
+
+**Touch:** `app/ui/pages.py` (property header), `app/ui/theme.py` (header icon placement), docs.
+
+---
+
+## TODO-030 — Gemini: exact home address (not only neighborhood)
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Neighborhood Gemini (overview + things-to-do) prompts only got `{neighborhood}` + city/state. Answers were hood-generic and missed block-level context for the listing.
+
+**Shipped**
+- Overview + things-to-do prompts include `Property.address` plus neighborhood/city/state; walkshed / block-level framing anchors on the exact home.
+- Cache keys bumped to `overview_v3|address|name|city|state` and `things_v3|address|name|city|state` so hood-only caches invalidate; Regenerate unchanged.
+
+**Touch:** `app/core/gemini_neighborhood.py`, `property_service.py`, tests, `AGENTS.md` §6.
+
+---
+
+## TODO-031 — Quieter “Edit listing details”
+
+**Status:** Done (2026-07-19)
+
+**Problem:** On the property page, **Edit listing details** sits as a full-width expansion under the header actions and competes with Photos / Map / Neighborhood / Financials.
+
+**Shipped**
+- Moved inside the property hero content, below Refresh / Gemini actions, as a dense collapsed secondary control.
+- Muted chrome via `.hb-edit-listing-expansion` (greyed label/icon; full opacity on hover/focus).
+- Kept all existing edit fields + Save behavior.
+
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-032 — Library card appreciation rate
+
+**Status:** Done (2026-07-19)
+
+**Show the home’s calculated appreciation %** on each library card (from `FinancialAssumptions.appreciation_pct` — FHFA/Zillow blend or Manual), so low-growth ZIPs are obvious in the list.
+
+**Shipped**
+- `LibraryFinancialSnapshot.appreciation_pct` / `appreciation_source` via `snapshot_from_property`; quiet `Growth N%/yr` beside PITI on library cards.
+- Under 3% uses amber `.hb-appr-low`; over 6% uses lime `.hb-appr-high`; 3–6% neutral; hidden when no financials / missing appreciation.
+- Optional source tooltip from `appreciation_source`.
+
+**Touch:** `app/core/library_export.py`, `app/ui/pages.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-033 — Financials: ? help instead of inline descriptions
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Financials fields carry a lot of always-visible helper copy (source captions, “default 10%”, tax/CG/SALT explainers). That adds noise next to the numbers.
+
+**Shipped**
+- Low-opacity `?` (`help_outline`) beside each field label; tooltip explains how the default/autofill is calculated (`_FIELD_HELP` in `financial.py`).
+- Short live **source captions** kept under autofilled values (PMMS, tax/insurance/maint/utilities/rent/appreciation).
+- Coordinates with TODO-028 hierarchy (help + revert survive collapse).
+
+**Touch:** `app/modules/financial.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-034 — Street View negative-space polish ✅ Done
+
+**Status:** Done
+
+**Done:** Removed the forced `min-height` shell that left black gutter under the scaled `svembed`; `.homebuy-sv` is 16:9 with `max-height: min(42vh, 480px)` and width capped when the height binds. Dense expansion (`.hb-sv-panel`), tighter action-row gap, quieter unpinned hint. Still free `svembed` only.
+
+**Touch:** `app/modules/street_view.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-035 — Open in Google Earth ✅ Done
+
+**Status:** Done
+
+**Done:** “Open in Google Earth” dense neo button beside Maps / Street View when the pin exists. Deep link `https://earth.google.com/web/@{lat},{lng},100a,1000d,35y,0h,0t,0r` (new tab). No API key / embed.
+
+**Touch:** `app/modules/street_view.py`, docs.
+
+---
+
+## TODO-036 — Library nearby icons: verify + fix playground / shelter
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Library proximity chips (TODO-025) — highway / transit / playground / grocery / shelter — need an end-to-end check. **Playground** and **homeless shelter** distance icons often don’t appear even when amenities exist nearby.
+
+**Shipped**
+- Root causes: Overpass `out geom` ways lacked `center`, so polygon playgrounds/shelters/grocery buildings were dropped; Places empty results overwrote good OSM hits; shelter Places used a broken `|` keyword OR and a too-tight 0.25 mi gate.
+- Fixes: `out center geom tags` + geometry fallback for all ways; playground also matches `leisure=park`+`playground=yes` and relations; shelter accepts semicolon `social_facility:for` lists + `homeless=yes`; Places uses three separate keyword searches and keeps the nearer of OSM vs Places; thresholds retuned (playground ≤0.75 mi, shelter ≤0.5 mi).
+- Tests cover way-without-center, shelter tag variants, Places/OSM merge, and bus-stop weather shelter exclusion.
+- Documented final thresholds in AGENTS §8a.
+---
+
+## TODO-037 — Library card: drop “Cash” caption
+
+**Status:** Done (2026-07-19)
+
+**Remove “Cash $…” from the library card financial line.** Label is unclear (cash-to-close vs cash left / reserves). Keep **PITI $…/mo** (and other card chrome).
+
+**Kept:** `cash_to_close` in Financials tab and CSV/JSON export.
+
+**Touch:** `app/ui/pages.py` (`_library_financial_caption`), `AGENTS.md` / `README` library checklist wording.
+
+---
+
+## TODO-038 — Assigned schools on Neighborhood (LAUSD + free CA Dashboard/Niche)
+
+**Status:** Done (2026-07-18); quality layer swapped off SchoolDigger the same day (see below)
+
+**Show the Elementary / Middle / High schools a home is zoned for** on the Neighborhood tab, instead of only a "nearby NCES points" list on the Map.
+
+**Shipped**
+- `app/core/school_zones.py`: point-in-polygon (`point_in_ring`/`point_in_polygon`) against **LAUSD** attendance ArcGIS layers (elementary/middle/high); resolves each zone's school **name** via layer-0 school points inside the polygon (attendance layers carry a key but no name). `resolve_assigned(lat, lng)` → `status` `ok`/`outside`/`gap`/`no_pin`/`error`, cached ~7d.
+- `app/core/school_quality.py`: free, no-key enrich — **CA School Dashboard** color badge (Blue/Green/Yellow/Orange/Red) looked up by CDS code from the free CDE Academic Indicator downloadable data (cached ~30d), plus **Niche** parent-review + **CA Dashboard** report-page deep links; always runs, never gated on a key, never raises.
+- `app/modules/neighborhood_reviews.py`: **Assigned schools** section (three cards, cyan/magenta/lime accents) before the Gemini overview; resolved off the event loop via `resolve_assigned_schools_job` (`ui_jobs.py`) with instant loading placeholders; honest empty-state captions (no pin / outside LAUSD / boundary gap).
+- `app/modules/map_view.py`: removed the old **Nearby schools** distance-list panel; Schools layer toggle, NCES markers, and legend are unchanged.
+
+**Quality-layer swap (2026-07-18):** SchoolDigger is a paid API and SchoolScope's public API isn't usable (403/"coming soon"), so `app/core/schooldigger.py` was deleted and replaced by `app/core/school_quality.py` (free CA Dashboard + Niche, no API keys). `SCHOOLDIGGER_*` removed from `.env.example`.
+
+**Non-goals (v1):** districts other than LAUSD; campus photos; "nearest school" proximity guessing (attendance boundaries only).
+
+**Touch:** `app/core/school_zones.py`, `app/core/school_quality.py`, `app/core/ui_jobs.py`, `app/modules/neighborhood_reviews.py`, `app/modules/map_view.py`, `app/ui/theme.py`, `.env.example`, `tests/test_school_zones.py`, `tests/test_school_quality.py`, `tests/test_assigned_schools_ui.py`, docs.
+
+---
+
+## TODO-039 — Library icon: no Central AC
+
+**Status:** Done (2026-07-19)
+
+**Show a library-card proximity-style risk icon** when the listing does **not** have Central AC (common LA buyer flag — window/wall units only, evaporative, none, etc.).
+
+**Shipped**
+- Scrape cooling from Zillow (`resoFacts.cooling` / `cooling` / regex fallback) into `ListingDetails.cooling` + `has_central_ac` (`app/core/zillow_listing.py`).
+- Persist `Property.cooling` + nullable `Property.has_central_ac`; apply on add / Refresh listing details.
+- Classification (`app/core/listing_signals.py`): chip only when clearly **no** central AC (window/wall/evaporative/swamp/ductless/mini-split/none); unknown/ambiguous → no chip; has central → no chip.
+- Helpers: `classify_has_central_ac`, `central_ac_risk_entry`, `listing_risk_chips` — library + property header render magenta `ac_unit` chip in the nearby-icons row (`pages.py`).
+
+**Touch:** `zillow_listing.py`, `listing_signals.py`, `models.py`, `db.py`, `property_service.py`, `pages.py`, `tests/test_listing_signals.py`, docs.
+
+---
+
+## TODO-040 — Estimate utilities (provider + sqft + age)
+
+**Status:** Done (2026-07-19)
+
+**Estimate monthly utilities** for a home from **utility provider**, **sqft**, and **year built / age**.
+
+**Shipped**
+- `app/core/utilities.py` + `app/data/utility_providers.json`: LADWP vs SCE electric + SoCalGas gas heuristics from city/ZIP (LA-area); Default fallback elsewhere.
+- Formula: `(electric_psf×sqft + gas_base + gas_psf×sqft) × age_factor + water/trash`; assumes ~1800 sqft when size missing.
+- Persist `monthly_utilities` + `utilities_source` on `FinancialAssumptions`; autofill on add/sync/`ensure_financial` unless Manual; never breaks add-home.
+- Shown under collapsed **Ownership costs**; included in **hero monthly / pie / buy-vs-rent buyer housing cost** (same path as maintenance — ownership cash cost, not PITI).
+
+**Decision:** Utilities count toward ownership display cash cost (`monthly_owner_total` and buy-vs-rent budget surplus) alongside maintenance; mortgage PITI math unchanged.
+
+**Touch:** `utilities.py`, data table, `models.py` / `db.py`, `property_service.py`, `finance.py`, `financial.py`, tests, docs.
+
+---
+
+## TODO-041 — National Transportation Noise Map (BTS) overlay
+
+**Status:** Done (2026-07-19)
+
+**Shipped**
+- Exclusive Map **Noise** toggle: ArcGIS XYZ tiles from `Hosted/NTAD_Noise_2020_CONUS_Aviation_Road_Rail` (`app/core/bts_noise.py`) — TilesOnly (no WMS).
+- Status disclaimer: screening/trend, not parcel-precise.
+- Legend swatches + neo layer button.
+
+**Touch:** `bts_noise.py`, `map_view.py`, docs.
+
+---
+
+## TODO-042 — Library icon: missing broadband (FCC BDC)
+
+**Status:** Done (2026-07-19) — chip uses public geo.fcc.gov + Living Atlas BDC UniqueProviders* (no API key); unknown/error → no chip.
+
+**Risk rule:** flag only when **no fixed terrestrial** providers (DSL/copper, cable, fiber, fixed wireless). DSL/cable alone does **not** flag. Satellite-only → risk. Unknown / no credentials / fetch error → no chip.
+
+**Shipped**
+- `app/core/fcc_broadband.py` — point path = FCC Geo block FIPS + Living Atlas BDC block UniqueProviders* (no API key); cache `data/cache/fcc_broadband/`; never fails add-home.
+- `Property.broadband_status` + `broadband_at`; migrate in `db.py`; compute on add / post-geocode; stale refresh via `refresh_stale_broadband_status_job`.
+- Helpers: `chip_spec_for` / `tooltip_for`; included in `listing_risk_chips` → library + property header.
+- Tests: `tests/test_fcc_broadband.py` (mocked HTTP).
+
+**Research:** `docs/RESEARCH.md` § Missing broadband / FCC BDC.
+
+**Non-goals:** Full ISP comparison UI; Map choropleth; speed-test measurement; Fabric-licensed BSL-exact lookup.
+
+**Touch:** `fcc_broadband.py`, models/db, property_service, listing_signals, ui_jobs, pages, tests, docs.
+
+---
+
+## TODO-043 — Library icon: high permit activity (~0.25 mi)
+
+**Status:** Done (2026-07-19)
+
+**Shipped**
+- Research table in `docs/RESEARCH.md` (LA `pi9x-tg5x` / Seattle `76t5-zqzr` / Austin `3syk-w9eu`).
+- `app/core/permits_nearby.py`: `within_circle` ~0.25 mi, 24-month window; **high activity ≥ 8**; cache `data/cache/permits/`.
+- Persist `permits_activity` + `permits_activity_at`; refresh on add/geocode; library stale refresh via `refresh_stale_permits_activity_job`.
+- Amber `.hb-nearby-chip--amber` via `chip_spec_for` → `_extra_signal_chips` on library cards + property header.
+- Tests: `tests/test_permits_nearby.py`.
+
+**Non-goals:** Full permit browser UI; Map overlay of every permit; national coverage day one.
+
+**Touch:** `permits_nearby.py`, models/db, property_service, ui_jobs, pages, theme, tests, docs.
+
+---
+
+## TODO-044 — Library card: “Growth” instead of “Appr.”
+
+**Status:** Done (2026-07-19)
+
+**Rename** the library-card appreciation caption from `Appr. N%/yr` to **`Growth N%/yr`** (same value; amber &lt; 3% / lime &gt; 6% via TODO-046).
+
+**Touch:** `app/ui/pages.py` (`_library_appreciation_caption`), docs/AGENTS wording if they say “Appr.”.
+
+---
+
+## TODO-045 — Compact street + unit on library / header
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Long Akira street lines (with `APT` / `UNIT` / Suite condo markers) overflow or crowd library cards at narrower widths.
+
+**Shipped**
+1. Library/header street type ~10% smaller (`--hb-library-address-size: clamp(1.215rem, 3.6vw, 2.25rem)`).
+2. Display-only unit normalize (`APT`/`APARTMENT`/`UNIT`/`STE`/`SUITE`/`#…` → `#…`) via `_split_street_unit` — stored `Property.address` unchanged.
+3. Unit segment in `.hb-library-unit` at `0.75em` (~25% smaller) via `_render_street_address` on library cards and property header.
+
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, `tests/test_library_street_display.py`, docs.
+
+---
+
+## TODO-046 — Lime highlight when appreciation &gt; 6%/yr
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Library cards already amber-highlight low appreciation (`&lt; 3%/yr`, TODO-032). High growth rates have no positive counterpart.
+
+**Shipped**
+1. Annual appreciation **&gt; 6%/yr** → lime `.hb-appr-high` (`--hb-neon-3` / `#B8FF3C`).
+2. Keep amber `.hb-appr-low` for **&lt; 3%/yr**.
+3. **3–6% inclusive** stays neutral (`_library_appreciation_tone_class`).
+
+**Bands**
+
+| Rate | Style |
+|------|--------|
+| `&lt; 3%` | Amber (existing) |
+| `3%`–`6%` inclusive | Neutral |
+| `&gt; 6%` | Lime / green |
+
+**Touch:** `app/ui/pages.py`, `app/ui/theme.py`, docs.
+
+---
+
+## TODO-047 — Library nearby icons: click → Google Maps
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Library (and header) nearby-signal chips stop propagation so they do not open the property card, but a click did nothing useful — only hover showed distance + name.
+
+**Shipped**
+1. Nearby-signal chip click opens **Google Maps** in a new tab (`ui.navigate.to(..., new_tab=True)`); library card still does not navigate (`stopPropagation`).
+2. Persisted hit JSON now includes `lat`/`lng` (and `place_id` when Places produced the hit) via `signal_entry_from_hit`.
+3. `source_url_for`: prefer `query=lat,lng`; else Maps `query_place_id`; else name search. Always Google Maps (not OSM.org).
+4. Scope = nearby signals only (not AC / wifi / permit chips). Old caches without coords fall back to name search until stale refresh recomputes.
+
+**Touch:** `app/core/nearby_signals.py`, `app/ui/pages.py`, tests, docs.
+
+---
+
+## TODO-048 — Playground library icon: widen radius 25%
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Library playground proximity chips still felt sparse after TODO-036 (radius **0.75 mi**; Overpass center/geom + `leisure=park`+`playground=yes`).
+
+**Shipped**
+- Product decision: widen playground radius **25% only** — no tag expansion, no Places playground.
+- `PLAYGROUND_RADIUS_MI = 0.75 * 1.25` (**0.9375**); Overpass around-meters follow automatically.
+- Raw Overpass cache key bumped to `overpass_v3_*` so fresh radius isn’t stuck on old cache.
+- AGENTS §8a + README thresholds updated.
+
+**Touch:** `app/core/nearby_signals.py`, tests, `AGENTS.md` §8a, docs.
+
+**Related:** TODO-025 (shipped), TODO-036 (shipped — radius/geom/tag fixes), TODO-047 (shipped — chip → Maps).
+
+---
+
+## TODO-049 — Nearby chip Maps: specific place + home context
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Clicking a library nearby icon (esp. **grocery**) opens Google Maps via `query=lat,lng` (TODO-047). That often looks like a generic area / “all grocery stores” search instead of the **one store named on the chip**, and there is **no home pin / route**, so the user can’t see where the house sits relative to the amenity.
+
+**Shipped**
+1. `source_url_for` prefers `query_place_id` (with name) when Places; else `name@lat,lng` search — not bare coords-only.
+2. When home lat/lng are passed, opens Maps **directions** (`/maps/dir`) with `origin=` home and `destination=` / `destination_place_id=` amenity.
+3. `_render_nearby_signal_chips` passes property lat/lng from library cards + property header; all five nearby-signal chips use the same link; `stopPropagation` kept.
+
+**Non-goals (unchanged):** In-app map modal; changing distance thresholds; OSM.org links.
+
+**Touch:** `app/core/nearby_signals.py` (`source_url_for`), `app/ui/pages.py` (`_render_nearby_signal_chips`), tests, docs / AGENTS §8a.
+
+**Related:** TODO-047 (shipped).
+
+---
+
+## TODO-050 — Utilities + maintenance inflate in buy-vs-rent
+
+**Status:** Done (2026-07-19)
+
+**Problem:** In `buy_vs_rent_projection`, comparable **rent** rises with `rent_growth_pct`, but owner **monthly maintenance** and **monthly utilities** stay flat for the whole term. That understates long-run ownership cash costs vs renting.
+
+**Shipped**
+1. Maintenance and utilities inflate each projection year at the same rate as rent (`rent_growth_pct`); timing matches rent (`(1+g)^(year+1)` for contributions after snapshot year).
+2. Charts / surplus math use the inflated owner cash cost; chart caption notes maint/utils inflate with rent growth.
+3. PITI / loan schedule remain flat.
+
+**Non-goals (kept):** Inflating HOA/tax/insurance; changing autofill formulas for current-year maint/utils; separate `opex_inflation_pct` knob.
+
+**Touch:** `app/core/finance.py` (`buy_vs_rent_projection`), `app/modules/financial.py` (caption), `tests/test_buy_vs_rent.py`, docs / AGENTS §6d.
+
+**Related:** TODO-040 (utilities estimate), TODO-017 (buy-vs-rent what-ifs).
+
+---
+
+## TODO-051 — Library icon: Active market (recent sales)
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Buyers care whether the micro-market is “hot” (many recent sales). Map already has a Redfin **ZIP median sale price** choropleth (TODO-021), but the library card has no chip for **sales activity / turnover**.
+
+**Shipped**
+- Extended Redfin ZIP market tracker ingest (`redfin_sales.py` cache key `zip_market_all_residential_monthly_v2`) to keep monthly **`homes_sold`** (+ inventory / months_of_supply when present) and national **P75**.
+- **Active when** `homes_sold >= max(12, round(P75))` for the property ZIP’s latest All-Residential monthly row. Quiet / missing Redfin → no chip.
+- Persist `market_activity` / `market_activity_at` on `Property`; compute on add / refresh / post-geocode; stale refresh on library paint (`market_activity.py`).
+- Lime amenity chip (`local_fire_department`) via `_extra_signal_chips` on library + header; tooltip e.g. “N sales last month in ZIP #####”.
+
+**Touch:** `redfin_sales.py`, `market_activity.py`, models/db, property_service / ui_jobs, `pages.py`, tests, docs.
+
+---
+
+## TODO-052 — Library icon: Center townhome (mid-row, not end)
+
+**Status:** Done (2026-07-19)
+
+**Problem:** In row-style townhome / attached products, **interior (“center”) units** differ from **end units**. Library cards don’t flag mid-row units.
+
+**Shipped**
+- **Rule:** `home_type == Townhouse` **and** listing HTML matches explicit mid-row language (`interior/middle/mid-row/center unit`) **without** end/corner-unit language. Ambiguous or non-townhouse → no chip.
+- Scrape via `classify_townhome_position` → `ListingDetails.townhome_position` → `Property.townhome_position`.
+- Magenta soft-risk chip (`view_column`) “Center townhome — mid-row…” via `listing_signals.center_townhome_chip`.
+
+**Touch:** `zillow_listing.py`, `listing_signals.py`, models/db, property_service, `pages.py`, tests, docs.
+
+---
+
+## TODO-053 — Photos tab: Gemini overall property blurb
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Photos is view/pin only. No quick AI read of the listing as a whole while browsing photos.
+
+**Shipped**
+- `app/core/gemini_photos.py`: Zillow URL context (+ Search); short overall paragraph; cache key `photos_v1|<url-hash>`.
+- Columns `photos_gemini` / `photos_gemini_for`; Ask uses warm cache; Regenerate forces refresh.
+- Photos tab Ask / Regenerate; `ensure_gemini_photos_job` via `run.io_bound`; needs `GEMINI_API_KEY`.
+
+**Touch:** `gemini_photos.py`, models/db, `gallery.py`, `ui_jobs.py`, `property_service.py`, tests, docs.
+
+---
+
+## TODO-054 — Remove header “Gemini insights” bulk button
+
+**Status:** Done (2026-07-19)
+
+**Problem:** Property header **Gemini insights** ran a bulk job that fans out to neighborhood + financials — easy to burn quota.
+
+**Shipped**
+- Removed header button + handler from `pages.py`.
+- Deleted dead `ensure_gemini_insights` / `ensure_gemini_insights_job` (bulk-only).
+- In-tab Ask / Regenerate on Neighborhood, Financials, and Photos remain.
+
+**Touch:** `pages.py`, `ui_jobs.py`, `property_service.py`, docs / AGENTS §5c.

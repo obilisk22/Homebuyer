@@ -36,6 +36,8 @@ class LibraryFinancialSnapshot:
     annual_property_tax: float | None = None
     annual_insurance: float | None = None
     monthly_hoa: float | None = None
+    appreciation_pct: float | None = None
+    appreciation_source: str = ""
     notes: str = ""
 
 
@@ -72,6 +74,8 @@ def snapshot_from_property(prop: Property) -> LibraryFinancialSnapshot:
     has_financials = prop.financial is not None
     down_pct = rate = tax = ins = hoa = None
     term: int | None = None
+    appreciation_pct: float | None = None
+    appreciation_source = ""
 
     if has_financials:
         fin = prop.financial
@@ -88,6 +92,9 @@ def snapshot_from_property(prop: Property) -> LibraryFinancialSnapshot:
         tax = float(fin.annual_property_tax or 0)
         ins = float(fin.annual_insurance or 0)
         hoa = float(fin.monthly_hoa or 0)
+        if fin.appreciation_pct is not None:
+            appreciation_pct = float(fin.appreciation_pct)
+        appreciation_source = (fin.appreciation_source or "").strip()
 
     return LibraryFinancialSnapshot(
         id=int(prop.id or 0),
@@ -112,6 +119,8 @@ def snapshot_from_property(prop: Property) -> LibraryFinancialSnapshot:
         annual_property_tax=tax,
         annual_insurance=ins,
         monthly_hoa=hoa,
+        appreciation_pct=appreciation_pct,
+        appreciation_source=appreciation_source,
         notes=(prop.notes or "").strip(),
     )
 
@@ -138,6 +147,8 @@ _CSV_FIELDS = [
     "annual_property_tax",
     "annual_insurance",
     "monthly_hoa",
+    "appreciation_pct",
+    "appreciation_source",
     "notes",
 ]
 

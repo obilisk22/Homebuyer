@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from app.core.db import get_session
 from app.core.module_registry import ModuleSpec
@@ -12,12 +12,97 @@ from app.core.neighborhood import (
     effective_neighborhood_name,
 )
 from app.core.property_service import PropertyService
+from app.core.ui_jobs import (
+    ensure_gemini_overview_job,
+    ensure_gemini_things_to_do_job,
+    ensure_neighborhood_job,
+    resolve_assigned_schools_job,
+)
 
 _SOURCE_LABELS = {
     "zillow": "From Zillow listing",
     "nominatim": "OpenStreetMap Nominatim",
     "google": "Google Geocoding",
 }
+
+# (level key, display label, accent token) — one card each, in this order.
+_SCHOOL_LEVELS: tuple[tuple[str, str, str], ...] = (
+    ("elementary", "Elementary", "cyan"),
+    ("middle", "Middle", "magenta"),
+    ("high", "High", "lime"),
+)
+
+# Design-spec caption text for resolve_assigned() statuses that are not the
+# happy path — shown verbatim instead of the raw core message.
+_ASSIGNED_SCHOOLS_STATUS_TEXT: dict[str, str] = {
+    "no_pin": "Needs a map pin — geocode this home first.",
+    "outside": "Assigned schools not available for this district yet (SoCal GIS).",
+    "gap": "No attendance match for this pin (rare boundary gap).",
+}
+
+
+def _assigned_schools_caption(result: dict) -> str:
+    """Map a resolve_assigned() result to the design-spec caption text."""
+    status = (result.get("status") or "").strip()
+    if status == "ok":
+        source = (result.get("source") or "").strip() or "Assigned schools resolved"
+        return f"{source} · CA Dashboard + Niche"
+    if status == "error":
+        return (result.get("message") or "Could not load assigned schools.").strip()
+    return _ASSIGNED_SCHOOLS_STATUS_TEXT.get(
+        status, (result.get("message") or "").strip()
+    )
+
+
+# California School Dashboard performance-level colors, approximated for
+# the dark theme (real-world Blue/Green/Yellow/Orange/Red, not the app's
+# cyan/magenta/lime accent palette — this badge is a distinct signal).
+_DASHBOARD_BADGE_HEX: dict[str, str] = {
+    "Blue": "#2979FF",
+    "Green": "#43A047",
+    "Yellow": "#FBC02D",
+    "Orange": "#FB8C00",
+    "Red": "#E53935",
+    "No Color": "#8892A0",
+}
+
+
+def _render_school_card(
+    level_label: str, accent: str, school: dict | None, *, not_found_text: str
+) -> None:
+    with ui.card().classes("hb-school-card"):
+        with ui.row().classes("items-center gap-2 w-full no-wrap"):
+            with ui.element("div").classes(f"hb-school-level-ph hb-school-level-ph--{accent}"):
+                ui.icon("school")
+            ui.label(level_label).classes("hb-page-meta").style("font-weight: 600;")
+
+        name = (school or {}).get("name") if school else None
+        ui.label(name or not_found_text).classes("hb-page-title").style(
+            "font-size: 1rem; margin-top: 0.4rem;"
+        )
+
+        dashboard_color = (school or {}).get("dashboard_color") if school else None
+        if dashboard_color:
+            hex_color = _DASHBOARD_BADGE_HEX.get(dashboard_color, "")
+            style = f"color: {hex_color}; border-color: {hex_color};" if hex_color else ""
+            ui.label(f"Dashboard · {dashboard_color}").classes(
+                "hb-page-meta hb-dashboard-badge"
+            ).style(style)
+        else:
+            ui.label("—").classes("hb-page-meta")
+
+        dashboard_link = (school or {}).get("dashboard_url") if school else None
+        niche_link = (school or {}).get("niche_url") if school else None
+        if dashboard_link or niche_link:
+            with ui.row().classes("gap-2 q-mt-sm"):
+                if dashboard_link:
+                    ui.button("Dashboard", icon="open_in_new").props(
+                        f'unelevated dense color=dark href="{dashboard_link}" target=_blank'
+                    )
+                if niche_link:
+                    ui.button("Niche", icon="reviews").props(
+                        f'unelevated dense color=dark href="{niche_link}" target=_blank'
+                    )
 
 
 def _source_label(source: str, *, has_override: bool) -> str:
@@ -133,15 +218,24 @@ def render(prop: Property, container: ui.element) -> None:
                         ui.notify("Neighborhood saved", type="positive")
                         redraw()
 
-                    def refresh_zillow() -> None:
-                        live2 = resolve_name()
-                        if live2 and (live2.neighborhood_name or "").strip():
-                            ui.notify("Neighborhood updated from Zillow", type="positive")
-                        else:
-                            ui.notify(
-                                "Zillow did not return a neighborhood name",
-                                type="warning",
+                    async def refresh_zillow() -> None:
+                        status.set_text("Pulling neighborhood from Zillow…")
+                        try:
+                            data = await run.io_bound(
+                                ensure_neighborhood_job, property_id, force=True
                             )
+                            if (data.get("neighborhood_name") or "").strip():
+                                ui.notify(
+                                    "Neighborhood updated from Zillow", type="positive"
+                                )
+                            else:
+                                ui.notify(
+                                    "Zillow did not return a neighborhood name",
+                                    type="warning",
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            status.set_text(str(exc))
+                            ui.notify(str(exc), type="negative")
                         redraw()
 
                     ui.button("Save name", on_click=save_override).props(
@@ -150,6 +244,54 @@ def render(prop: Property, container: ui.element) -> None:
                     ui.button("Refresh from Zillow", on_click=refresh_zillow).props(
                         "unelevated dense color=dark"
                     )
+
+                ui.separator().style("border-color: var(--hb-border);")
+
+                ui.label("Assigned schools").classes("hb-section-title")
+                schools_hint = ui.label("").classes("hb-page-hint")
+                schools_row = ui.row().classes("w-full gap-3 flex-wrap")
+
+                def render_school_cards(
+                    schools: dict, *, not_found_text: str
+                ) -> None:
+                    schools_row.clear()
+                    with schools_row:
+                        for level_key, level_label, accent in _SCHOOL_LEVELS:
+                            _render_school_card(
+                                level_label,
+                                accent,
+                                schools.get(level_key),
+                                not_found_text=not_found_text,
+                            )
+
+                _EMPTY_SCHOOLS = {"elementary": None, "middle": None, "high": None}
+                schools_hint.set_text("Looking up assigned schools…")
+                render_school_cards(_EMPTY_SCHOOLS, not_found_text="Loading…")
+
+                async def load_assigned_schools() -> None:
+                    lat = live.latitude
+                    lng = live.longitude
+                    try:
+                        result = await run.io_bound(
+                            resolve_assigned_schools_job, lat, lng
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        result = {
+                            "status": "error",
+                            "message": f"Could not load assigned schools: {exc}",
+                            "schools": dict(_EMPTY_SCHOOLS),
+                        }
+
+                    schools_hint.set_text(_assigned_schools_caption(result))
+
+                    status_value = result.get("status")
+                    not_found_text = "—" if status_value == "no_pin" else "Not found"
+                    render_school_cards(
+                        result.get("schools") or _EMPTY_SCHOOLS,
+                        not_found_text=not_found_text,
+                    )
+
+                ui.timer(0.05, load_assigned_schools, once=True)
 
                 ui.separator().style("border-color: var(--hb-border);")
 
@@ -183,14 +325,12 @@ def render(prop: Property, container: ui.element) -> None:
                                 icon="refresh",
                             ).props("unelevated dense color=dark")
 
-                def ask_overview(*, force: bool) -> None:
+                async def ask_overview(*, force: bool) -> None:
                     status.set_text("Asking Gemini for a neighborhood overview…")
                     try:
-                        with get_session() as session:
-                            updated = PropertyService(session).ensure_gemini_overview(
-                                property_id, force=force
-                            )
-                        text = (updated.neighborhood_gemini or "").strip()
+                        text = await run.io_bound(
+                            ensure_gemini_overview_job, property_id, force=force
+                        )
                         render_overview(text)
                         status.set_text("")
                         ui.notify(
@@ -242,14 +382,12 @@ def render(prop: Property, container: ui.element) -> None:
                                 icon="refresh",
                             ).props("unelevated dense color=dark")
 
-                def ask_things(*, force: bool) -> None:
+                async def ask_things(*, force: bool) -> None:
                     status.set_text("Asking Gemini for things to do…")
                     try:
-                        with get_session() as session:
-                            updated = PropertyService(
-                                session
-                            ).ensure_gemini_things_to_do(property_id, force=force)
-                        text = (updated.neighborhood_things_to_do or "").strip()
+                        text = await run.io_bound(
+                            ensure_gemini_things_to_do_job, property_id, force=force
+                        )
                         render_things(text)
                         status.set_text("")
                         ui.notify(

@@ -7,6 +7,7 @@ from pathlib import Path
 from nicegui import ui
 
 from app.core.map_basemap import FULLSCREEN_ICON_URL
+from app.core.paths import static_dir
 
 # Accent set: cyan (primary), magenta (secondary), electric lime (highlight)
 NEON = {
@@ -31,7 +32,7 @@ COLORS = {
 }
 
 _THEME_APPLIED_ATTR = "_homebuy_theme_applied"
-_FONTS_DIR = Path(__file__).resolve().parents[1] / "static" / "fonts"
+_FONTS_DIR = static_dir() / "fonts"
 
 # (family, relative path under fonts/, weight)
 _FONT_CANDIDATES: list[tuple[str, str, int]] = [
@@ -116,7 +117,7 @@ _CSS = f"""
   --hb-amber: {NEON["amber"]};
   --hb-font-display: "Akira Expanded", Impact, system-ui, sans-serif;
   --hb-font-body: "Creato Display", system-ui, sans-serif;
-  --hb-library-address-size: clamp(1.35rem, 4vw, 2.5rem);
+  --hb-library-address-size: clamp(1.215rem, 3.6vw, 2.25rem);
   --hb-library-price-size: 1.35rem;
   --hb-space-1: 0.25rem;
   --hb-space-2: 0.5rem;
@@ -374,13 +375,56 @@ body.body--dark,
   align-items: stretch;
 }}
 
+.hb-property-hero:has(.hb-nearby-icons) .hb-property-hero__content {{
+  padding-bottom: 2.35rem;
+}}
+
+.hb-property-hero--bleed:not(.hb-property-hero--has-photo):has(.hb-nearby-icons)
+  .hb-property-hero__content {{
+  padding-bottom: 2.35rem;
+}}
+
+.hb-property-hero .hb-nearby-icons {{
+  right: 1.1rem;
+  bottom: 0.65rem;
+}}
+
+/* Secondary edit control — muted so it doesn't compete with module tabs */
+.hb-edit-listing-expansion {{
+  margin-top: 0.35rem;
+  opacity: 0.72;
+  transition: opacity 0.15s ease;
+}}
+
+.hb-edit-listing-expansion:hover,
+.hb-edit-listing-expansion:focus-within {{
+  opacity: 1;
+}}
+
+.hb-edit-listing-expansion .q-item {{
+  min-height: 2rem !important;
+  padding: 0.2rem 0.35rem !important;
+  color: var(--hb-text-muted) !important;
+}}
+
+.hb-edit-listing-expansion .q-item__label,
+.hb-edit-listing-expansion .q-icon {{
+  color: var(--hb-text-muted) !important;
+  font-size: 0.85rem !important;
+  font-weight: 400 !important;
+}}
+
+.hb-edit-listing-expansion .q-expansion-item__content {{
+  opacity: 1;
+}}
+
 @media (max-width: 800px) {{
   .hb-property-hero--beside .hb-property-hero__listing {{
     flex-wrap: wrap;
   }}
 }}
 
-/* Financials form: 2×2 for four sections (Your deal / Loan / Ownership / Buy vs rent) */
+/* Financials form: primary deal + rent side-by-side; expansions below */
 .hb-financial-form {{
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -388,8 +432,60 @@ body.body--dark,
   align-items: start;
 }}
 
-.hb-financial-form__deal {{
+.hb-financial-form__deal,
+.hb-financial-form__rent {{
   min-width: 0;
+}}
+
+.hb-financial-expansion {{
+  border: 1px solid var(--hb-border);
+  border-radius: 10px;
+  background: rgba(28, 34, 44, 0.35);
+}}
+
+.hb-financial-expansion .q-expansion-item__container {{
+  padding: 0.15rem 0.35rem;
+}}
+
+.hb-field-label {{
+  font-family: var(--hb-font-body);
+  font-size: 0.78rem;
+  color: var(--hb-text-muted);
+  letter-spacing: 0.02em;
+}}
+
+.hb-field-chrome {{
+  opacity: 0.55;
+}}
+
+.hb-field-chrome:hover {{
+  opacity: 0.9;
+}}
+
+.hb-field-help {{
+  color: var(--hb-text-muted) !important;
+  cursor: help;
+  opacity: 0.4;
+}}
+
+.hb-field-help:hover {{
+  color: var(--hb-cyan, #00E5FF) !important;
+  opacity: 1;
+}}
+
+.hb-field-revert {{
+  color: var(--hb-text-muted) !important;
+  min-height: 1.5rem !important;
+  min-width: 1.5rem !important;
+  padding: 0 !important;
+}}
+
+.hb-field-revert:hover {{
+  color: var(--hb-cyan, #00E5FF) !important;
+}}
+
+.hb-field-source {{
+  opacity: 0.75;
 }}
 
 @media (max-width: 900px) {{
@@ -825,6 +921,11 @@ a:focus-visible {{
   background: var(--hb-surface) !important;
 }}
 
+.hb-api-keys-dialog {{
+  min-width: min(36rem, 92vw);
+  max-width: 40rem;
+}}
+
 /* Links */
 a {{
   color: var(--hb-neon);
@@ -940,6 +1041,10 @@ a:hover {{
   color: var(--hb-magenta, #FF2BD6);
 }}
 
+.hb-nearby-chip--amber {{
+  color: var(--hb-amber, #FFC107);
+}}
+
 .hb-library-thumb-wrap--empty {{
   display: flex;
   align-items: center;
@@ -977,6 +1082,13 @@ a:hover {{
   font-synthesis: none;
   overflow-wrap: anywhere;
   word-break: break-word;
+}}
+
+.hb-library-unit {{
+  font-size: 0.75em;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
 }}
 
 /* Stack library card row on narrow viewports (overrides Quasar flex-nowrap) */
@@ -1047,6 +1159,70 @@ a:hover {{
   border-color: rgba(255, 193, 7, 0.55);
   background: rgba(255, 193, 7, 0.12);
   opacity: 1;
+  font-weight: 600;
+}}
+
+.hb-appr-low {{
+  color: var(--hb-amber) !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}}
+
+.hb-appr-high {{
+  color: var(--hb-neon-3) !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}}
+
+/* Neighborhood — assigned schools (three info cards, no map) */
+.hb-school-card {{
+  background: var(--hb-surface) !important;
+  border: 1px solid var(--hb-border);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  flex: 1 1 220px;
+  min-width: 220px;
+  max-width: 300px;
+}}
+
+.hb-school-level-ph {{
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hb-surface-2);
+  flex-shrink: 0;
+}}
+
+.hb-school-level-ph--cyan {{
+  border: 1px solid rgba(0, 229, 255, 0.5);
+  color: var(--hb-neon);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.18);
+}}
+
+.hb-school-level-ph--magenta {{
+  border: 1px solid rgba(255, 43, 214, 0.5);
+  color: var(--hb-neon-2);
+  box-shadow: 0 0 10px rgba(255, 43, 214, 0.18);
+}}
+
+.hb-school-level-ph--lime {{
+  border: 1px solid rgba(184, 255, 60, 0.5);
+  color: var(--hb-neon-3);
+  box-shadow: 0 0 10px rgba(184, 255, 60, 0.18);
+}}
+
+/* CA School Dashboard color badge (Blue/Green/Yellow/Orange/Red) — a quiet
+   outlined chip; free real-world color, distinct from the cyan/magenta/lime
+   level accents above. */
+.hb-dashboard-badge {{
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--hb-border);
+  border-radius: 6px;
   font-weight: 600;
 }}
 
@@ -1315,9 +1491,35 @@ a:hover {{
   filter: invert(1) brightness(1.15);
 }}
 
+/* Street View panel — 16:9 desktop-scale iframe; no min-height empty shell */
+.hb-sv-panel {{
+  margin-top: 0.35rem;
+}}
+.hb-sv-panel .q-expansion-item__content > .q-card__section {{
+  padding: 0.35rem 0.5rem 0.45rem !important;
+}}
+.hb-sv-actions {{
+  margin-top: 0.25rem;
+  gap: 0.35rem 0.5rem;
+}}
 .homebuy-sv {{
+  container-type: inline-size;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(42vh, 480px);
+  height: auto;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #111;
+  position: relative;
   border: 1px solid var(--hb-border) !important;
-  box-shadow: 0 0 24px rgba(0, 229, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.08), 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+}}
+/* When max-height binds, keep the frame 16:9 instead of letterboxing */
+@supports (width: min(100%, 1px)) {{
+  .homebuy-sv {{
+    width: min(100%, calc(min(42vh, 480px) * 16 / 9));
+  }}
 }}
 
 /* Gallery lightbox — dark neo (classes applied by gallery.py) */

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from datetime import date
 from functools import lru_cache
-from pathlib import Path
 
-_TABLE_PATH = Path(__file__).resolve().parents[1] / "data" / "home_maintenance_state_index.json"
+from app.core.paths import package_data_file
+
+_TABLE_PATH = package_data_file("home_maintenance_state_index.json")
 
 # Angi 2024 State of Home Spending (national averages, USD / year)
 ANGI_MAINTENANCE_USD = 1750.0

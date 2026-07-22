@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from app.core.cache import memo_clear, memo_get
 from app.core.census_acs import (
     AVG_KIDS_BREAKS,
     HOME_VALUE_BREAKS,
@@ -14,12 +17,24 @@ from app.core.census_acs import (
     parse_acs_avg_kids_rows,
     parse_acs_tract_rows,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMEBUY_DATA_DIR", str(tmp_path))
+    from app.core import paths
+
+    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
+    paths.refresh_data_dirs()
+    memo_clear()
+    yield
+    memo_clear()
 from app.core.crime_socrata import (
     CRIME_CITIES,
+    bbox_around as crime_bbox_around,
     crime_supported,
     normalize_city,
-    resolve_crime_city,
-    soda_where_preview,
+    resolve_crime_feeds,
 )
 from app.core.fema_flood import FEMA_NFHL_WMS_URL, flood_wms_layer_args
 
@@ -148,19 +163,21 @@ def test_acs_layers_include_new_demos():
 
 
 def test_crime_city_resolution():
-    assert resolve_crime_city("Los Angeles") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("LA") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Seattle") is CRIME_CITIES["seattle"]
+    def primary(city, lat=None, lng=None):
+        feeds = resolve_crime_feeds(city, lat, lng)
+        return feeds[0] if feeds else None
+
+    assert primary("Los Angeles") is CRIME_CITIES["los_angeles"]
+    assert primary("LA") is CRIME_CITIES["los_angeles"]
+    assert primary("Seattle") is CRIME_CITIES["seattle"]
     # Santa Monica / Pasadena / empty Westside pin → LA County (primary = LAPD).
-    assert resolve_crime_city("Santa Monica") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Pasadena") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Torrance") is CRIME_CITIES["los_angeles"]
-    assert resolve_crime_city("Portland") is None
-    assert (
-        resolve_crime_city("", 33.9916647, -118.4341763) is CRIME_CITIES["los_angeles"]
-    )
+    assert primary("Santa Monica") is CRIME_CITIES["los_angeles"]
+    assert primary("Pasadena") is CRIME_CITIES["los_angeles"]
+    assert primary("Torrance") is CRIME_CITIES["los_angeles"]
+    assert primary("Portland") is None
+    assert primary("", 33.9916647, -118.4341763) is CRIME_CITIES["los_angeles"]
     # Antelope Valley still in county bbox.
-    assert resolve_crime_city("", 34.69, -118.15) is CRIME_CITIES["los_angeles"]
+    assert primary("", 34.69, -118.15) is CRIME_CITIES["los_angeles"]
     assert crime_supported("seattle")
     assert crime_supported("Santa Monica")
     assert crime_supported("Long Beach")
@@ -168,21 +185,23 @@ def test_crime_city_resolution():
     assert not crime_supported("Austin")
     assert normalize_city("  Los   Angeles ") == "los angeles"
 
-    from app.core.crime_socrata import resolve_crime_feeds
-
     feeds = resolve_crime_feeds("Santa Monica", 34.01, -118.49)
     assert [f.id for f in feeds] == ["los_angeles", "santa_monica"]
 
 
-def test_soda_where_preview_contains_bbox_fields():
+def test_crime_feed_filter_fields():
+    """Sanity-check per-feed lat/lng field names used by SODA / CKAN queries."""
     la = CRIME_CITIES["los_angeles"]
-    clause = soda_where_preview(la, 34.05, -118.25)
-    assert "lat between" in clause
-    assert "lon between" in clause
+    assert la.lat_field == "lat"
+    assert la.lng_field == "lon"
+    assert la.coords_numeric is True
     sea = CRIME_CITIES["seattle"]
-    assert "client-side" in soda_where_preview(sea, 47.6, -122.3)
+    assert sea.coords_numeric is False
     sm = CRIME_CITIES["santa_monica"]
-    assert "ckan SQL bbox" in soda_where_preview(sm, 34.01, -118.49)
+    assert sm.kind == "ckan"
+    min_lng, min_lat, max_lng, max_lat = crime_bbox_around(34.05, -118.25)
+    assert min_lat < 34.05 < max_lat
+    assert min_lng < -118.25 < max_lng
 
 def test_fema_wms_args():
     url, options = flood_wms_layer_args()
@@ -190,3 +209,92 @@ def test_fema_wms_args():
     assert options["layers"] == "28"
     assert options["transparent"] is True
     assert "FEMA" in options["attribution"]
+
+
+def test_acs_styled_geojson_is_quantized(monkeypatch):
+    """Styled ACS FeatureCollection coords are quantized at precision 5 + memoized."""
+    from app.core import census_acs as acs
+
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.123456780, 34.123456780],
+            [-118.120000111, 34.120000111],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    monkeypatch.setattr(acs, "_fcc_fips", lambda lat, lng: ("06", "037"))  # noqa: ARG005
+    monkeypatch.setattr(
+        acs,
+        "_fetch_acs_values",
+        lambda layer, state_fips, county_fips: {"06037123456": 90_000.0},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        acs,
+        "_fetch_tract_geojson",
+        lambda bbox, state_fips, county_fips: {  # noqa: ARG005
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {"GEOID": "06037123456", "NAME": "Tract 1"},
+                }
+            ],
+        },
+    )
+
+    result = acs.build_acs_geojson("income", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.12346, 34.12346]
+    assert result["features"][0]["properties"]["fillColor"]
+    assert result["meta"]["layer_id"] == "income"
+
+    # Process memo hit on re-toggle (same layer + bbox key).
+    second = acs.build_acs_geojson("income", 34.05, -118.25)
+    assert second == result
+    key = acs._styled_memo_key("income", 34.05, -118.25, acs.DEFAULT_HALF_SPAN_DEG)
+    assert memo_get(acs.STYLED_MEMO_NS, key) is not None
+
+
+def test_acs_quantize_fallback_on_failure(monkeypatch):
+    from app.core import census_acs as acs
+
+    hi_prec = [
+        [
+            [-118.123456789, 34.123456789],
+            [-118.12, 34.12],
+            [-118.11, 34.11],
+            [-118.123456789, 34.123456789],
+        ]
+    ]
+
+    monkeypatch.setattr(acs, "_fcc_fips", lambda lat, lng: ("06", "037"))  # noqa: ARG005
+    monkeypatch.setattr(
+        acs,
+        "_fetch_acs_values",
+        lambda layer, state_fips, county_fips: {"06037123456": 50_000.0},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        acs,
+        "_fetch_tract_geojson",
+        lambda bbox, state_fips, county_fips: {  # noqa: ARG005
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": hi_prec},
+                    "properties": {"GEOID": "06037123456", "NAME": "Tract 1"},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        acs,
+        "quantize_geojson",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("bad geom")),
+    )
+    result = acs.build_acs_geojson("income", 34.05, -118.25)
+    ring = result["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == [-118.123456789, 34.123456789]

@@ -10,6 +10,7 @@ from app.core.library_export import (
 )
 from app.core.models import Property
 from app.core.property_service import PropertyService, fetch_library_thumbnails
+from app.core.thumbnail import resolve_library_thumbnail_url
 from app.core.ui_jobs import (
     add_from_zillow_job,
     refresh_stale_area_signals_job,
@@ -226,7 +227,7 @@ def library_page() -> None:
                     thumb = None
                     thumb_photo = thumbs.get(prop.id)
                     if thumb_photo is not None:
-                        thumb = f"/uploads/{thumb_photo.path}"
+                        thumb = resolve_library_thumbnail_url(thumb_photo)
                     card_rows.append(
                         {
                             "id": prop.id,

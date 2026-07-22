@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -6,6 +7,7 @@ from app.core.thumbnail import (
     PhotoCandidate,
     keyword_score,
     pick_thumbnail_photo_id,
+    resolve_library_thumbnail_url,
     score_photo,
 )
 
@@ -86,4 +88,28 @@ def test_image_heuristic_prefers_landscape_over_floorplan_white(tmp_path: Path):
     assert pick_thumbnail_photo_id(candidates, uploads_root=tmp_path) == 2
     assert score_photo(candidates[1], uploads_root=tmp_path) > score_photo(
         candidates[0], uploads_root=tmp_path
+    )
+
+
+def test_resolve_library_thumbnail_url_prefers_sidecar(tmp_path: Path):
+    full = tmp_path / "42" / "zillow_000.jpg"
+    full.parent.mkdir(parents=True)
+    Image.new("RGB", (80, 60), (10, 20, 30)).save(full)
+    thumb = full.with_name("zillow_000_thumb.webp")
+    Image.new("RGB", (40, 30), (10, 20, 30)).save(thumb, "WEBP")
+
+    photo = SimpleNamespace(path="42/zillow_000.jpg")
+    assert resolve_library_thumbnail_url(photo, uploads_root=tmp_path) == (
+        "/uploads/42/zillow_000_thumb.webp"
+    )
+
+
+def test_resolve_library_thumbnail_url_falls_back_to_full(tmp_path: Path):
+    full = tmp_path / "7" / "house.jpg"
+    full.parent.mkdir(parents=True)
+    Image.new("RGB", (80, 60), (1, 2, 3)).save(full)
+
+    photo = SimpleNamespace(path="7/house.jpg")
+    assert resolve_library_thumbnail_url(photo, uploads_root=tmp_path) == (
+        "/uploads/7/house.jpg"
     )

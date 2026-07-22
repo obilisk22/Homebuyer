@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageOps
+
+# Library/header card derivative (sidecar beside Photo.path).
+THUMB_LONG_EDGE = 400
+THUMB_WEBP_QUALITY = 80
+# Stored mid/full file long-edge cap (Photo.path); lightbox uses this file.
+MID_LONG_EDGE = 1600
 
 # Caption / URL / path tokens that usually are not curb appeal.
 AVOID_KEYWORDS = (
@@ -168,3 +176,73 @@ def pick_thumbnail_photo_id(
         return None
     best = max(candidates, key=lambda c: score_photo(c, uploads_root))
     return best.photo_id
+
+
+def sidecar_thumb_path(image_path: Path) -> Path:
+    """`foo.jpg` → `foo_thumb.webp` beside the same directory."""
+    return image_path.with_name(f"{image_path.stem}_thumb.webp")
+
+
+def _fit_long_edge(im: Image.Image, max_edge: int) -> Image.Image:
+    width, height = im.size
+    long_edge = max(width, height)
+    if long_edge <= max_edge:
+        return im.copy()
+    scale = max_edge / float(long_edge)
+    new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return im.resize(new_size, Image.Resampling.LANCZOS)
+
+
+def _save_mid_image(im: Image.Image, dest: Path) -> None:
+    suffix = dest.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        im.convert("RGB").save(dest, format="JPEG", quality=85, optimize=True)
+    elif suffix == ".png":
+        im.save(dest, format="PNG", optimize=True)
+    elif suffix == ".webp":
+        im.save(dest, format="WEBP", quality=85)
+    elif suffix == ".gif":
+        im.save(dest, format="GIF")
+    else:
+        im.convert("RGB").save(dest, format="JPEG", quality=85, optimize=True)
+
+
+def write_photo_with_derivatives(dest: Path, data: bytes) -> None:
+    """Write mid-size image (cap ~1600) and ``*_thumb.webp`` sidecar (~400).
+
+    On decode failure, writes raw ``data`` and skips the sidecar so import
+    never fails on a bad bytes payload.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as raw:
+            raw.load()
+            oriented = ImageOps.exif_transpose(raw)
+            mid = _fit_long_edge(oriented, MID_LONG_EDGE)
+            _save_mid_image(mid, dest)
+            thumb = _fit_long_edge(oriented, THUMB_LONG_EDGE)
+            thumb_path = sidecar_thumb_path(dest)
+            thumb.convert("RGB").save(
+                thumb_path, format="WEBP", quality=THUMB_WEBP_QUALITY, method=4
+            )
+    except OSError:
+        dest.write_bytes(data)
+
+
+def resolve_library_thumbnail_url(
+    photo: Any,
+    *,
+    uploads_root: Path | None = None,
+) -> str:
+    """Prefer ``stem_thumb.webp`` beside ``Photo.path``; fall back to full."""
+    from app.core.paths import UPLOADS_DIR
+
+    root = UPLOADS_DIR if uploads_root is None else uploads_root
+    rel = str(getattr(photo, "path", "") or "").replace("\\", "/")
+    if not rel:
+        return "/uploads/"
+    full = root / rel
+    thumb = sidecar_thumb_path(full)
+    if thumb.is_file():
+        thumb_rel = str(thumb.relative_to(root)).replace("\\", "/")
+        return f"/uploads/{thumb_rel}"
+    return f"/uploads/{rel}"

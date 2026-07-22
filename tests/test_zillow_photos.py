@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import io
 import json
+
+from PIL import Image
 
 import app.core.db as db
 from app.core.models import FinancialAssumptions, Property
 from app.core.property_service import PropertyService
 from app.core.zillow_photos import FetchedListingPhotos, extract_photo_urls
+
+
+def _jpeg_bytes(width: int = 800, height: int = 600) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (40, 80, 120)).save(buf, format="JPEG")
+    return buf.getvalue()
 
 
 SAMPLE_HTML = """
@@ -278,3 +287,36 @@ def test_import_zillow_photos_batches_db_commit(tmp_path, monkeypatch):
         assert len(prop.photos) == 2
         assert [p.sort_order for p in prop.photos] == [0, 1]
         assert {p.source_url for p in prop.photos} == set(urls)
+
+
+def test_import_writes_thumb_sidecar(tmp_path, monkeypatch):
+    """Download writes mid-size file plus stem_thumb.webp beside it."""
+    from app.core import listing_ingest
+    from app.core.zillow_photos import FetchedListingPhotos
+
+    uploads = tmp_path / "uploads"
+    monkeypatch.setattr(listing_ingest, "UPLOADS_DIR", uploads)
+
+    rows = listing_ingest.download_zillow_photo_files(
+        9,
+        LISTING_URL,
+        html="<html></html>",
+        photo_fetcher=lambda url, *, html=None: FetchedListingPhotos(
+            urls=["https://photos.zillowstatic.com/fp/aaa-o_a.jpg"],
+            raw_html_bytes=1,
+        ),
+        image_downloader=lambda url: (_jpeg_bytes(2400, 1800), "image/jpeg"),
+    )
+
+    assert len(rows) == 1
+    mid = uploads / rows[0]["path"]
+    assert mid.is_file()
+    assert mid.name == "zillow_000.jpg"
+    thumb = mid.with_name("zillow_000_thumb.webp")
+    assert thumb.is_file()
+    with Image.open(thumb) as im:
+        assert max(im.size) <= 400
+        assert max(im.size) == 400
+    with Image.open(mid) as im:
+        assert max(im.size) == 1600
+

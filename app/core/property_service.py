@@ -45,7 +45,11 @@ from app.core.permits_nearby import (
 )
 from app.core.neighborhood import effective_neighborhood_name
 from app.core.property_tax import resolve_annual_property_tax
-from app.core.thumbnail import PhotoCandidate, pick_thumbnail_photo_id
+from app.core.thumbnail import (
+    PhotoCandidate,
+    pick_thumbnail_photo_id,
+    sidecar_thumb_path,
+)
 from app.core.utilities import resolve_monthly_utilities
 from app.core.zillow_listing import (
     ListingDetails,
@@ -1128,6 +1132,9 @@ class PropertyService:
         full = UPLOADS_DIR / photo.path
         if full.exists():
             full.unlink(missing_ok=True)
+        thumb = sidecar_thumb_path(full)
+        if thumb.exists():
+            thumb.unlink(missing_ok=True)
         self.session.delete(photo)
         self.session.commit()
         if was_thumbnail:

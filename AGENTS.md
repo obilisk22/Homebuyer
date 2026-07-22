@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-21 (perf platform Task 10: add-home photo ‖ area-signal parallelization)
+> Last updated: 2026-07-21 (perf platform Task 11: photo WebP thumb sidecars)
 
 
 
@@ -130,7 +130,7 @@ Restart the app — the tab appears automatically.
 | Long UI I/O workers (`run.io_bound`) | `app/core/ui_jobs.py` |
 | Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
 | Shared geo helpers (haversine, city normalize, bbox) | `app/core/geo.py` |
-| Photo import | `app/core/zillow_photos.py` |
+| Photo import | `app/core/zillow_photos.py` (+ `listing_ingest.download_zillow_photo_files`; mid-size + `*_thumb.webp` sidecars via `thumbnail.write_photo_with_derivatives`) |
 | Listing fields extract | `app/core/zillow_listing.py` |
 | Neighborhood + Gemini overview / things-to-do | `app/core/neighborhood.py`, `app/core/gemini_neighborhood.py` |
 | Financials Gemini commentary | `app/core/gemini_financial.py` |
@@ -138,7 +138,7 @@ Restart the app — the tab appears automatically.
 | Maintenance / repair estimate | `app/core/home_maintenance.py`, `app/data/home_maintenance_state_index.json` |
 | Utilities estimate (provider × sqft × age) | `app/core/utilities.py`, `app/data/utility_providers.json` |
 | Mortgage rates (Freddie Mac PMMS) | `app/core/mortgage_rates.py` |
-| Library thumbnail pick | `app/core/thumbnail.py` |
+| Library thumbnail pick | `app/core/thumbnail.py` (`pick_thumbnail_photo_id`; `resolve_library_thumbnail_url` prefers `*_thumb.webp`) |
 | Library nearby proximity icons (OSM Overpass + optional Places) | `app/core/nearby_signals.py` |
 | Listing risk chips (no Central AC) | `app/core/listing_signals.py` |
 | Nearby building-permit activity (Socrata SODA; LA/Seattle/Austin) | `app/core/permits_nearby.py` |
@@ -305,6 +305,7 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 8d. **Library Active-market chip (TODO-051):** Redfin ZIP market tracker monthly All-Residential **`homes_sold`** for the property ZIP (`market_activity.py` + `redfin_sales` cache `zip_market_all_residential_monthly_v2`). Ingest uses process **memo** (~1h) + **singleflight** so concurrent chip/map callers share one load; disk rewrite is **gzip**. **Active when** `homes_sold >= max(12, round(national P75))`. Persist `market_activity` / `market_activity_at`; compute on add/refresh/post-geocode; stale refresh via coalesced `refresh_stale_area_signals_job` on library paint. Lime amenity `local_fire_department` chip; tooltip “N sales last month in ZIP #####”; no chip when Redfin has no row. No API key.
 8e. **Coalesced library stale refresh (perf platform):** `area_signals.refresh_stale_area_signals` does **one** property scan and refreshes nearby / permits / broadband / market up to `limit` each (no artificial 1.25s sleep). Library timer calls `refresh_stale_area_signals_job` once; if any count &gt; 0, `_patch_chip_rows` re-renders only `chip_hosts[property_id]` (no full list `refresh()`).
 8f. **Add-home parallelization (perf platform):** After geocode pin + financial sync, `listing_ingest.add_from_zillow` runs photo file downloads (`download_zillow_photo_files` → plain path dicts) and area-signal computes (nearby / permits / broadband / market → JSON+timestamp dicts) concurrently via `ThreadPoolExecutor(max_workers=4)`. Main thread only writes ORM rows / commits / `select_thumbnail`. Signal failures are swallowed (add still succeeds with listing + photos). Market activity may use the warm Redfin memo/singleflight path.
+8g. **Photo derivatives (perf platform):** On import, each saved image is capped ~1600px long edge (`Photo.path`); a sidecar `stem_thumb.webp` (~400px, quality ~80) is written beside it. Library cards and the property header use `resolve_library_thumbnail_url` (prefer sidecar, fall back to full). Gallery/lightbox still loads the mid/full file. No DB schema change; older homes without sidecars keep working via fallback.
 
 ## Working agreements for agents
 

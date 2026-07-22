@@ -17,6 +17,7 @@ from app.core.market_activity import compute_market_activity
 from app.core.models import FinancialAssumptions, Photo, Property
 from app.core.nearby_signals import SIGNAL_ORDER, compute_signals
 from app.core.permits_nearby import compute_permit_activity
+from app.core.thumbnail import write_photo_with_derivatives
 from app.core.zillow_listing import (
     ListingDetails,
     extract_listing_details,
@@ -75,7 +76,7 @@ def download_zillow_photo_files(
             while dest.exists():
                 dest = dest_dir / f"{stem}_{i}{suffix}"
                 i += 1
-        dest.write_bytes(data)
+        write_photo_with_derivatives(dest, data)
         rows.append(
             {
                 "path": str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),

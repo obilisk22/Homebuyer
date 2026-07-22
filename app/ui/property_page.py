@@ -7,6 +7,7 @@ from nicegui import run, ui
 from app.core.db import get_session
 from app.core.module_registry import get_modules
 from app.core.property_service import PropertyService, resolve_library_thumbnail
+from app.core.thumbnail import resolve_library_thumbnail_url
 from app.core.ui_jobs import refresh_listing_details_job
 from app.ui.chip_helpers import (
     _extra_signal_chips,
@@ -50,7 +51,9 @@ def property_page(property_id: int) -> None:
         prop_id = prop.id
         thumb_photo = resolve_library_thumbnail(prop)
         thumb_url = (
-            f"/uploads/{thumb_photo.path}" if thumb_photo is not None else None
+            resolve_library_thumbnail_url(thumb_photo)
+            if thumb_photo is not None
+            else None
         )
         nearby_signals = prop.nearby_signals or ""
         # `get_property` eager-loads module relationships; detach the fully loaded

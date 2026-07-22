@@ -614,7 +614,7 @@ git commit -am "Parallelize add-home photo import and area signal lookups."
 - Produces: after saving image `foo.jpg`, write `foo_thumb.webp` (long edge ~400px, WebP quality ~80). `Photo.path` remains the mid/full file (cap long edge ~1600 on download if easy).
 - `resolve_library_thumbnail_url(photo) -> str` prefers thumb sidecar if present.
 
-- [ ] **Step 1: Failing test — sidecar created**
+- [x] **Step 1: Failing test — sidecar created**
 
 ```python
 def test_import_writes_thumb_sidecar(tmp_path, monkeypatch):
@@ -622,13 +622,13 @@ def test_import_writes_thumb_sidecar(tmp_path, monkeypatch):
     assert (uploads / "x_thumb.webp").is_file()
 ```
 
-- [ ] **Step 2: Implement with Pillow**
+- [x] **Step 2: Implement with Pillow**
 
-- [ ] **Step 3: pytest photos + thumbnail — PASS**
+- [x] **Step 3: pytest photos + thumbnail — PASS**
 
-- [ ] **Step 4: Update README/AGENTS** — library uses derivative thumbs when present
+- [x] **Step 4: Update README/AGENTS** — library uses derivative thumbs when present
 
-- [ ] **Step 5: Commit** (if approved)
+- [x] **Step 5: Commit** (if approved)
 
 ```bash
 git commit -am "Write WebP thumbnail sidecars for library and header cards."

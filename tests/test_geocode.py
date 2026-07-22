@@ -1,7 +1,9 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.cache import memo_clear
 from app.core.geocode import (
     NOMINATIM_USER_AGENT,
     geocode_address,
@@ -53,6 +55,25 @@ def test_geocode_query_candidates_unit_fallbacks():
     assert candidates[1] == "650 Pacific St Santa Monica CA 90405"
     assert "650 Pacific St, Santa Monica, CA 90405" in candidates
     assert "Santa Monica, CA 90405" in candidates
+
+
+@patch.dict("os.environ", {"GOOGLE_MAPS_API_KEY": ""}, clear=False)
+@patch("app.core.geocode.requests.get")
+def test_geocode_uses_disk_cache_on_second_call(mock_get: MagicMock, tmp_path, monkeypatch):
+    from app.core import paths
+
+    monkeypatch.setattr(paths, "DATA_DIR", Path(tmp_path))
+    paths.refresh_data_dirs()
+    memo_clear()
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = [{"lat": "34.0", "lon": "-118.0"}]
+    mock_get.return_value = response
+
+    a1 = geocode_address("123 Main St Santa Monica CA 90401")
+    a2 = geocode_address("123 Main St Santa Monica CA 90401")
+    assert a1 == a2
+    assert mock_get.call_count == 1
 
 
 @patch.dict("os.environ", {"GOOGLE_MAPS_API_KEY": ""}, clear=False)

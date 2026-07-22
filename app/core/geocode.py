@@ -7,8 +7,14 @@ from urllib.parse import quote_plus
 
 import requests
 
+from app.core.cache import cache_key, memo_get, memo_set, read_json, write_json
+
 NOMINATIM_USER_AGENT = "Homebuy/0.1 (local research app)"
 REQUEST_TIMEOUT_S = 10
+
+GEOCODE_CACHE_NS = "geocode"
+GEOCODE_DISK_TTL_S = 30 * 24 * 3600
+GEOCODE_MEMO_TTL_S = 3600
 
 # Unit / apartment / suite designators that confuse geocoders when embedded
 # mid-address (e.g. "650 Pacific St UNIT 8 Santa Monica CA 90405").
@@ -159,6 +165,43 @@ def geocode_query_candidates(address: str) -> list[str]:
     return unique
 
 
+def _normalize_geocode_query(query: str) -> str:
+    """Normalize a geocode query string for cache keys."""
+    text = strip_unit_designator(query).casefold()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _geocode_cache_key(query: str) -> str:
+    return cache_key("v1", _normalize_geocode_query(query))
+
+
+def _read_geocode_cache(query: str) -> tuple[float, float] | None:
+    key = _geocode_cache_key(query)
+    cached = memo_get(GEOCODE_CACHE_NS, key)
+    if cached is not None:
+        try:
+            return float(cached["lat"]), float(cached["lng"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    disk = read_json(GEOCODE_CACHE_NS, key, max_age_s=GEOCODE_DISK_TTL_S)
+    if disk is None:
+        return None
+    try:
+        lat = float(disk["lat"])
+        lng = float(disk["lng"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    memo_set(GEOCODE_CACHE_NS, key, {"lat": lat, "lng": lng}, ttl_s=GEOCODE_MEMO_TTL_S)
+    return lat, lng
+
+
+def _write_geocode_cache(query: str, lat: float, lng: float) -> None:
+    key = _geocode_cache_key(query)
+    payload = {"lat": lat, "lng": lng}
+    memo_set(GEOCODE_CACHE_NS, key, payload, ttl_s=GEOCODE_MEMO_TTL_S)
+    write_json(GEOCODE_CACHE_NS, key, payload)
+
+
 def geocode_address(address: str) -> tuple[float, float]:
     """Resolve an address string to (latitude, longitude).
 
@@ -176,13 +219,21 @@ def geocode_address(address: str) -> tuple[float, float]:
     last_error: ValueError | None = None
 
     for query in candidates:
+        cached = _read_geocode_cache(query)
+        if cached is not None:
+            return cached
+
         if api_key:
             try:
-                return _geocode_google(query, api_key)
+                result = _geocode_google(query, api_key)
+                _write_geocode_cache(query, result[0], result[1])
+                return result
             except ValueError as exc:
                 last_error = exc
         try:
-            return _geocode_nominatim(query)
+            result = _geocode_nominatim(query)
+            _write_geocode_cache(query, result[0], result[1])
+            return result
         except ValueError as exc:
             last_error = exc
 

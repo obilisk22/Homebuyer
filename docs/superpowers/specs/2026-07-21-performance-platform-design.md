@@ -1,7 +1,7 @@
 # Performance Platform + Hot-Path Port — Design
 
 **Date:** 2026-07-21  
-**Status:** Draft — awaiting user review  
+**Status:** Approved for planning  
 
 **Approach:** Platform first, then port hot paths (Approach 2)  
 **Aggressiveness:** Structural splits + perf/UX responsiveness wins allowed  

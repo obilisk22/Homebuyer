@@ -62,7 +62,7 @@ def test_theme_has_smaller_address_and_unit_and_high_appr():
 
 
 def test_pages_render_unit_span_and_growth_bands():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (ROOT / "app" / "ui" / "chip_helpers.py").read_text(encoding="utf-8")
     assert 'f"Growth ' in src
     assert 'f"Appr.' not in src
     assert "_split_street_unit" in src

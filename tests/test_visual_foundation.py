@@ -52,7 +52,10 @@ def test_akira_font_face_registered_when_file_present():
 
 
 def test_library_page_uses_address_and_price_classes():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (
+        (ROOT / "app" / "ui" / "library_page.py").read_text(encoding="utf-8")
+        + (ROOT / "app" / "ui" / "chip_helpers.py").read_text(encoding="utf-8")
+    )
     assert "hb-library-address" in src
     assert "hb-library-price" in src
     assert "_street_address_line" in src
@@ -62,7 +65,7 @@ def test_library_page_uses_address_and_price_classes():
 
 
 def test_property_header_photo_modes():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (ROOT / "app" / "ui" / "property_page.py").read_text(encoding="utf-8")
     assert 'PROPERTY_HEADER_PHOTO_MODE = "bleed"' in src
     assert "hb-property-hero" in src
     assert "hb-property-hero__scrim" in src
@@ -74,7 +77,10 @@ def test_property_header_photo_modes():
 
 
 def test_library_nav_and_filter_ux():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (
+        (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+        + (ROOT / "app" / "ui" / "library_page.py").read_text(encoding="utf-8")
+    )
     assert 'classes("hb-brand")' in src
     assert 'brand.on("click"' in src
     assert 'ui.button("Apply"' in src
@@ -86,7 +92,10 @@ def test_library_nav_and_filter_ux():
 
 
 def test_library_cards_render_nearby_signal_chips():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (
+        (ROOT / "app" / "ui" / "library_page.py").read_text(encoding="utf-8")
+        + (ROOT / "app" / "ui" / "chip_helpers.py").read_text(encoding="utf-8")
+    )
     assert "parse_signals_json" in src
     assert "hits_in_order" in src
     assert "tooltip_for" in src
@@ -110,7 +119,10 @@ def test_library_cards_render_nearby_signal_chips():
 
 
 def test_property_header_nearby_and_edit_listing():
-    src = (ROOT / "app" / "ui" / "pages.py").read_text(encoding="utf-8")
+    src = (
+        (ROOT / "app" / "ui" / "property_page.py").read_text(encoding="utf-8")
+        + (ROOT / "app" / "ui" / "chip_helpers.py").read_text(encoding="utf-8")
+    )
     assert "hb-edit-listing-expansion" in src
     assert "_render_nearby_signal_chips(" in src
     assert "listing_risk_chips" in src

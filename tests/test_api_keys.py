@@ -63,8 +63,10 @@ def test_apply_env_updates_clear(tmp_path, monkeypatch):
 
 
 def test_library_header_wires_api_keys_dialog():
-    src = Path(__file__).resolve().parents[1].joinpath("app", "ui", "pages.py").read_text(
-        encoding="utf-8"
+    root = Path(__file__).resolve().parents[1]
+    src = (
+        root.joinpath("app", "ui", "pages.py").read_text(encoding="utf-8")
+        + root.joinpath("app", "ui", "library_page.py").read_text(encoding="utf-8")
     )
     assert "show_api_keys=True" in src
     assert "_open_api_keys_dialog" in src

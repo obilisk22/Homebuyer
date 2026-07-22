@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-21 (perf platform Task 11: photo WebP thumb sidecars)
+> Last updated: 2026-07-21 (perf platform Task 12: final verification + docs)
 
 
 
@@ -93,9 +93,10 @@ When an agent finishes a feature: commit if the user asked to save/commit; push 
 ## Architecture
 
 ```
-User → NiceGUI (app/ui/pages.py)
-         → module_registry (app/modules/*)
-         → PropertyService + SQLite (data/homebuy.db)
+User → NiceGUI (app/ui/library_page.py | property_page.py; pages.py chrome)
+         → module_registry (app/modules/*; lazy mount on first tab select)
+         → PropertyService façade + listing_ingest / area_signals / financial_sync
+         → SQLite (data/homebuy.db) + app/core/cache/ (disk/memo/singleflight/SWR)
 ```
 
 ### Extending with a module
@@ -123,12 +124,15 @@ Restart the app — the tab appears automatically.
 | Paths (dev vs frozen) | `app/core/paths.py` — `DATA_DIR`, package JSON, static |
 | API keys (user .env) | `app/core/api_keys.py` — Library header key dialog |
 | Packaging | `packaging/build_windows.ps1`, `homebuy.spec`, `Homebuy.iss` — `docs/PACKAGING.md` |
-| Library + property pages | `app/ui/library_page.py`, `app/ui/property_page.py` (+ `pages.py` shared chrome) |
+| Library + property pages | `app/ui/library_page.py`, `app/ui/property_page.py` (+ `pages.py` shared chrome; `chip_helpers.py` nearby/risk chips) |
 | Theme | `app/ui/theme.py` |
 | Models / migrate | `app/core/models.py`, `app/core/db.py` |
-| CRUD / Zillow add | `app/core/property_service.py` (+ `listing_ingest.py`: add/refresh; photos ‖ area signals via `ThreadPoolExecutor`) |
-| Long UI I/O workers (`run.io_bound`) | `app/core/ui_jobs.py` |
-| Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
+| CRUD façade | `app/core/property_service.py` (thin; delegates ingest / signals / financial sync) |
+| Zillow add / refresh | `app/core/listing_ingest.py` (photos ‖ area signals via `ThreadPoolExecutor`) |
+| Area signals + coalesced stale refresh | `app/core/area_signals.py` (`refresh_stale_area_signals`; library card patch) |
+| Listing → financial assumptions | `app/core/financial_sync.py` |
+| Long UI I/O workers (`run.io_bound`) | `app/core/ui_jobs.py` (`refresh_stale_area_signals_job`, `ensure_financial_job`, …) |
+| Geocode (unit stripping + fallbacks; disk ~30d + memo ~1h) | `app/core/geocode.py` |
 | Shared geo helpers (haversine, city normalize, bbox) | `app/core/geo.py` |
 | Photo import | `app/core/zillow_photos.py` (+ `listing_ingest.download_zillow_photo_files`; mid-size + `*_thumb.webp` sidecars via `thumbnail.write_photo_with_derivatives`) |
 | Listing fields extract | `app/core/zillow_listing.py` |
@@ -194,8 +198,12 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] TODO-025 Library nearby-signal icons (2026-07-18): OSM Overpass for highway (nearest way vertex ≤800 ft) / transit / playground / grocery / shelter; Google Places Nearby Search for grocery + shelter when `GOOGLE_MAPS_API_KEY` set; cached JSON on `Property` plus ~7d raw provider cache; soft neo thumbnail chips (magenta risks, lime amenities) with distance/name tooltips; compute on add/post-geocode + post-paint best-effort stale refresh (≤3, ~30d) on library load
 - [x] Visual foundation (2026-07-18): hierarchy-through-emission; Creato + Akira self-host; library street hero + stretch thumb; page chrome (title/Add/Filter/empty) matched to cards
 - [x] Property tab chrome (2026-07-18): property header (Akira street + chips), Photos/Map/Neighborhood/Financials titles/hints/empty states + dense controls; Leaflet/Plotly/svembed unchanged
+- [x] Perf platform (2026-07-21): shared `app/core/cache/` (disk JSON/gzip, memo, singleflight, SWR, GeoJSON quantize); `overlay_cache.py` compatibility re-exports; geocode disk+memo; Redfin memo/singleflight/gzip; zoning/ACS quantize; library query slim (`joinedload` financial + thumb path only)
+- [x] Module splits (2026-07-21): `listing_ingest` / `area_signals` / `financial_sync` from `property_service`; `library_page` / `property_page` / `chip_helpers` from `pages`
 - [x] Lazy property tabs (2026-07-21): Photos/Map/Neighborhood/Financials mount on first select (default Photos immediate); Map auto-geocode + Neighborhood schools only when those tabs mount; Financials `ensure_financial` / PMMS via `ensure_financial_job` + `run.io_bound`
+- [x] Coalesced library stale refresh (2026-07-21): one `refresh_stale_area_signals_job`; `_patch_chip_rows` instead of full list rebuild
 - [x] Add-home parallelization (2026-07-21): after pin + financial sync, photo downloads and nearby/permits/broadband/market lookups run concurrently (`ThreadPoolExecutor`, max 4); workers return plain dicts/paths; owning session serializes commits; signal failures stay best-effort; market can hit warm Redfin
+- [x] Photo WebP thumb sidecars (2026-07-21): import writes `*_thumb.webp`; library/header prefer sidecar via `resolve_library_thumbnail_url`; gallery/lightbox use mid/full
 - [x] Property header library photo (2026-07-18): full-bleed + scrim by default (`PROPERTY_HEADER_PHOTO_MODE = "bleed"`); flip to `"beside"` for card-style thumb
 - [x] Dark neumorphism on buttons + tabs (2026-07-18): extruded/inset soft faces; cyan reserved for primary CTA + active tab
 - [x] Map overlay neo toggles (2026-07-18): checkbox row → label-only neo buttons with emissive glow when on
@@ -237,6 +245,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 
 | ID | Status | Notes |
 |----|--------|-------|
+| Perf platform Tasks 1–12 | **Done** | Cache platform + hot-path ports; final verify `431 passed` (2026-07-21) — see `docs/superpowers/specs/2026-07-21-performance-platform-design.md` |
 | `TODO-002` | **Won't fix** | Umbrella closed; flood/zoning/ACS/crime + 013/020/021 shipped |
 | `TODO-015` / `022` / `023` | **Won't fix** | Pipeline status, closing checklist, document vault — not pursuing |
 | `TODO-013` / `020` / `021` | **Done** | Schools (NCES map points), wildfire/AQI, Redfin ZIP sales |
@@ -280,7 +289,8 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 1. **Ingest:** Zillow URL → store link + resolved address. No full MLS API. Listing HTML via `curl_cffi` (Chrome impersonation) for photos/details — Zillow blocks plain httpx.
 2. **Street View:** Free Google `svembed` only; shown **below the map** on the Map tab in a dense collapsible expansion (open by default). Panel is 16:9 with `max-height: min(42vh, 480px)` (no min-height empty shell). Action row: Open in Google Maps / Open Street View / **Open in Google Earth** (`earth.google.com/web/@lat,lng,…` new tab) when pinned. No Maps Embed API keys for SV.
 2b. **Map chrome:** Dark CARTO basemap (`apply_dark_basemap`); compact **neo text toggles** for overlays above the map (short labels; `.hb-map-layer-btn`, cyan glow only when on); single status line; Pin tools expansion below the map (collapsed). Fullscreen via `leaflet.fullscreen` (CDN + `fullscreenControl` options from `leaflet_map_kwargs()`), control near zoom; Escape / browser exit restores the in-tab map. No always-on Census tip — message only when Income toggle fails / key missing.
-3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`.
+3. **Geocode:** Strip `UNIT`/`APT`/`#`/Suite; fallback query chain. Nominatim User-Agent: `Homebuy/0.1 (local research app)`. Hits cached under `data/cache/geocode/` (~30d disk TTL) plus process memo (~1h) via the shared cache platform.
+3b. **Cache platform:** `app/core/cache/` — disk JSON (+ optional gzip), process memo, singleflight, SWR helper, GeoJSON quantize. Callers opt in; `overlay_cache.py` remains a thin compatibility façade. Corrupt cache → miss/refetch; singleflight waiters share leader success/failure.
 4. **Optional env:** `GOOGLE_MAPS_API_KEY` (preferred geocoding + library grocery/shelter via Places Nearby Search when set); `CENSUS_API_KEY` (Map ACS tract choropleths + Financials ACS county tax estimate + buy-vs-rent rent-growth CAGR — required for those); `SOCRATA_APP_TOKEN` (optional, crime / Form 477 rate limits); `GEMINI_API_KEY` (Neighborhood AI + Financials commentary); `GEMINI_MODEL` / `GEMINI_FINANCIAL_MODEL` (see §6 / §6b). Missing-broadband chip (see §8b) and assigned-school quality (see §6e) need **no key**. Launch: `HOMEBUY_NATIVE` / `--native` / `--browser`; writable root `HOMEBUY_DATA_DIR` (frozen default `%LOCALAPPDATA%\Homebuy`).
 4b. **Desktop packaging:** Dev defaults to **browser** on :8080. Packaged `Homebuy.exe` defaults to **native** pywebview window. Freeze with `.\packaging\build_windows.ps1`; optional Inno Setup (`-Installer`) installs per-user under `%LOCALAPPDATA%\Programs\Homebuy`. Details: `docs/PACKAGING.md`.
 4c. **API keys UI:** Library header **key** icon → dialog for `GOOGLE_MAPS_API_KEY`, `CENSUS_API_KEY`, `GEMINI_API_KEY`, `SOCRATA_APP_TOKEN` (+ advanced Gemini model names). Saves to `env_file()` via `app/core/api_keys.py`. Blank field leaves existing key; Clear wipes. Restart after save for import-time readers. Do not distribute a filled `.env`.
@@ -310,7 +320,7 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 ## Working agreements for agents
 
 - **After completing any user-facing feature or meaningful fix, update both `AGENTS.md` and `README.md`** in the same turn (status, how-to-use, decisions). Do not leave continuity docs stale.
-- Prefer **parallel Task subagents** for independent features; declare file ownership to avoid merge fights (`models.py` / `property_service.py` / `pages.py` are hotspots).
+- Prefer **parallel Task subagents** for independent features; declare file ownership to avoid merge fights (`models.py` / `listing_ingest.py` / `area_signals.py` / `library_page.py` / `property_page.py` are hotspots).
 - After UI/backend changes, **restart** `python -m app.main` (reload is off).
 - Long UI work (Zillow scrape, geocode, nearby, Gemini, map overlay fetches) must use `await run.io_bound(...)` with workers in `app/core/ui_jobs.py` (own `get_session()`; never pass ORM/UI objects into threads) — otherwise NiceGUI shows “Connection lost”.
 - Don’t commit unless the user asks.
@@ -337,4 +347,5 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 - `docs/PACKAGING.md` — Windows native window + PyInstaller / Inno Setup  
 - `docs/RESEARCH.md` — map overlays + neighborhood research notes  
 - `docs/TODO.md` — product backlog (listing scrape, area signals, Gemini sections)  
-- `docs/BUGS.md` — deferred bugs / verify-later items
+- `docs/BUGS.md` — deferred bugs / verify-later items  
+- `docs/superpowers/specs/2026-07-21-performance-platform-design.md` — cache platform + hot-path port design (Tasks 1–12 done)

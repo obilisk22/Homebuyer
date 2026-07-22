@@ -588,13 +588,13 @@ git commit -am "Quantize zoning and ACS GeoJSON payloads for smaller map toggles
 - After pin + financial sync: run photo downloads and area-signal refreshes concurrently via `concurrent.futures.ThreadPoolExecutor` (max_workers=4). Serialize DB commits on the owning session — workers return plain dicts/paths; main thread writes ORM rows.
 - Market activity may wait on Redfin warm path (Task 5). Signal failures still swallowed.
 
-- [ ] **Step 1: Refactor download + signals to pure functions returning data**
+- [x] **Step 1: Refactor download + signals to pure functions returning data**
 
-- [ ] **Step 2: Parallel schedule in `add_from_zillow`**
+- [x] **Step 2: Parallel schedule in `add_from_zillow`**
 
-- [ ] **Step 3: pytest add/import paths — PASS**
+- [x] **Step 3: pytest add/import paths — PASS**
 
-- [ ] **Step 4: Commit** (if approved)
+- [x] **Step 4: Commit** (if approved)
 
 ```bash
 git commit -am "Parallelize add-home photo import and area signal lookups."

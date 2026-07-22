@@ -61,7 +61,7 @@ Installed builds write DB/uploads/cache to `%LOCALAPPDATA%\Homebuy\` and load op
 1. Paste a Zillow listing URL  
 2. Click **Add home**  
 
-Address, photos, and listing details (beds, baths, price, sqft, HOA, year built, home type) are pulled from the link automatically. Use **Refresh listing details** on a property page to re-scrape listing fields. **Edit listing details** is a muted collapsed control under the header actions (not competing with the tabs). Nearby proximity icons also appear on the property header when cached. The **Photos** tab is a dense click-to-expand gallery (photos come from the initial add; pin any shot as the library thumbnail) plus an optional **Ask Gemini** overall property take (Zillow URL context; needs `GEMINI_API_KEY`).
+Address, photos, and listing details (beds, baths, price, sqft, HOA, year built, home type) are pulled from the link automatically. After the pin is set, photo downloads and area-signal lookups (nearby / permits / broadband / market) run in parallel so Add finishes sooner; signal failures never block the save. Use **Refresh listing details** on a property page to re-scrape listing fields. **Edit listing details** is a muted collapsed control under the header actions (not competing with the tabs). Nearby proximity icons also appear on the property header when cached. The **Photos** tab is a dense click-to-expand gallery (photos come from the initial add; pin any shot as the library thumbnail) plus an optional **Ask Gemini** overall property take (Zillow URL context; needs `GEMINI_API_KEY`).
 
 ## Library list view
 

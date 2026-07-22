@@ -1,7 +1,7 @@
 # Homebuy — Agent Continuity Guide
 
 > Read this first when starting a new agent session on this project.
-> Last updated: 2026-07-19 (TODO-051–054: Active market / center townhome chips, Photos Gemini, remove header insights)
+> Last updated: 2026-07-21 (perf platform Task 10: add-home photo ‖ area-signal parallelization)
 
 
 
@@ -126,7 +126,7 @@ Restart the app — the tab appears automatically.
 | Library + property pages | `app/ui/library_page.py`, `app/ui/property_page.py` (+ `pages.py` shared chrome) |
 | Theme | `app/ui/theme.py` |
 | Models / migrate | `app/core/models.py`, `app/core/db.py` |
-| CRUD / Zillow add | `app/core/property_service.py` |
+| CRUD / Zillow add | `app/core/property_service.py` (+ `listing_ingest.py`: add/refresh; photos ‖ area signals via `ThreadPoolExecutor`) |
 | Long UI I/O workers (`run.io_bound`) | `app/core/ui_jobs.py` |
 | Geocode (unit stripping + fallbacks) | `app/core/geocode.py` |
 | Shared geo helpers (haversine, city normalize, bbox) | `app/core/geo.py` |
@@ -195,6 +195,7 @@ SQLite migrations are lightweight `ALTER TABLE` helpers in `app/core/db.py` (`_m
 - [x] Visual foundation (2026-07-18): hierarchy-through-emission; Creato + Akira self-host; library street hero + stretch thumb; page chrome (title/Add/Filter/empty) matched to cards
 - [x] Property tab chrome (2026-07-18): property header (Akira street + chips), Photos/Map/Neighborhood/Financials titles/hints/empty states + dense controls; Leaflet/Plotly/svembed unchanged
 - [x] Lazy property tabs (2026-07-21): Photos/Map/Neighborhood/Financials mount on first select (default Photos immediate); Map auto-geocode + Neighborhood schools only when those tabs mount; Financials `ensure_financial` / PMMS via `ensure_financial_job` + `run.io_bound`
+- [x] Add-home parallelization (2026-07-21): after pin + financial sync, photo downloads and nearby/permits/broadband/market lookups run concurrently (`ThreadPoolExecutor`, max 4); workers return plain dicts/paths; owning session serializes commits; signal failures stay best-effort; market can hit warm Redfin
 - [x] Property header library photo (2026-07-18): full-bleed + scrim by default (`PROPERTY_HEADER_PHOTO_MODE = "bleed"`); flip to `"beside"` for card-style thumb
 - [x] Dark neumorphism on buttons + tabs (2026-07-18): extruded/inset soft faces; cyan reserved for primary CTA + active tab
 - [x] Map overlay neo toggles (2026-07-18): checkbox row → label-only neo buttons with emissive glow when on
@@ -303,6 +304,7 @@ Full write-ups: [`docs/TODO.md`](docs/TODO.md).
 8c. **Library high-permit chip (TODO-043):** `app/core/permits_nearby.py` queries city Socrata SODA feeds with `within_circle` (~0.25 mi / 402 m) for **Los Angeles** (`pi9x-tg5x` / `geolocation`), **Seattle** (`76t5-zqzr` / `location1`), and **Austin** (`3syk-w9eu` / `location`). Counts structural / electrical / demolition-ish permits issued in the last **24 months** (excludes withdrawn/canceled); **high activity ≥ 8**. Persist JSON on `Property` (`permits_activity`, `permits_activity_at`); compute on add + post-geocode best-effort; raw responses cached ~7d under `data/cache/permits/`; optional `SOCRATA_APP_TOKEN`. Outside supported cities → no chip. Amber `.hb-nearby-chip--amber` `construction` chip via `chip_spec_for` → `_extra_signal_chips` on library + header. Library paint uses coalesced `refresh_stale_area_signals_job` (patches chip rows; per-kind jobs are thin wrappers).
 8d. **Library Active-market chip (TODO-051):** Redfin ZIP market tracker monthly All-Residential **`homes_sold`** for the property ZIP (`market_activity.py` + `redfin_sales` cache `zip_market_all_residential_monthly_v2`). Ingest uses process **memo** (~1h) + **singleflight** so concurrent chip/map callers share one load; disk rewrite is **gzip**. **Active when** `homes_sold >= max(12, round(national P75))`. Persist `market_activity` / `market_activity_at`; compute on add/refresh/post-geocode; stale refresh via coalesced `refresh_stale_area_signals_job` on library paint. Lime amenity `local_fire_department` chip; tooltip “N sales last month in ZIP #####”; no chip when Redfin has no row. No API key.
 8e. **Coalesced library stale refresh (perf platform):** `area_signals.refresh_stale_area_signals` does **one** property scan and refreshes nearby / permits / broadband / market up to `limit` each (no artificial 1.25s sleep). Library timer calls `refresh_stale_area_signals_job` once; if any count &gt; 0, `_patch_chip_rows` re-renders only `chip_hosts[property_id]` (no full list `refresh()`).
+8f. **Add-home parallelization (perf platform):** After geocode pin + financial sync, `listing_ingest.add_from_zillow` runs photo file downloads (`download_zillow_photo_files` → plain path dicts) and area-signal computes (nearby / permits / broadband / market → JSON+timestamp dicts) concurrently via `ThreadPoolExecutor(max_workers=4)`. Main thread only writes ORM rows / commits / `select_thumbnail`. Signal failures are swallowed (add still succeeds with listing + photos). Market activity may use the warm Redfin memo/singleflight path.
 
 ## Working agreements for agents
 

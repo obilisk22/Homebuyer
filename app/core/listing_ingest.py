@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from sqlalchemy.orm import Session
 
 from app.core.db import UPLOADS_DIR
+from app.core.fcc_broadband import compute_broadband
 from app.core.geocode import geocode_address
+from app.core.market_activity import compute_market_activity
 from app.core.models import FinancialAssumptions, Photo, Property
+from app.core.nearby_signals import SIGNAL_ORDER, compute_signals
+from app.core.permits_nearby import compute_permit_activity
 from app.core.zillow_listing import (
     ListingDetails,
     extract_listing_details,
@@ -22,6 +29,153 @@ from app.core.zillow_photos import (
     fetch_listing_html,
     fetch_listing_photo_urls,
 )
+
+_ADD_HOME_POOL_WORKERS = 4
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _error_message(exc: BaseException) -> str:
+    return str(exc).strip() or exc.__class__.__name__
+
+
+def download_zillow_photo_files(
+    property_id: int,
+    zillow_url: str,
+    *,
+    html: str | None = None,
+    existing_urls: set[str] | frozenset[str] | None = None,
+    start_sort_order: int = 0,
+    photo_fetcher: Callable[..., Any] = fetch_listing_photo_urls,
+    image_downloader: Callable[[str], tuple[bytes, str]] = download_image,
+    extension_resolver: Callable[[str, str], str] = extension_for,
+) -> list[dict[str, Any]]:
+    """Download listing photos to disk; return plain dicts for ORM insert (no DB)."""
+    skip = set(existing_urls or ())
+    fetched = photo_fetcher(zillow_url, html=html)
+    rows: list[dict[str, Any]] = []
+    sort_order = start_sort_order
+    dest_dir = UPLOADS_DIR / str(property_id)
+    for index, photo_url in enumerate(fetched.urls):
+        if photo_url in skip:
+            continue
+        try:
+            data, content_type = image_downloader(photo_url)
+        except ValueError:
+            continue
+        ext = extension_resolver(content_type, photo_url)
+        filename = f"zillow_{index:03d}{ext}"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / filename
+        if dest.exists():
+            stem, suffix = dest.stem, dest.suffix
+            i = 1
+            while dest.exists():
+                dest = dest_dir / f"{stem}_{i}{suffix}"
+                i += 1
+        dest.write_bytes(data)
+        rows.append(
+            {
+                "path": str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
+                "source_url": photo_url or "",
+                "caption": f"Zillow photo {index + 1}",
+                "sort_order": sort_order,
+            }
+        )
+        sort_order += 1
+        skip.add(photo_url)
+    return rows
+
+
+def compute_nearby_signal_update(lat: float, lng: float) -> dict[str, str]:
+    """Plain nearby_signals JSON + timestamp (no ORM)."""
+    try:
+        payload = compute_signals(float(lat), float(lng))
+    except Exception as exc:  # noqa: BLE001
+        payload = {
+            key: {"hit": False, "error": _error_message(exc)} for key in SIGNAL_ORDER
+        }
+    return {
+        "nearby_signals": json.dumps(payload),
+        "nearby_signals_at": _utc_now_iso(),
+    }
+
+
+def compute_permits_signal_update(
+    lat: float, lng: float, *, city: str = ""
+) -> dict[str, str]:
+    """Plain permits_activity JSON + timestamp (no ORM)."""
+    try:
+        payload = compute_permit_activity(float(lat), float(lng), city=city or "")
+    except Exception as exc:  # noqa: BLE001
+        payload = {
+            "supported": True,
+            "high_activity": False,
+            "count": 0,
+            "error": _error_message(exc),
+        }
+    return {
+        "permits_activity": json.dumps(payload),
+        "permits_activity_at": _utc_now_iso(),
+    }
+
+
+def compute_broadband_signal_update(lat: float, lng: float) -> dict[str, str]:
+    """Plain broadband_status JSON + timestamp (no ORM)."""
+    try:
+        payload = compute_broadband(float(lat), float(lng))
+    except Exception as exc:  # noqa: BLE001
+        payload = {
+            "status": "error",
+            "has_fixed": None,
+            "reason": "compute_failed",
+            "error": _error_message(exc),
+        }
+    return {
+        "broadband_status": json.dumps(payload),
+        "broadband_at": _utc_now_iso(),
+    }
+
+
+def compute_market_signal_update(zip_code: str) -> dict[str, str]:
+    """Plain market_activity JSON + timestamp (no ORM). May use warm Redfin cache."""
+    try:
+        payload = compute_market_activity(zip_code or "")
+    except Exception as exc:  # noqa: BLE001
+        payload = {"zip_code": (zip_code or "").strip(), "active": False, "error": _error_message(exc)}
+    return {
+        "market_activity": json.dumps(payload),
+        "market_activity_at": _utc_now_iso(),
+    }
+
+
+def _apply_signal_update(prop: Property, update: dict[str, str] | None) -> None:
+    if not update:
+        return
+    for key, value in update.items():
+        setattr(prop, key, value)
+
+
+def _persist_downloaded_photos(
+    session: Session,
+    property_id: int,
+    rows: list[dict[str, Any]],
+) -> int:
+    for row in rows:
+        session.add(
+            Photo(
+                property_id=property_id,
+                path=str(row["path"]),
+                source_url=str(row.get("source_url") or ""),
+                caption=str(row.get("caption") or ""),
+                sort_order=int(row.get("sort_order") or 0),
+            )
+        )
+    if rows:
+        session.commit()
+    return len(rows)
 
 
 def parse_zillow_url(url: str) -> dict[str, str | None]:
@@ -172,6 +326,9 @@ def add_from_zillow(
     html_fetcher: Callable[[str], str] = fetch_listing_html,
     details_extractor: Callable[[str], ListingDetails] = extract_listing_details,
     geocoder: Callable[[str], tuple[float, float]] = geocode_address,
+    photo_fetcher: Callable[..., Any] = fetch_listing_photo_urls,
+    image_downloader: Callable[[str], tuple[bytes, str]] = download_image,
+    extension_resolver: Callable[[str, str], str] = extension_for,
 ) -> tuple[Property, int]:
     if service is None:
         from app.core.property_service import PropertyService
@@ -224,22 +381,85 @@ def add_from_zillow(
         session.commit()
         session.refresh(prop)
 
+    # Snapshot plain values for worker threads (no ORM / session across threads).
+    property_id = prop.id
+    zillow_url = prop.zillow_url
+    pin_lat = prop.latitude
+    pin_lng = prop.longitude
+    pin_city = prop.city or ""
+    pin_zip = (prop.zip_code or "").strip()
+    existing_urls = {p.source_url for p in prop.photos if p.source_url}
+    start_sort = len(prop.photos)
+
+    photo_rows: list[dict[str, Any]] = []
+    signal_updates: list[dict[str, str]] = []
+
+    def _photos_job() -> list[dict[str, Any]]:
+        return download_zillow_photo_files(
+            property_id,
+            zillow_url,
+            html=html,
+            existing_urls=existing_urls,
+            start_sort_order=start_sort,
+            photo_fetcher=photo_fetcher,
+            image_downloader=image_downloader,
+            extension_resolver=extension_resolver,
+        )
+
+    with ThreadPoolExecutor(max_workers=_ADD_HOME_POOL_WORKERS) as pool:
+        futures = {}
+        if import_photos:
+            futures[pool.submit(_photos_job)] = "photos"
+        if pin_lat is not None and pin_lng is not None:
+            futures[
+                pool.submit(compute_nearby_signal_update, float(pin_lat), float(pin_lng))
+            ] = "nearby"
+            futures[
+                pool.submit(
+                    compute_permits_signal_update,
+                    float(pin_lat),
+                    float(pin_lng),
+                    city=pin_city,
+                )
+            ] = "permits"
+            futures[
+                pool.submit(
+                    compute_broadband_signal_update, float(pin_lat), float(pin_lng)
+                )
+            ] = "broadband"
+        if pin_zip:
+            futures[pool.submit(compute_market_signal_update, pin_zip)] = "market"
+
+        for fut in as_completed(futures):
+            kind = futures[fut]
+            try:
+                result = fut.result()
+            except Exception:  # noqa: BLE001 - photos/signals never fail add-home
+                continue
+            if kind == "photos" and isinstance(result, list):
+                photo_rows = result
+            elif isinstance(result, dict):
+                signal_updates.append(result)
+
     imported = 0
-    if import_photos:
-        try:
-            imported = service.import_zillow_photos(prop.id, html=html)
-        except Exception:
-            imported = 0
-    for refresh_name in (
-        "refresh_nearby_signals",
-        "refresh_permits_activity",
-        "refresh_broadband_status",
-        "refresh_market_activity",
-    ):
-        try:
-            prop = getattr(service, refresh_name)(prop.id)
-        except Exception:
-            pass
+    try:
+        imported = _persist_downloaded_photos(session, property_id, photo_rows)
+        if import_photos:
+            service.select_thumbnail(property_id)
+    except Exception:
+        imported = 0
+
+    try:
+        prop = service.get_property(property_id) or prop
+        for update in signal_updates:
+            _apply_signal_update(prop, update)
+        if signal_updates:
+            session.commit()
+            session.refresh(prop)
+    except Exception:
+        session.rollback()
+        prop = service.get_property(property_id) or prop
+
     return prop, imported
 
 
@@ -274,41 +494,16 @@ def import_zillow_photos(
             session.commit()
 
     existing_urls = {p.source_url for p in prop.photos if p.source_url}
-    fetched = photo_fetcher(prop.zillow_url, html=html)
-    imported = 0
-    sort_order = len(prop.photos)
-    dest_dir = UPLOADS_DIR / str(property_id)
-    for index, photo_url in enumerate(fetched.urls):
-        if photo_url in existing_urls:
-            continue
-        try:
-            data, content_type = image_downloader(photo_url)
-        except ValueError:
-            continue
-        ext = extension_resolver(content_type, photo_url)
-        filename = f"zillow_{index:03d}{ext}"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / filename
-        if dest.exists():
-            stem, suffix = dest.stem, dest.suffix
-            i = 1
-            while dest.exists():
-                dest = dest_dir / f"{stem}_{i}{suffix}"
-                i += 1
-        dest.write_bytes(data)
-        session.add(
-            Photo(
-                property_id=property_id,
-                path=str(dest.relative_to(UPLOADS_DIR)).replace("\\", "/"),
-                source_url=photo_url or "",
-                caption=f"Zillow photo {index + 1}",
-                sort_order=sort_order,
-            )
-        )
-        sort_order += 1
-        imported += 1
-        existing_urls.add(photo_url)
-    if imported:
-        session.commit()
+    rows = download_zillow_photo_files(
+        property_id,
+        prop.zillow_url,
+        html=html,
+        existing_urls=existing_urls,
+        start_sort_order=len(prop.photos),
+        photo_fetcher=photo_fetcher,
+        image_downloader=image_downloader,
+        extension_resolver=extension_resolver,
+    )
+    imported = _persist_downloaded_photos(session, property_id, rows)
     service.select_thumbnail(property_id)
     return imported

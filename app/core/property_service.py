@@ -419,6 +419,9 @@ class PropertyService:
             html_fetcher=fetch_listing_html,
             details_extractor=extract_listing_details,
             geocoder=geocode_address,
+            photo_fetcher=fetch_listing_photo_urls,
+            image_downloader=download_image,
+            extension_resolver=extension_for,
         )
 
     def ensure_coordinates(self, property_id: int, *, force: bool = False) -> Property:
